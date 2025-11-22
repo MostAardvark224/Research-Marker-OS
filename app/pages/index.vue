@@ -2,12 +2,14 @@
   <div class="text-center pt-10 text-[40px]">Welcome To Research Marker!</div>
 
   <div class="pt-5 items-center text-center flex flex-col">
-    <FileUpload />
+    <FileUpload @files-selected="updateFiles" />
   </div>
 
   <div class="pt-5 items-center text-center flex flex-col">
     <ContinueButton @continue="sendDocuments()" class="flex items-center" />
   </div>
+
+  <div class="text-xl text-center pt-10 underline">Past Papers</div>
 </template>
 
 <script setup>
@@ -39,7 +41,6 @@ async function sendDocuments() {
       body: formData,
     });
 
-    alert("Upload Successful!");
     console.log(res);
   } catch (error) {
     console.error("Error uploading files:", error);

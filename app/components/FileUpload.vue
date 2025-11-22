@@ -1,6 +1,4 @@
 <script setup>
-import { ref, computed } from "vue";
-
 const emit = defineEmits(["files-selected"]);
 
 const fileInput = ref(null);

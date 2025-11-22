@@ -1,10 +1,9 @@
 import { joinURL } from "ufo";
+const { urlToProxy } = useRuntimeConfig();
 
 export default defineEventHandler(async (event) => {
   // get url from runtimeconfig
-  const proxyURL = useRuntimeConfig().urlToProxy;
-  // check the path
-  const target = joinURL(proxyURL, event.path);
+  const target = joinURL(urlToProxy, event.path);
 
   return proxyRequest(event, target);
 });
