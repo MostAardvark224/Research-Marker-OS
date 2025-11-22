@@ -7,6 +7,14 @@ export default defineNuxtConfig({
   modules: ["@nuxt/hints", "@nuxt/image", "@nuxt/ui"],
   ssr: true,
 
+  runtimeConfig: {
+    urlToProxy: process.env.URL_TO_PROXY,
+    public: {
+      apiBaseURL: "/api",
+      frontendOrigin: process.env.FRONTEND_ORIGIN,
+    },
+  },
+
   css: ["~/assets/main.css"],
 
   app: {
