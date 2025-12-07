@@ -29,7 +29,7 @@
                 "{{ paperTitle }}" </span
               >? This action cannot be undone.
             </p>
-            <div class="text-sm underline font-bold mt-3 px-2">
+            <div class="text-sm font-bold mt-3 px-2 text-white">
               This will also delete the physical file on your machine.
             </div>
           </div>

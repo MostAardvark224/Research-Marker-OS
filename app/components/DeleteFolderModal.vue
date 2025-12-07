@@ -29,7 +29,7 @@
                 "{{ folderName }}" </span
               >?
             </p>
-            <div class="text-sm font-bold mt-3 px-4">
+            <div class="text-sm font-bold mt-3 px-4 text-white">
               Documents within this folder will be placed in the "Unassigned"
               folder
             </div>
