@@ -1,7 +1,15 @@
 from django.urls import path
 import api.views as views  
+from rest_framework.routers import DefaultRouter
+from .views import DocumentsViewSet
+
+router = DefaultRouter()
+
+router.register(r'documents', DocumentsViewSet, basename='documents')
+router.register(r'folders', views.FoldersViewSet, basename='folders')
 
 urlpatterns = [
-    path('upload-documents/', views.DocumentsUploadView.as_view(), name='upload-documents'),
-    path('documents/', views.DocumentsListView.as_view({'get': 'list'}), name='documents-list'),
+    path('complete-fetch/', views.CompleteFetch.as_view(), name='complete-fetch'),
 ]
+
+urlpatterns += router.urls

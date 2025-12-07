@@ -4,4 +4,6 @@ venv
 pycache/
 *.pyc
 .DS_Store
-!media/.gitkeep
+media/documents/*
+!media/documents/.gitkeep
+shell.py

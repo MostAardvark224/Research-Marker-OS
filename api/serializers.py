@@ -8,4 +8,9 @@ class DocumentSerializer(serializers.ModelSerializer):
         model = models.Document
         fields = '__all__'
 
+class FolderSerializer(serializers.ModelSerializer):
+    documents = DocumentSerializer(many=True, read_only=True) 
 
+    class Meta:
+        model = models.Folder
+        fields = ['id', 'name', 'created_at', 'documents']
