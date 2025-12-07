@@ -223,8 +223,9 @@
                       v-for="doc in folder.documents"
                       draggable="true"
                       @dragstart="onDragStart($event, doc)"
+                      @dblclick="navigateToAnnotate(doc.id)"
                       :key="doc.id"
-                      class="cursor-grab active:cursor-grabbing flex items-center gap-2 px-2 py-1.5 text-xs text-slate-400 truncate hover:text-slate-200 select-none"
+                      class="flex items-center gap-2 px-2 py-1.5 text-xs text-slate-400 truncate hover:text-slate-200 select-none"
                     >
                       <Icon
                         name="material-symbols:description-outline"
@@ -295,10 +296,11 @@
                         </th>
                       </tr>
                     </thead>
-                    <tbody>
+                    <tbody class="cursor-pointer">
                       <tr
                         v-for="(paper, index) in filteredPapers"
                         :key="paper.id"
+                        @dblclick="navigateToAnnotate(paper.id)"
                         :class="[
                           'border-b border-slate-800/80 hover:bg-slate-800/70 transition-colors',
                           index % 2 === 0
@@ -853,5 +855,10 @@ function formatDate(isoString) {
     day: "2-digit",
     timeZone: "UTC",
   });
+}
+
+// Annotate Page Navigation
+function navigateToAnnotate(paperId) {
+  navigateTo(`/annotate/${paperId}`);
 }
 </script>

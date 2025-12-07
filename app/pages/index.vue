@@ -7,7 +7,7 @@
 
   <NuxtLink
     class="flex flex-col items-center underline pt-4 text-2xl text-blue-500"
-    to="/annotate"
+    to="/dashboard"
   >
     Annotate Papers
   </NuxtLink>
