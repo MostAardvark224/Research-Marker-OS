@@ -104,6 +104,10 @@
                 >
                   <div
                     @click="activeFolderId = folder.id"
+                    @dragover.prevent
+                    @dragenter.prevent="activeDropFolderId = folder.id"
+                    @dragleave="activeDropFolderId = null"
+                    @drop="onDrop($event, folder)"
                     class="group flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors"
                     :class="[
                       activeFolderId === folder.id
@@ -217,8 +221,10 @@
                     <div
                       v-else
                       v-for="doc in folder.documents"
+                      draggable="true"
+                      @dragstart="onDragStart($event, doc)"
                       :key="doc.id"
-                      class="flex items-center gap-2 px-2 py-1.5 text-xs text-slate-400 truncate hover:text-slate-200 select-none"
+                      class="cursor-grab active:cursor-grabbing flex items-center gap-2 px-2 py-1.5 text-xs text-slate-400 truncate hover:text-slate-200 select-none"
                     >
                       <Icon
                         name="material-symbols:description-outline"
@@ -463,7 +469,34 @@ const expandedFolderIds = ref([]);
 const showDeleteFolderModal = ref(false);
 const folderToDelete = ref(null);
 
+const activeDropFolderId = ref(null);
+
 // Funcs
+
+// Dragging Docs
+
+function onDragStart(event, doc) {
+  event.dataTransfer.dropEffect = "move";
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData("application/json", JSON.stringify(doc));
+}
+
+async function onDrop(event, targetFolder) {
+  activeDropFolderId.value = null;
+
+  const data = event.dataTransfer.getData("application/json");
+  if (!data) return;
+
+  const doc = JSON.parse(data);
+
+  const isAlreadyInFolder = targetFolder.documents.some((d) => d.id === doc.id);
+
+  if (!isAlreadyInFolder) {
+    await updateDocumentFolder(doc, targetFolder.id);
+  }
+
+  activeFolderId.value = targetFolder.id;
+}
 
 // Main func that fetches all of user data, includes folders and documents
 async function fetchPastPapers() {
