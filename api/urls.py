@@ -10,6 +10,7 @@ router.register(r'folders', views.FoldersViewSet, basename='folders')
 
 urlpatterns = [
     path('complete-fetch/', views.CompleteFetch.as_view(), name='complete-fetch'),
+    path('get-paper/<int:pk>/', views.getPaper.as_view(), name='get-paper'),
 ]
 
 urlpatterns += router.urls

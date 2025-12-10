@@ -8,6 +8,7 @@ from rest_framework import status
 from rest_framework.views import APIView
 import os
 from pathlib import Path
+from django.http import Http404, FileResponse
 
 from rest_framework import viewsets, status
 from rest_framework.parsers import MultiPartParser, FormParser
@@ -78,5 +79,17 @@ class FoldersViewSet(viewsets.ModelViewSet):
     queryset = models.Folder.objects.all()
     serializer_class = serializers.FolderSerializer
 
+# Get Paper for annotation (streams file as raw binary)
+class getPaper(APIView):
+    def get(self, request, pk, format=None):
+        try:
+            document = models.Document.objects.get(pk=pk)
+        except models.Document.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        
+        file = document.file.open("rb")
 
-# Get Paper for annotation
+        response = FileResponse(file, content_type='application/pdf')
+        response['Content-Disposition'] = f'inline; filename="{document.title}.pdf"'
+
+        return response

@@ -15,3 +15,11 @@ class Document(models.Model):
 
     def __str__(self):
         return self.title
+    
+class Annotations(models.Model):
+    document = models.ForeignKey(Document, related_name='annotations', on_delete=models.CASCADE)
+    content = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Annotation for {self.document.title} at {self.created_at}"

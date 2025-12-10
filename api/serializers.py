@@ -14,3 +14,4 @@ class FolderSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.Folder
         fields = ['id', 'name', 'created_at', 'documents']
+
