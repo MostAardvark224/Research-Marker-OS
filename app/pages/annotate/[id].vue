@@ -1,36 +1,263 @@
 <script setup>
+import "pdfjs-dist/web/pdf_viewer.css";
+
+const route = useRoute();
+const id = route.params.id;
+
+const loading = ref(true);
+const error = ref(null);
+
+let pdfjsLib = null;
+let AnnotationFactory = null;
+let TextLayerClass = null;
+let pdfDoc = null;
+let pdfBytes = null;
+let factory = null;
+
+const pageContainerRefs = ref([]);
+const canvasRefs = ref([]);
+const textLayerRefs = ref([]);
+const mainScrollContainer = ref(null);
+
+// State
 const isSidebarOpen = ref(true);
+const sidebarWidth = ref(320);
 const currentPage = ref(1);
-const totalPages = ref(null);
+const totalPages = ref(0);
 const zoomLevel = ref(100);
 const isAnnotationsHidden = ref(false);
 const isColorPickerOpen = ref(false);
 const selectedColor = ref("#ef4444");
+const isResizing = ref(false);
+const isManualScrolling = ref(false);
 
 const colors = [
-  "#ef4444", // Red
-  "#f59e0b", // Amber
-  "#10b981", // Emerald
-  "#3b82f6", // Blue
-  "#8b5cf6", // Violet
-  "#ec4899", // Pink
+  "#ef4444",
+  "#f59e0b",
+  "#10b981",
+  "#3b82f6",
+  "#8b5cf6",
+  "#ec4899",
 ];
+
+const startResize = () => {
+  isResizing.value = true;
+  document.body.style.cursor = "col-resize";
+  document.body.style.userSelect = "none";
+  window.addEventListener("mousemove", handleResize);
+  window.addEventListener("mouseup", stopResize);
+};
+
+const handleResize = (e) => {
+  if (!isResizing.value) return;
+  const newWidth = window.innerWidth - e.clientX;
+  if (newWidth >= 200 && newWidth <= window.innerWidth * 0.5) {
+    sidebarWidth.value = newWidth;
+  }
+};
+
+const stopResize = () => {
+  isResizing.value = false;
+  document.body.style.cursor = "";
+  document.body.style.userSelect = "";
+  window.removeEventListener("mousemove", handleResize);
+  window.removeEventListener("mouseup", stopResize);
+};
 
 const toggleSidebar = () => {
   isSidebarOpen.value = !isSidebarOpen.value;
 };
 
-const selectColor = (color) => {
-  selectedColor.value = color;
-  isColorPickerOpen.value = false;
-};
-
 const zoomIn = () => {
-  if (zoomLevel.value < 200) zoomLevel.value += 10;
+  if (zoomLevel.value < 300) zoomLevel.value += 10;
 };
 const zoomOut = () => {
   if (zoomLevel.value > 50) zoomLevel.value -= 10;
 };
+
+const scrollToPage = (pageNumber) => {
+  if (pageNumber < 1 || pageNumber > totalPages.value) return;
+  const el = pageContainerRefs.value[pageNumber - 1];
+  if (el) {
+    isManualScrolling.value = true;
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+    currentPage.value = pageNumber;
+    setTimeout(() => {
+      isManualScrolling.value = false;
+    }, 1000);
+  }
+};
+
+const changePage = (diff) => {
+  const newPage = currentPage.value + diff;
+  scrollToPage(newPage);
+};
+
+async function renderPage(pageNum) {
+  if (!pdfDoc) return;
+
+  const canvas = canvasRefs.value[pageNum - 1];
+  const textLayerDiv = textLayerRefs.value[pageNum - 1];
+
+  if (!canvas) return;
+
+  try {
+    const page = await pdfDoc.getPage(pageNum);
+
+    const scale = zoomLevel.value / 100;
+    const viewport = page.getViewport({ scale });
+    const outputScale = window.devicePixelRatio || 1;
+
+    const context = canvas.getContext("2d");
+
+    canvas.width = Math.floor(viewport.width * outputScale);
+    canvas.height = Math.floor(viewport.height * outputScale);
+
+    canvas.style.width = Math.floor(viewport.width) + "px";
+    canvas.style.height = Math.floor(viewport.height) + "px";
+
+    const transform =
+      outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null;
+
+    const renderContext = {
+      canvasContext: context,
+      transform: transform,
+      viewport: viewport,
+    };
+
+    await page.render(renderContext).promise;
+
+    if (textLayerDiv) {
+      textLayerDiv.innerHTML = "";
+      textLayerDiv.style.width = Math.floor(viewport.width) + "px";
+      textLayerDiv.style.height = Math.floor(viewport.height) + "px";
+
+      const textContent = await page.getTextContent();
+      const textLayer = new pdfjsLib.TextLayer({
+        textContentSource: textContent,
+        container: textLayerDiv,
+        viewport: viewport,
+        textDivs: [],
+      });
+      await textLayer.render();
+    }
+  } catch (err) {
+    console.error(`Error rendering page ${pageNum}:`, err);
+  }
+}
+
+async function renderAllPages() {
+  if (!pdfDoc) return;
+  const promises = [];
+  for (let i = 1; i <= totalPages.value; i++) {
+    promises.push(renderPage(i));
+  }
+  await Promise.all(promises);
+}
+
+async function loadPdf(data) {
+  try {
+    const loadingTask = pdfjsLib.getDocument(data);
+    pdfDoc = await loadingTask.promise;
+    totalPages.value = pdfDoc.numPages;
+
+    await nextTick();
+    await renderAllPages();
+    setupIntersectionObserver();
+  } catch (err) {
+    console.error("Error loading PDF doc:", err);
+    error.value = "Failed to parse PDF document.";
+  }
+}
+
+let observer = null;
+
+function setupIntersectionObserver() {
+  if (observer) observer.disconnect();
+
+  const options = {
+    root: mainScrollContainer.value,
+    rootMargin: "-20% 0px -60% 0px",
+    threshold: 0,
+  };
+
+  observer = new IntersectionObserver((entries) => {
+    if (isManualScrolling.value) return;
+
+    entries.forEach((entry) => {
+      if (entry.isIntersecting) {
+        const index = pageContainerRefs.value.indexOf(entry.target);
+        if (index !== -1) {
+          currentPage.value = index + 1;
+        }
+      }
+    });
+  }, options);
+
+  pageContainerRefs.value.forEach((el) => {
+    if (el) observer.observe(el);
+  });
+}
+
+async function fetchPaper() {
+  loading.value = true;
+  error.value = null;
+  try {
+    const res = await fetch(`/api/get-paper/${id}/`, { method: "GET" });
+    if (!res.ok) throw new Error("Failed to fetch PDF from server");
+
+    const blob = await res.blob();
+    const arrayBuffer = await blob.arrayBuffer();
+
+    pdfBytes = new Uint8Array(arrayBuffer);
+    if (AnnotationFactory) {
+      factory = new AnnotationFactory(pdfBytes);
+    }
+
+    loading.value = false;
+    await nextTick();
+    await loadPdf(pdfBytes);
+  } catch (err) {
+    console.error("Error fetching paper:", err);
+    error.value = err.message;
+    loading.value = false;
+  }
+}
+
+watch(zoomLevel, async () => {
+  await nextTick();
+  await renderAllPages();
+});
+
+onMounted(async () => {
+  try {
+    const pdfjsModule = await import("pdfjs-dist");
+    pdfjsLib = pdfjsModule;
+
+    const workerModule = await import("pdfjs-dist/build/pdf.worker.mjs?url");
+    pdfjsLib.GlobalWorkerOptions.workerSrc = workerModule.default;
+
+    try {
+      const viewerModule = await import("pdfjs-dist/web/pdf_viewer.mjs");
+      TextLayerClass = viewerModule.TextLayer;
+    } catch (e) {
+      console.warn("Could not load TextLayer.", e);
+    }
+
+    try {
+      const annotModule = await import("annotpdf");
+      AnnotationFactory = annotModule.AnnotationFactory;
+    } catch (e) {
+      console.warn("Could not load annotpdf", e);
+    }
+
+    await fetchPaper();
+  } catch (err) {
+    console.error("Failed to load PDF libraries:", err);
+    error.value = "Failed to initialize PDF viewer.";
+    loading.value = false;
+  }
+});
 </script>
 
 <template>
@@ -51,7 +278,7 @@ const zoomOut = () => {
           <button
             class="icon-btn"
             :disabled="currentPage <= 1"
-            @click="currentPage--"
+            @click="changePage(-1)"
           >
             <Icon name="ph:caret-left" class="h-4 w-4" />
           </button>
@@ -62,19 +289,22 @@ const zoomOut = () => {
             <input
               type="number"
               v-model="currentPage"
+              @change="scrollToPage(currentPage)"
+              :max="totalPages"
+              min="1"
               class="w-10 bg-transparent py-1 text-center text-sm font-medium text-slate-200 outline-none focus:bg-slate-700 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
             />
             <span
               class="border-l border-slate-700 bg-slate-800 px-2 text-xs text-slate-500 select-none"
             >
-              / {{ totalPages }}
+              / {{ totalPages || "-" }}
             </span>
           </div>
 
           <button
             class="icon-btn"
             :disabled="currentPage >= totalPages"
-            @click="currentPage++"
+            @click="changePage(1)"
           >
             <Icon name="ph:caret-right" class="h-4 w-4" />
           </button>
@@ -99,7 +329,6 @@ const zoomOut = () => {
           <button class="tool-btn active-tool" title="Select Cursor">
             <Icon name="ph:cursor" class="h-5 w-5" />
           </button>
-
           <button class="tool-btn" title="Highlight Text">
             <Icon name="ph:highlighter" class="h-5 w-5" />
           </button>
@@ -123,7 +352,7 @@ const zoomOut = () => {
             </button>
             <div
               v-if="isColorPickerOpen"
-              class="absolute top-full left-1/2 mt-2 -translate-x-1/2 flex flex-col gap-2 rounded-lg border border-slate-700 bg-slate-800 p-2 shadow-xl"
+              class="absolute top-full left-1/2 mt-2 -translate-x-1/2 flex flex-col gap-2 rounded-lg border border-slate-700 bg-slate-800 p-2 shadow-xl z-50"
             >
               <button
                 v-for="color in colors"
@@ -192,44 +421,63 @@ const zoomOut = () => {
 
     <div class="flex flex-1 overflow-hidden relative">
       <main
-        class="flex-1 overflow-auto bg-slate-950 p-8 flex justify-center items-start custom-scrollbar"
+        ref="mainScrollContainer"
+        class="flex-1 overflow-y-auto overflow-x-hidden bg-slate-950 p-8 flex flex-col items-center gap-2"
       >
         <div
-          class="relative w-full max-w-4xl bg-slate-900 border border-slate-800 rounded-sm shadow-2xl min-h-[800px] flex flex-col items-center justify-center text-slate-600 transition-all duration-200 ease-out"
-          :style="{
-            transform: `scale(${zoomLevel / 100})`,
-            transformOrigin: 'top center',
-          }"
+          v-if="loading"
+          class="text-slate-500 flex flex-col items-center mt-20"
         >
-          <div class="text-center space-y-4">
-            <div class="p-6 bg-slate-800/50 rounded-full inline-block">
-              <Icon name="ph:file-pdf-light" class="h-16 w-16 opacity-50" />
+          <Icon name="ph:spinner" class="h-8 w-8 animate-spin mb-2" />
+          <p>Loading PDF...</p>
+        </div>
+
+        <div
+          v-else-if="error"
+          class="text-red-400 flex flex-col items-center mt-20"
+        >
+          <Icon name="ph:warning" class="h-8 w-8 mb-2" />
+          <p>{{ error }}</p>
+        </div>
+
+        <template v-else>
+          <div
+            v-for="page in totalPages"
+            :key="page"
+            class="flex flex-col items-center"
+          >
+            <div
+              :ref="(el) => (pageContainerRefs[page - 1] = el)"
+              class="relative shadow-2xl border border-slate-800 bg-white"
+            >
+              <canvas
+                :ref="(el) => (canvasRefs[page - 1] = el)"
+                class="block"
+              ></canvas>
+              <div
+                :ref="(el) => (textLayerRefs[page - 1] = el)"
+                class="textLayer absolute inset-0 mix-blend-multiply opacity-50"
+              ></div>
             </div>
-            <h3 class="text-lg font-medium text-slate-400">
-              PDF Viewer Implementation
-            </h3>
-            <p class="text-sm max-w-xs mx-auto text-slate-500">
-              The PDF canvas or IFrame will be mounted here.
-            </p>
           </div>
 
-          <div
-            class="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/20 to-transparent pointer-events-none"
-          ></div>
-        </div>
+          <div class="h-36 w-full shrink-0"></div>
+        </template>
       </main>
 
+      <div
+        v-if="isSidebarOpen"
+        class="w-1 cursor-col-resize hover:bg-indigo-500/50 active:bg-indigo-500 transition-colors bg-slate-800 z-30"
+        @mousedown.prevent="startResize"
+      ></div>
+
       <aside
-        class="border-l border-slate-800 bg-slate-900 transition-all duration-300 ease-[cubic-bezier(0.25,0.8,0.25,1)] flex flex-col"
-        :class="[
-          isSidebarOpen
-            ? 'w-80 translate-x-0'
-            : 'w-0 translate-x-full border-none opacity-0',
-        ]"
+        class="border-l border-slate-800 bg-slate-900 transition-none flex flex-col shrink-0"
+        :style="{ width: isSidebarOpen ? `${sidebarWidth}px` : '0px' }"
+        :class="{ 'border-none opacity-0 overflow-hidden': !isSidebarOpen }"
       >
         <div
-          class="h-12 border-b border-slate-800 flex items-center px-2"
-          v-if="isSidebarOpen"
+          class="h-12 border-b border-slate-800 flex items-center px-2 shrink-0"
         >
           <div
             class="flex-1 text-center py-2 text-sm font-medium text-slate-200 border-b-2 border-indigo-500"
@@ -245,7 +493,6 @@ const zoomOut = () => {
 
         <div
           class="flex-1 p-6 flex flex-col items-center justify-center text-slate-600"
-          v-if="isSidebarOpen"
         >
           <span class="text-sm italic opacity-50">No content available</span>
         </div>
@@ -296,23 +543,56 @@ const zoomOut = () => {
   color: #c7d2fe;
 }
 
-.custom-scrollbar::-webkit-scrollbar {
+::-webkit-scrollbar {
   width: 14px;
   height: 14px;
 }
 
-.custom-scrollbar::-webkit-scrollbar-track {
+::-webkit-scrollbar-track {
   background: #0f172a;
   border-left: 1px solid #1e293b;
 }
 
-.custom-scrollbar::-webkit-scrollbar-thumb {
+::-webkit-scrollbar-thumb {
   background-color: #334155;
   border: 3px solid #0f172a;
   border-radius: 8px;
 }
 
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+::-webkit-scrollbar-thumb:hover {
   background-color: #475569;
+}
+
+:deep(.textLayer) {
+  position: absolute;
+  text-align: initial;
+  inset: 0;
+  overflow: hidden;
+  line-height: 1;
+  text-size-adjust: none;
+  transform-origin: 0% 0%;
+  opacity: 1;
+}
+
+:deep(.textLayer span) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+
+  box-sizing: content-box;
+  letter-spacing: normal;
+  word-spacing: normal;
+  line-height: 1;
+  margin: 0;
+  padding: 0;
+  border: none;
+  outline: none;
+}
+
+:deep(.textLayer ::selection) {
+  background: rgba(99, 102, 241, 0.4);
+  color: transparent;
 }
 </style>
