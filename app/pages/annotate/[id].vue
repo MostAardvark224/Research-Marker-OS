@@ -1,593 +1,318 @@
+<script setup>
+const isSidebarOpen = ref(true);
+const currentPage = ref(1);
+const totalPages = ref(null);
+const zoomLevel = ref(100);
+const isAnnotationsHidden = ref(false);
+const isColorPickerOpen = ref(false);
+const selectedColor = ref("#ef4444");
+
+const colors = [
+  "#ef4444", // Red
+  "#f59e0b", // Amber
+  "#10b981", // Emerald
+  "#3b82f6", // Blue
+  "#8b5cf6", // Violet
+  "#ec4899", // Pink
+];
+
+const toggleSidebar = () => {
+  isSidebarOpen.value = !isSidebarOpen.value;
+};
+
+const selectColor = (color) => {
+  selectedColor.value = color;
+  isColorPickerOpen.value = false;
+};
+
+const zoomIn = () => {
+  if (zoomLevel.value < 200) zoomLevel.value += 10;
+};
+const zoomOut = () => {
+  if (zoomLevel.value > 50) zoomLevel.value -= 10;
+};
+</script>
+
 <template>
   <div
-    class="min-h-screen bg-gradient-to-br from-gray-50 via-blue-50 to-gray-100"
+    class="flex h-screen w-full flex-col overflow-hidden bg-slate-950 text-slate-300 font-sans selection:bg-indigo-500/30"
   >
-    <div
-      class="fixed top-0 left-0 right-0 z-50 bg-white/80 backdrop-blur-lg border-b border-gray-200 shadow-sm"
+    <header
+      class="relative flex h-16 shrink-0 items-center justify-between border-b border-slate-800 bg-slate-900 px-4 shadow-sm z-20"
     >
-      <div class="max-w-7xl mx-auto px-6 py-4">
-        <div class="flex items-center justify-between gap-4">
-          <div class="flex items-center gap-3">
-            <div class="flex bg-gray-100 rounded-xl p-1.5 shadow-inner">
-              <button
-                @click="currentTool = 'text'"
-                :class="[
-                  'px-5 py-2.5 rounded-lg font-semibold transition-all duration-200 flex items-center gap-2',
-                  currentTool === 'text'
-                    ? 'bg-white text-blue-600 shadow-md scale-105'
-                    : 'text-gray-600 hover:text-gray-900',
-                ]"
-              >
-                <span class="text-lg">📝</span>
-                <span class="text-sm">Note</span>
-              </button>
-              <button
-                @click="currentTool = 'highlight'"
-                :class="[
-                  'px-5 py-2.5 rounded-lg font-semibold transition-all duration-200 flex items-center gap-2',
-                  currentTool === 'highlight'
-                    ? 'bg-white text-yellow-600 shadow-md scale-105'
-                    : 'text-gray-600 hover:text-gray-900',
-                ]"
-              >
-                <span class="text-lg">🖍️</span>
-                <span class="text-sm">Highlight</span>
-              </button>
-              <button
-                @click="currentTool = 'draw'"
-                :class="[
-                  'px-5 py-2.5 rounded-lg font-semibold transition-all duration-200 flex items-center gap-2',
-                  currentTool === 'draw'
-                    ? 'bg-white text-purple-600 shadow-md scale-105'
-                    : 'text-gray-600 hover:text-gray-900',
-                ]"
-              >
-                <span class="text-lg">✏️</span>
-                <span class="text-sm">Draw</span>
-              </button>
-            </div>
+      <div class="flex items-center gap-4">
+        <button class="icon-btn" title="Search Document">
+          <Icon name="ph:magnifying-glass" class="h-5 w-5" />
+        </button>
 
-            <div
-              v-if="currentTool !== 'none'"
-              class="flex items-center gap-2 bg-white rounded-lg px-3 py-2 shadow-sm"
+        <div class="h-5 w-px bg-slate-700/50"></div>
+
+        <div class="flex items-center gap-2">
+          <button
+            class="icon-btn"
+            :disabled="currentPage <= 1"
+            @click="currentPage--"
+          >
+            <Icon name="ph:caret-left" class="h-4 w-4" />
+          </button>
+
+          <div
+            class="flex items-center bg-slate-800 rounded border border-slate-700 overflow-hidden"
+          >
+            <input
+              type="number"
+              v-model="currentPage"
+              class="w-10 bg-transparent py-1 text-center text-sm font-medium text-slate-200 outline-none focus:bg-slate-700 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            />
+            <span
+              class="border-l border-slate-700 bg-slate-800 px-2 text-xs text-slate-500 select-none"
             >
-              <span class="text-xs font-medium text-gray-600">Color:</span>
-              <div class="flex gap-1.5">
-                <button
-                  v-for="color in colors"
-                  :key="color.name"
-                  @click="selectedColor = color"
-                  :class="[
-                    'w-7 h-7 rounded-full border-2 transition-all duration-200',
-                    selectedColor.name === color.name
-                      ? 'border-gray-900 scale-110 shadow-md'
-                      : 'border-transparent hover:scale-105',
-                  ]"
-                  :style="{ backgroundColor: color.hex }"
-                  :title="color.name"
-                ></button>
-              </div>
-            </div>
+              / {{ totalPages }}
+            </span>
           </div>
 
-          <div class="flex items-center gap-3">
-            <div
-              v-if="pdfDoc"
-              class="flex items-center gap-2 bg-white rounded-lg px-4 py-2 shadow-sm"
-            >
-              <span class="text-sm font-medium text-gray-700">
-                Total Pages: {{ totalPages }}
-              </span>
-            </div>
-
-            <div
-              class="flex items-center gap-2 bg-white rounded-lg px-3 py-2 shadow-sm"
-            >
-              <button
-                @click="changeZoom(-0.25)"
-                :disabled="scale <= 0.5"
-                class="text-gray-600 hover:text-gray-900 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-                title="Zoom Out"
-              >
-                <svg
-                  class="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM13 10H7"
-                  />
-                </svg>
-              </button>
-              <span
-                class="text-sm font-medium text-gray-700 min-w-[50px] text-center"
-              >
-                {{ Math.round(scale * 100) }}%
-              </span>
-              <button
-                @click="changeZoom(0.25)"
-                :disabled="scale >= 3"
-                class="text-gray-600 hover:text-gray-900 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
-                title="Zoom In"
-              >
-                <svg
-                  class="w-5 h-5"
-                  fill="none"
-                  stroke="currentColor"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v6m3-3H7"
-                  />
-                </svg>
-              </button>
-            </div>
-
-            <button
-              @click="downloadPdf"
-              :disabled="!factory"
-              class="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-lg hover:from-blue-700 hover:to-blue-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-md hover:shadow-lg font-semibold"
-            >
-              <svg
-                class="w-5 h-5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                />
-              </svg>
-              <span>Download</span>
-            </button>
-          </div>
+          <button
+            class="icon-btn"
+            :disabled="currentPage >= totalPages"
+            @click="currentPage++"
+          >
+            <Icon name="ph:caret-right" class="h-4 w-4" />
+          </button>
         </div>
       </div>
-    </div>
 
-    <div class="pt-28 pb-12 px-6">
-      <div class="max-w-7xl mx-auto">
+      <div
+        class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 hidden md:flex"
+      >
         <div
-          v-if="loading"
-          class="flex flex-col items-center justify-center py-20 gap-4"
+          class="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800/50 p-1 shadow-sm"
         >
-          <div class="relative">
-            <div
-              class="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"
-            ></div>
-          </div>
-          <p class="text-gray-600 font-medium">Loading PDF...</p>
-        </div>
+          <button class="tool-btn" title="Undo">
+            <Icon name="ph:arrow-u-up-left" class="h-5 w-5" />
+          </button>
+          <button class="tool-btn" title="Redo">
+            <Icon name="ph:arrow-u-up-right" class="h-5 w-5" />
+          </button>
 
-        <div
-          v-else-if="error"
-          class="flex flex-col items-center justify-center py-20 gap-4"
-        >
-          <div
-            class="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center"
-          >
-            <svg
-              class="w-8 h-8 text-red-600"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+          <div class="mx-1 h-5 w-px bg-slate-600/50"></div>
+
+          <button class="tool-btn active-tool" title="Select Cursor">
+            <Icon name="ph:cursor" class="h-5 w-5" />
+          </button>
+
+          <button class="tool-btn" title="Highlight Text">
+            <Icon name="ph:highlighter" class="h-5 w-5" />
+          </button>
+          <button class="tool-btn" title="Draw">
+            <Icon name="ph:pencil-simple" class="h-5 w-5" />
+          </button>
+          <button class="tool-btn" title="Sticky Note">
+            <Icon name="ph:note" class="h-5 w-5" />
+          </button>
+
+          <div class="relative mx-0.5">
+            <button
+              class="tool-btn flex items-center justify-center"
+              title="Color Palette"
+              @click="isColorPickerOpen = !isColorPickerOpen"
             >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
+              <div
+                class="h-4 w-4 rounded-full border border-slate-500"
+                :style="{ backgroundColor: selectedColor }"
+              ></div>
+            </button>
+            <div
+              v-if="isColorPickerOpen"
+              class="absolute top-full left-1/2 mt-2 -translate-x-1/2 flex flex-col gap-2 rounded-lg border border-slate-700 bg-slate-800 p-2 shadow-xl"
+            >
+              <button
+                v-for="color in colors"
+                :key="color"
+                class="h-6 w-6 rounded-full border border-transparent hover:scale-110 transition-transform"
+                :class="{
+                  'ring-2 ring-indigo-400 ring-offset-2 ring-offset-slate-800':
+                    selectedColor === color,
+                }"
+                :style="{ backgroundColor: color }"
+                @click="selectColor(color)"
+              ></button>
+            </div>
           </div>
-          <p class="text-gray-800 font-semibold text-lg">Failed to load PDF</p>
-          <p class="text-gray-600">{{ error }}</p>
+
+          <div class="mx-1 h-5 w-px bg-slate-600/50"></div>
+
           <button
-            @click="fetchPaper"
-            class="mt-4 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+            class="tool-btn"
+            :class="{ 'text-indigo-400': isAnnotationsHidden }"
+            @click="isAnnotationsHidden = !isAnnotationsHidden"
+            title="Toggle Annotations"
           >
-            Try Again
+            <Icon
+              :name="isAnnotationsHidden ? 'ph:eye-slash' : 'ph:eye'"
+              class="h-5 w-5"
+            />
+          </button>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <div
+          class="flex items-center rounded-md border border-slate-700 bg-slate-800"
+        >
+          <button
+            class="p-1.5 hover:bg-slate-700 hover:text-white transition-colors"
+            @click="zoomOut"
+          >
+            <Icon name="ph:minus" class="h-3.5 w-3.5" />
+          </button>
+          <span
+            class="w-12 text-center text-xs font-medium text-slate-300 select-none"
+            >{{ zoomLevel }}%</span
+          >
+          <button
+            class="p-1.5 hover:bg-slate-700 hover:text-white transition-colors"
+            @click="zoomIn"
+          >
+            <Icon name="ph:plus" class="h-3.5 w-3.5" />
           </button>
         </div>
 
-        <div v-else class="flex flex-col items-center gap-8">
-          <div
-            v-for="pageNum in totalPages"
-            :key="pageNum"
-            class="relative group"
-          >
-            <div
-              class="bg-white rounded-xl shadow-2xl overflow-hidden border border-gray-200 relative"
-              @click="(e) => handleCanvasClick(e, pageNum)"
-              @mousedown="(e) => handleMouseDown(e, pageNum)"
-              @mousemove="(e) => handleMouseMove(e, pageNum)"
-              @mouseup="(e) => handleMouseUp(e, pageNum)"
-              @mouseleave="(e) => handleMouseUp(e, pageNum)"
-            >
-              <canvas
-                :ref="(el) => setCanvasRef(el, pageNum)"
-                class="block w-full"
-              ></canvas>
+        <div class="h-5 w-px bg-slate-700/50"></div>
 
-              <div
-                :ref="(el) => setTextLayerRef(el, pageNum)"
-                class="textLayer absolute inset-0 origin-top-left"
-                :class="{ 'pointer-events-none': currentTool === 'draw' }"
-              ></div>
+        <button
+          @click="toggleSidebar"
+          class="icon-btn active:bg-indigo-500/20"
+          :class="{ 'bg-slate-800 text-indigo-400': isSidebarOpen }"
+          title="Toggle Sidebar"
+        >
+          <Icon name="ph:sidebar-simple" class="h-5 w-5" />
+        </button>
+      </div>
+    </header>
+
+    <div class="flex flex-1 overflow-hidden relative">
+      <main
+        class="flex-1 overflow-auto bg-slate-950 p-8 flex justify-center items-start custom-scrollbar"
+      >
+        <div
+          class="relative w-full max-w-4xl bg-slate-900 border border-slate-800 rounded-sm shadow-2xl min-h-[800px] flex flex-col items-center justify-center text-slate-600 transition-all duration-200 ease-out"
+          :style="{
+            transform: `scale(${zoomLevel / 100})`,
+            transformOrigin: 'top center',
+          }"
+        >
+          <div class="text-center space-y-4">
+            <div class="p-6 bg-slate-800/50 rounded-full inline-block">
+              <Icon name="ph:file-pdf-light" class="h-16 w-16 opacity-50" />
             </div>
-
-            <div
-              class="absolute top-4 left-4 bg-gray-900/10 backdrop-blur-sm rounded px-2 py-1 pointer-events-none z-10"
-            >
-              <span class="text-xs font-bold text-gray-500"
-                >Page {{ pageNum }}</span
-              >
-            </div>
-          </div>
-
-          <div
-            v-if="annotationCount > 0"
-            class="fixed bottom-8 right-8 bg-white/90 backdrop-blur-sm rounded-lg px-4 py-2 shadow-lg border border-gray-200 z-40"
-          >
-            <p class="text-sm font-semibold text-gray-700">
-              {{ annotationCount }} annotation{{
-                annotationCount !== 1 ? "s" : ""
-              }}
+            <h3 class="text-lg font-medium text-slate-400">
+              PDF Viewer Implementation
+            </h3>
+            <p class="text-sm max-w-xs mx-auto text-slate-500">
+              The PDF canvas or IFrame will be mounted here.
             </p>
           </div>
+
+          <div
+            class="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/20 to-transparent pointer-events-none"
+          ></div>
         </div>
-      </div>
+      </main>
+
+      <aside
+        class="border-l border-slate-800 bg-slate-900 transition-all duration-300 ease-[cubic-bezier(0.25,0.8,0.25,1)] flex flex-col"
+        :class="[
+          isSidebarOpen
+            ? 'w-80 translate-x-0'
+            : 'w-0 translate-x-full border-none opacity-0',
+        ]"
+      >
+        <div
+          class="h-12 border-b border-slate-800 flex items-center px-2"
+          v-if="isSidebarOpen"
+        >
+          <div
+            class="flex-1 text-center py-2 text-sm font-medium text-slate-200 border-b-2 border-indigo-500"
+          >
+            Notes
+          </div>
+          <div
+            class="flex-1 text-center py-2 text-sm font-medium text-slate-500 hover:text-slate-300 cursor-pointer"
+          >
+            Info
+          </div>
+        </div>
+
+        <div
+          class="flex-1 p-6 flex flex-col items-center justify-center text-slate-600"
+          v-if="isSidebarOpen"
+        >
+          <span class="text-sm italic opacity-50">No content available</span>
+        </div>
+      </aside>
     </div>
   </div>
 </template>
 
-<script setup>
-import { ref, onMounted, nextTick } from "vue";
-import { useRoute } from "vue-router";
-import "pdfjs-dist/web/pdf_viewer.css";
-
-const route = useRoute();
-const id = route.params.id;
-
-// Holds references to all canvas elements
-const canvasRefs = ref({});
-const textLayerRefs = ref({});
-
-const loading = ref(true);
-const error = ref(null);
-const currentTool = ref("text");
-
-// Dynamically loaded libraries
-let pdfjsLib = null;
-let AnnotationFactory = null;
-let TextLayerClass = null;
-
-let pdfDoc = null;
-let pdfBytes = null;
-let factory = null;
-
-const scale = ref(1.5);
-const totalPages = ref(0);
-const annotationCount = ref(0);
-
-// Drawing state
-const isDrawing = ref(false);
-const drawingPath = ref([]);
-const activeDrawingPage = ref(null);
-
-const colors = [
-  { name: "red", hex: "#EF4444" },
-  { name: "yellow", hex: "#FBBF24" },
-  { name: "green", hex: "#10B981" },
-  { name: "blue", hex: "#3B82F6" },
-  { name: "purple", hex: "#8B5CF6" },
-  { name: "pink", hex: "#EC4899" },
-];
-
-const selectedColor = ref(colors[0]);
-
-onMounted(async () => {
-  try {
-    const pdfjsModule = await import("pdfjs-dist");
-    pdfjsLib = pdfjsModule;
-
-    const workerModule = await import("pdfjs-dist/build/pdf.worker.mjs?url");
-    pdfjsLib.GlobalWorkerOptions.workerSrc = workerModule.default;
-
-    try {
-      const viewerModule = await import("pdfjs-dist/web/pdf_viewer.mjs");
-      TextLayerClass = viewerModule.TextLayer;
-    } catch (e) {
-      console.warn(
-        "Could not load TextLayer from viewer module. Text selection might fail on v4+.",
-        e
-      );
-    }
-
-    const annotModule = await import("annotpdf");
-    AnnotationFactory = annotModule.AnnotationFactory;
-
-    await fetchPaper();
-  } catch (err) {
-    console.error("Failed to load PDF libraries:", err);
-    error.value = "Failed to initialize PDF viewer.";
-    loading.value = false;
-  }
-});
-
-// Helper to store refs in the map
-const setCanvasRef = (el, pageNum) => {
-  if (el) {
-    canvasRefs.value[pageNum] = el;
-  }
-};
-
-const setTextLayerRef = (el, pageNum) => {
-  if (el) {
-    textLayerRefs.value[pageNum] = el;
-  }
-};
-
-async function fetchPaper() {
-  loading.value = true;
-  error.value = null;
-  try {
-    const res = await fetch(`/api/get-paper/${id}/`, { method: "GET" });
-    if (!res.ok) throw new Error("Failed to fetch PDF from server");
-
-    const blob = await res.blob();
-    const arrayBuffer = await blob.arrayBuffer();
-
-    pdfBytes = new Uint8Array(arrayBuffer);
-    factory = new AnnotationFactory(pdfBytes);
-
-    // Stop loading here to allow DOM to render (v-else block)
-    loading.value = false;
-
-    await nextTick();
-
-    await loadPdf(pdfBytes);
-  } catch (err) {
-    console.error("Error fetching paper:", err);
-    error.value = err.message;
-    loading.value = false;
-  }
+<style scoped>
+.icon-btn {
+  border-radius: 0.25rem;
+  padding: 0.5rem;
+  color: #94a3b8;
+  transition: all 150ms ease-in-out;
 }
 
-async function loadPdf(data) {
-  const dataCopy = data.slice();
-  const loadingTask = pdfjsLib.getDocument({ data: dataCopy });
-  pdfDoc = await loadingTask.promise;
-
-  // Update total pages so v-for generates the divs
-  totalPages.value = pdfDoc.numPages;
-
-  // Wait for Vue to render the v-for elements
-  await nextTick();
-
-  // Render every page
-  await renderAllPages();
+.icon-btn:hover {
+  background-color: #1e293b;
+  color: #f8fafc;
 }
 
-async function renderAllPages() {
-  if (!pdfDoc) return;
-
-  // Loop through all pages and render them
-  for (let i = 1; i <= totalPages.value; i++) {
-    await renderPage(i);
-  }
+.icon-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
 }
 
-async function renderPage(pageNum) {
-  const canvas = canvasRefs.value[pageNum];
-  const textLayerDiv = textLayerRefs.value[pageNum];
-
-  if (!canvas || !textLayerDiv) return;
-
-  const page = await pdfDoc.getPage(pageNum);
-  const viewport = page.getViewport({ scale: scale.value });
-  const context = canvas.getContext("2d");
-
-  canvas.height = viewport.height;
-  canvas.width = viewport.width;
-
-  // Set dimensions for text layer explicitly
-  textLayerDiv.style.height = `${viewport.height}px`;
-  textLayerDiv.style.width = `${viewport.width}px`;
-  textLayerDiv.style.setProperty("--scale-factor", scale.value);
-
-  const renderContext = {
-    canvasContext: context,
-    viewport: viewport,
-  };
-
-  await page.render(renderContext).promise;
-
-  const textContent = await page.getTextContent();
-  textLayerDiv.innerHTML = ""; // Clear previous
-
-  if (TextLayerClass) {
-    const textLayer = new TextLayerClass({
-      textContentSource: textContent,
-      container: textLayerDiv,
-      viewport: viewport,
-    });
-    await textLayer.render();
-  } else if (pdfjsLib.renderTextLayer) {
-    await pdfjsLib.renderTextLayer({
-      textContentSource: textContent,
-      container: textLayerDiv,
-      viewport: viewport,
-      textDivs: [],
-    }).promise;
-  } else {
-    console.warn("TextLayer API not found. Text selection disabled.");
-  }
+.tool-btn {
+  border-radius: 0.25rem;
+  padding: 0.375rem;
+  color: #94a3b8;
+  transition: all 150ms ease-in-out;
+  margin-left: 0.125rem;
+  margin-right: 0.125rem;
 }
 
-function changeZoom(delta) {
-  const newScale = scale.value + delta;
-  if (newScale >= 0.5 && newScale <= 3) {
-    scale.value = newScale;
-    // Re-render all pages when zoom changes
-    renderAllPages();
-  }
+.tool-btn:hover {
+  background-color: #334155;
+  color: #f8fafc;
 }
 
-// Events
-async function handleCanvasClick(event, pageNum) {
-  const selection = window.getSelection();
-  if (selection && selection.toString().length > 0) {
-    return;
-  }
-
-  if (!factory || currentTool.value === "draw") return;
-
-  const canvas = canvasRefs.value[pageNum];
-  const { x, y } = getCanvasCoordinates(event, canvas);
-  const pageIndex = pageNum - 1;
-
-  if (currentTool.value === "text") {
-    factory.createFreeTextAnnotation({
-      page: pageIndex,
-      rect: [x, y - 20, x + 150, y],
-      contents: "New Note",
-      author: "User",
-      color: selectedColor.value,
-      fontSize: 12,
-    });
-  } else if (currentTool.value === "highlight") {
-    factory.createHighlightAnnotation({
-      page: pageIndex,
-      rect: [x, y - 15, x + 100, y],
-      contents: "Highlight",
-      author: "User",
-      color: selectedColor.value,
-    });
-  }
-
-  annotationCount.value++;
-  await updatePdfView();
+.active-tool {
+  background-color: rgba(99, 102, 241, 0.1);
+  color: #818cf8;
 }
 
-function handleMouseDown(event, pageNum) {
-  if (currentTool.value !== "draw") return;
-  isDrawing.value = true;
-  activeDrawingPage.value = pageNum; // Lock drawing to this page
-
-  const canvas = canvasRefs.value[pageNum];
-  const { x, y } = getCanvasCoordinates(event, canvas);
-  drawingPath.value = [{ x, y }];
+.active-tool:hover {
+  background-color: rgba(99, 102, 241, 0.2);
+  color: #c7d2fe;
 }
 
-function handleMouseMove(event, pageNum) {
-  if (
-    !isDrawing.value ||
-    currentTool.value !== "draw" ||
-    activeDrawingPage.value !== pageNum
-  )
-    return;
-
-  const canvas = canvasRefs.value[pageNum];
-  const { x, y } = getCanvasCoordinates(event, canvas);
-  drawingPath.value.push({ x, y });
-
-  // Draw temporary preview
-  const ctx = canvas.getContext("2d");
-  ctx.strokeStyle = selectedColor.value.hex;
-  ctx.lineWidth = 2 * scale.value;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-
-  if (drawingPath.value.length > 1) {
-    const prev = drawingPath.value[drawingPath.value.length - 2];
-    const curr = drawingPath.value[drawingPath.value.length - 1];
-    ctx.beginPath();
-    ctx.moveTo(prev.x * scale.value, canvas.height - prev.y * scale.value);
-    ctx.lineTo(curr.x * scale.value, canvas.height - curr.y * scale.value);
-    ctx.stroke();
-  }
+.custom-scrollbar::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
 }
 
-async function handleMouseUp(event, pageNum) {
-  if (
-    !isDrawing.value ||
-    currentTool.value !== "draw" ||
-    activeDrawingPage.value !== pageNum ||
-    drawingPath.value.length < 2
-  ) {
-    isDrawing.value = false;
-    activeDrawingPage.value = null;
-    drawingPath.value = [];
-    return;
-  }
-
-  const pathPoints = drawingPath.value.map((p) => [p.x, p.y]);
-  const pageIndex = pageNum - 1;
-
-  factory.createInkAnnotation({
-    page: pageIndex,
-    inkList: [pathPoints],
-    color: selectedColor.value,
-    borderWidth: 2,
-  });
-
-  isDrawing.value = false;
-  activeDrawingPage.value = null;
-  drawingPath.value = [];
-  annotationCount.value++;
-  await updatePdfView();
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: #0f172a;
+  border-left: 1px solid #1e293b;
 }
 
-function getCanvasCoordinates(event, canvasElement) {
-  const rect = canvasElement.getBoundingClientRect();
-  const domX = event.clientX - rect.left;
-  const domY = event.clientY - rect.top;
-  const x = domX / scale.value;
-  const y = (canvasElement.height - domY) / scale.value;
-  return { x, y };
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: #334155;
+  border: 3px solid #0f172a;
+  border-radius: 8px;
 }
 
-async function updatePdfView() {
-  const newPdfData = factory.write();
-  pdfBytes = newPdfData;
-  factory = new AnnotationFactory(pdfBytes);
-  await loadPdf(pdfBytes);
-}
-
-function downloadPdf() {
-  if (factory) {
-    const timestamp = new Date().toISOString().slice(0, 10);
-    factory.download(`annotated_paper_${timestamp}.pdf`);
-  }
-}
-</script>
-
-<style>
-/* Required for the text layer to align properly */
-.textLayer {
-  position: absolute;
-  left: 0;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  overflow: hidden;
-  line-height: 1;
-  opacity: 1;
-}
-
-.textLayer ::selection {
-  background: rgba(59, 130, 246, 0.3);
-  color: transparent;
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: #475569;
 }
 </style>
