@@ -136,6 +136,10 @@ const displayText = computed(() => {
           </g>
         </svg>
       </div>
+      <div class="text-black text-[12px] text-center px-2">
+        Uploads include OCR processing and may take up to a minute depending on
+        file size.
+      </div>
 
       <button class="upload-btn" @click="uploadSelectedFiles">Upload</button>
 

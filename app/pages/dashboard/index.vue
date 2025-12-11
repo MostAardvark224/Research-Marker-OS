@@ -37,18 +37,37 @@
             />
 
             <div
-              @click="showUpload = true"
-              :class="`ml-3 inline-flex items-center gap-1.5 transition-colors cursor-pointer rounded-lg ${colorScheme.btnPrimary} ${colorScheme.btnPrimaryHover} px-3 py-1.5`"
+              @click="!isUploading && (showUpload = true)"
+              :class="[
+                `ml-3 inline-flex items-center gap-1.5 transition-colors rounded-lg ${colorScheme.btnPrimary} px-3 py-1.5`,
+                isUploading
+                  ? 'opacity-75 cursor-wait'
+                  : `${colorScheme.btnPrimaryHover} cursor-pointer`,
+              ]"
             >
-              <Icon
-                name="material-symbols:upload-sharp"
-                :class="`text-2xl ${colorScheme.btnPrimaryText}`"
-              />
-              <span
-                :class="`text-xs font-semibold leading-none ${colorScheme.btnPrimaryText}`"
-              >
-                Upload Papers
-              </span>
+              <template v-if="isUploading">
+                <Icon
+                  name="material-symbols:progress-activity"
+                  :class="`text-2xl ${colorScheme.btnPrimaryText} animate-spin`"
+                />
+                <span
+                  :class="`text-xs font-semibold leading-none ${colorScheme.btnPrimaryText}`"
+                >
+                  Uploading...
+                </span>
+              </template>
+
+              <template v-else>
+                <Icon
+                  name="material-symbols:upload-sharp"
+                  :class="`text-2xl ${colorScheme.btnPrimaryText}`"
+                />
+                <span
+                  :class="`text-xs font-semibold leading-none ${colorScheme.btnPrimaryText}`"
+                >
+                  Upload Papers
+                </span>
+              </template>
             </div>
           </div>
 
@@ -285,9 +304,7 @@
                       <th
                         scope="col"
                         class="px-4 py-3 text-left w-14 font-semibold"
-                      >
-                        #
-                      </th>
+                      ></th>
                       <th
                         scope="col"
                         class="px-4 py-3 text-left font-semibold min-w-[10rem]"
@@ -299,6 +316,12 @@
                         class="px-4 py-3 text-left font-semibold min-w-[10rem]"
                       >
                         Uploaded At
+                      </th>
+                      <th
+                        scope="col"
+                        class="px-4 py-3 text-left font-semibold min-w-[10rem]"
+                      >
+                        Searchable
                       </th>
                       <th
                         scope="col"
@@ -321,7 +344,7 @@
                       ]"
                     >
                       <td
-                        :class="`px-4 py-3 text-sm ${colorScheme.tableCellText} align-middle`"
+                        :class="`px-3 py-3 text-sm ${colorScheme.tableCellText} align-middle`"
                       >
                         <span
                           :class="`inline-flex h-7 w-7 items-center justify-center rounded-full ${colorScheme.tableCellNumber} border ${colorScheme.tableCellNumberBorder} font-mono text-xs`"
@@ -355,6 +378,27 @@
                         :class="`px-4 py-3 text-xs md:text-sm ${colorScheme.tableDate} align-middle whitespace-nowrap`"
                       >
                         {{ formatDate(paper.uploaded_at) }}
+                      </td>
+
+                      <td class="px-[40px] py-3 align-middle text-left">
+                        <div
+                          v-if="paper.searchable"
+                          :class="`inline-flex h-7 w-7 items-center justify-center rounded-full ${colorScheme.tableCellNumber} border ${colorScheme.tableCellNumberBorder} font-mono text-xs`"
+                        >
+                          <Icon
+                            name="material-symbols:check-small"
+                            class="text-lg text-green-500"
+                          />
+                        </div>
+                        <div
+                          v-else
+                          :class="`inline-flex h-7 w-7 items-center justify-center rounded-full ${colorScheme.tableCellNumber} border ${colorScheme.tableCellNumberBorder} font-mono text-xs`"
+                        >
+                          <Icon
+                            name="material-symbols:close-small-outline"
+                            class="text-lg text-red-500"
+                          />
+                        </div>
                       </td>
 
                       <td
@@ -528,6 +572,7 @@ const vFocus = {
 };
 
 // State vars
+const isUploading = ref(false);
 const showUpload = ref(false);
 
 const filesToUpload = ref([]);
@@ -627,8 +672,8 @@ async function onModalFileSelection(files) {
   filesToUpload.value = files;
 
   if (files && files.length > 0) {
-    await sendDocuments();
     showUpload.value = false;
+    await sendDocuments();
   }
 }
 
@@ -638,6 +683,8 @@ async function sendDocuments() {
     alert("Please select files first!");
     return;
   }
+
+  isUploading.value = true;
 
   const formData = new FormData();
   filesToUpload.value.forEach((file) => {
@@ -658,6 +705,8 @@ async function sendDocuments() {
   } catch (error) {
     console.error("Error uploading files:", error);
     alert("Upload Failed");
+  } finally {
+    isUploading.value = false;
   }
 }
 
