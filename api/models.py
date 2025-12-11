@@ -12,6 +12,7 @@ class Document(models.Model):
     uploaded_at = models.DateField(auto_now_add=True)
     file = models.FileField(upload_to='documents/')
     folder = models.ForeignKey(Folder, related_name='documents', on_delete=models.SET_NULL, null=True)
+    searchable = models.BooleanField(default=False)
 
     def __str__(self):
         return self.title

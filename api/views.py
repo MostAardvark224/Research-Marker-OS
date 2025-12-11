@@ -9,11 +9,13 @@ from rest_framework.views import APIView
 import os
 from pathlib import Path
 from django.http import Http404, FileResponse
-
+import time
 from rest_framework import viewsets, status
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
 from . import models, serializers
+from .OCR import create_searchable_pdf
+
 
 # View that returns folders, documents are nested within.
 class CompleteFetch(APIView):
@@ -41,7 +43,7 @@ class DocumentsViewSet(viewsets.ModelViewSet):
         if files:
             uploaded_documents = []
             
-            # Xtra handling for folder assignment
+            # Extra handling for folder assignment
             folder_pk = request.data.get('folder_id', None)
 
             for file in files:
@@ -50,13 +52,31 @@ class DocumentsViewSet(viewsets.ModelViewSet):
                     'title': file.name.removesuffix(Path(file.name).suffix), 
                     'folder': folder_pk 
                 }
-
-                print(data)
                 
                 serializer = self.get_serializer(data=data)
                 serializer.is_valid(raise_exception=True)
                 self.perform_create(serializer)
+
+                start_time = time.time()
+                # Performing OCR, overwriting input file to not cause storage bloat
+                input_path = serializer.instance.file.path
+                output_path = input_path
+
+                try: 
+                    ocr_result = create_searchable_pdf(input_path, output_path)
+
+                    instance = serializer.instance
+                    instance.searchable = True
+                    instance.save()
+                
+                except Exception as e:
+                    print("ERROR")
+                    print(e)
+
                 uploaded_documents.append(serializer.data)
+                
+                end_time = time.time()
+                print(f"OCR Processing Time for {file.name}: {end_time - start_time} seconds")
 
             return Response(uploaded_documents, status=status.HTTP_201_CREATED)
 
