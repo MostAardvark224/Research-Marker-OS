@@ -47,7 +47,6 @@
               </button>
             </div>
 
-            <!-- Color Picker -->
             <div
               v-if="currentTool !== 'none'"
               class="flex items-center gap-2 bg-white rounded-lg px-3 py-2 shadow-sm"
@@ -71,7 +70,6 @@
             </div>
           </div>
 
-          <!-- Actions -->
           <div class="flex items-center gap-3">
             <div
               v-if="pdfDoc"
@@ -82,7 +80,6 @@
               </span>
             </div>
 
-            <!-- Zoom Controls -->
             <div
               class="flex items-center gap-2 bg-white rounded-lg px-3 py-2 shadow-sm"
             >
@@ -133,7 +130,6 @@
               </button>
             </div>
 
-            <!-- Download Button -->
             <button
               @click="downloadPdf"
               :disabled="!factory"
@@ -159,10 +155,8 @@
       </div>
     </div>
 
-    <!-- Main Content Area -->
     <div class="pt-28 pb-12 px-6">
       <div class="max-w-7xl mx-auto">
-        <!-- Loading State -->
         <div
           v-if="loading"
           class="flex flex-col items-center justify-center py-20 gap-4"
@@ -175,7 +169,6 @@
           <p class="text-gray-600 font-medium">Loading PDF...</p>
         </div>
 
-        <!-- Error State -->
         <div
           v-else-if="error"
           class="flex flex-col items-center justify-center py-20 gap-4"
@@ -207,36 +200,34 @@
           </button>
         </div>
 
-        <!-- PDF Canvas LOOP -->
         <div v-else class="flex flex-col items-center gap-8">
           <div
             v-for="pageNum in totalPages"
             :key="pageNum"
             class="relative group"
           >
-            <!-- Canvas Container -->
             <div
-              class="bg-white rounded-xl shadow-2xl overflow-hidden border border-gray-200"
+              class="bg-white rounded-xl shadow-2xl overflow-hidden border border-gray-200 relative"
+              @click="(e) => handleCanvasClick(e, pageNum)"
+              @mousedown="(e) => handleMouseDown(e, pageNum)"
+              @mousemove="(e) => handleMouseMove(e, pageNum)"
+              @mouseup="(e) => handleMouseUp(e, pageNum)"
+              @mouseleave="(e) => handleMouseUp(e, pageNum)"
             >
               <canvas
                 :ref="(el) => setCanvasRef(el, pageNum)"
-                @click="(e) => handleCanvasClick(e, pageNum)"
-                @mousedown="(e) => handleMouseDown(e, pageNum)"
-                @mousemove="(e) => handleMouseMove(e, pageNum)"
-                @mouseup="(e) => handleMouseUp(e, pageNum)"
-                @mouseleave="(e) => handleMouseUp(e, pageNum)"
-                :class="[
-                  'block',
-                  currentTool === 'draw'
-                    ? 'cursor-crosshair'
-                    : 'cursor-pointer',
-                ]"
+                class="block w-full"
               ></canvas>
+
+              <div
+                :ref="(el) => setTextLayerRef(el, pageNum)"
+                class="textLayer absolute inset-0 origin-top-left"
+                :class="{ 'pointer-events-none': currentTool === 'draw' }"
+              ></div>
             </div>
 
-            <!-- Page Number Indicator -->
             <div
-              class="absolute top-4 left-4 bg-gray-900/10 backdrop-blur-sm rounded px-2 py-1 pointer-events-none"
+              class="absolute top-4 left-4 bg-gray-900/10 backdrop-blur-sm rounded px-2 py-1 pointer-events-none z-10"
             >
               <span class="text-xs font-bold text-gray-500"
                 >Page {{ pageNum }}</span
@@ -244,7 +235,6 @@
             </div>
           </div>
 
-          <!-- Annotation Counter -->
           <div
             v-if="annotationCount > 0"
             class="fixed bottom-8 right-8 bg-white/90 backdrop-blur-sm rounded-lg px-4 py-2 shadow-lg border border-gray-200 z-40"
@@ -260,6 +250,7 @@
     </div>
   </div>
 </template>
+
 <script setup>
 import { ref, onMounted, nextTick } from "vue";
 import { useRoute } from "vue-router";
@@ -270,6 +261,7 @@ const id = route.params.id;
 
 // Holds references to all canvas elements
 const canvasRefs = ref({});
+const textLayerRefs = ref({});
 
 const loading = ref(true);
 const error = ref(null);
@@ -278,6 +270,7 @@ const currentTool = ref("text");
 // Dynamically loaded libraries
 let pdfjsLib = null;
 let AnnotationFactory = null;
+let TextLayerClass = null;
 
 let pdfDoc = null;
 let pdfBytes = null;
@@ -311,6 +304,16 @@ onMounted(async () => {
     const workerModule = await import("pdfjs-dist/build/pdf.worker.mjs?url");
     pdfjsLib.GlobalWorkerOptions.workerSrc = workerModule.default;
 
+    try {
+      const viewerModule = await import("pdfjs-dist/web/pdf_viewer.mjs");
+      TextLayerClass = viewerModule.TextLayer;
+    } catch (e) {
+      console.warn(
+        "Could not load TextLayer from viewer module. Text selection might fail on v4+.",
+        e
+      );
+    }
+
     const annotModule = await import("annotpdf");
     AnnotationFactory = annotModule.AnnotationFactory;
 
@@ -326,6 +329,12 @@ onMounted(async () => {
 const setCanvasRef = (el, pageNum) => {
   if (el) {
     canvasRefs.value[pageNum] = el;
+  }
+};
+
+const setTextLayerRef = (el, pageNum) => {
+  if (el) {
+    textLayerRefs.value[pageNum] = el;
   }
 };
 
@@ -381,7 +390,9 @@ async function renderAllPages() {
 
 async function renderPage(pageNum) {
   const canvas = canvasRefs.value[pageNum];
-  if (!canvas) return;
+  const textLayerDiv = textLayerRefs.value[pageNum];
+
+  if (!canvas || !textLayerDiv) return;
 
   const page = await pdfDoc.getPage(pageNum);
   const viewport = page.getViewport({ scale: scale.value });
@@ -390,12 +401,38 @@ async function renderPage(pageNum) {
   canvas.height = viewport.height;
   canvas.width = viewport.width;
 
+  // Set dimensions for text layer explicitly
+  textLayerDiv.style.height = `${viewport.height}px`;
+  textLayerDiv.style.width = `${viewport.width}px`;
+  textLayerDiv.style.setProperty("--scale-factor", scale.value);
+
   const renderContext = {
     canvasContext: context,
     viewport: viewport,
   };
 
   await page.render(renderContext).promise;
+
+  const textContent = await page.getTextContent();
+  textLayerDiv.innerHTML = ""; // Clear previous
+
+  if (TextLayerClass) {
+    const textLayer = new TextLayerClass({
+      textContentSource: textContent,
+      container: textLayerDiv,
+      viewport: viewport,
+    });
+    await textLayer.render();
+  } else if (pdfjsLib.renderTextLayer) {
+    await pdfjsLib.renderTextLayer({
+      textContentSource: textContent,
+      container: textLayerDiv,
+      viewport: viewport,
+      textDivs: [],
+    }).promise;
+  } else {
+    console.warn("TextLayer API not found. Text selection disabled.");
+  }
 }
 
 function changeZoom(delta) {
@@ -409,12 +446,15 @@ function changeZoom(delta) {
 
 // Events
 async function handleCanvasClick(event, pageNum) {
+  const selection = window.getSelection();
+  if (selection && selection.toString().length > 0) {
+    return;
+  }
+
   if (!factory || currentTool.value === "draw") return;
 
   const canvas = canvasRefs.value[pageNum];
   const { x, y } = getCanvasCoordinates(event, canvas);
-
-  // Page index is zero-based, pdf.js is one-based
   const pageIndex = pageNum - 1;
 
   if (currentTool.value === "text") {
@@ -532,3 +572,22 @@ function downloadPdf() {
   }
 }
 </script>
+
+<style>
+/* Required for the text layer to align properly */
+.textLayer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  overflow: hidden;
+  line-height: 1;
+  opacity: 1;
+}
+
+.textLayer ::selection {
+  background: rgba(59, 130, 246, 0.3);
+  color: transparent;
+}
+</style>

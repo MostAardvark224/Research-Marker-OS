@@ -3,6 +3,7 @@ const emit = defineEmits(["files-selected", "close"]);
 
 const fileInput = ref(null);
 const selectedFiles = ref([]);
+const skipOcr = ref(false);
 
 const triggerFileDialog = () => {
   fileInput.value?.click();
@@ -33,7 +34,7 @@ const uploadSelectedFiles = () => {
     alert("Please browse and select a PDF first.");
     return;
   }
-  emit("files-selected", selectedFiles.value);
+  emit("files-selected", selectedFiles.value, skipOcr.value);
 };
 
 const clearFile = (event) => {
@@ -136,9 +137,29 @@ const displayText = computed(() => {
           </g>
         </svg>
       </div>
+
+      <div class="w-full px-2 mt-2 flex items-center justify-center gap-2">
+        <input
+          type="checkbox"
+          id="skipOcr"
+          v-model="skipOcr"
+          class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
+        />
+        <label
+          for="skipOcr"
+          class="text-sm text-gray-700 select-none cursor-pointer"
+        >
+          Skip OCR processing
+        </label>
+      </div>
+
       <div class="text-black text-[12px] text-center px-2">
-        Uploads include OCR processing and may take up to a minute depending on
-        file size.
+        <span v-if="!skipOcr">
+          Uploads that include OCR processing may take up to a minute or two.
+        </span>
+        <span v-else class="">
+          File will be uploaded without text recognition (faster).
+        </span>
       </div>
 
       <button class="upload-btn" @click="uploadSelectedFiles">Upload</button>

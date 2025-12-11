@@ -580,6 +580,8 @@ const folderList = ref([]);
 const unassignedDocs = ref([]);
 const activeFolderId = ref(null);
 
+const uploadSkipOcr = ref(false);
+
 const searchQuery = ref("");
 const sortBy = ref("newest");
 
@@ -668,8 +670,9 @@ onMounted(() => {
 // DOCUMENT HANDLING FUNCS
 
 // Handles file selection from the upload modal
-async function onModalFileSelection(files) {
+async function onModalFileSelection(files, skipOcr) {
   filesToUpload.value = files;
+  uploadSkipOcr.value = skipOcr;
 
   if (files && files.length > 0) {
     showUpload.value = false;
@@ -695,6 +698,8 @@ async function sendDocuments() {
     formData.append("folder_id", activeFolderId.value);
   }
 
+  formData.append("skip_ocr", uploadSkipOcr.value);
+
   try {
     const res = await $fetch(`${apiBaseURL}/documents/`, {
       method: "POST",
@@ -702,6 +707,7 @@ async function sendDocuments() {
     });
     await fetchPastPapers();
     filesToUpload.value = [];
+    uploadSkipOcr.value = false;
   } catch (error) {
     console.error("Error uploading files:", error);
     alert("Upload Failed");
