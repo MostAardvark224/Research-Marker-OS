@@ -42,6 +42,8 @@ class DocumentsViewSet(viewsets.ModelViewSet):
 
         if files:
             uploaded_documents = []
+
+            skip_ocr = request.data.get("skip_ocr", "false").lower() == "true"
             
             # Extra handling for folder assignment
             folder_pk = request.data.get('folder_id', None)
@@ -57,26 +59,28 @@ class DocumentsViewSet(viewsets.ModelViewSet):
                 serializer.is_valid(raise_exception=True)
                 self.perform_create(serializer)
 
-                start_time = time.time()
-                # Performing OCR, overwriting input file to not cause storage bloat
-                input_path = serializer.instance.file.path
-                output_path = input_path
+                if not skip_ocr: 
+                    
+                    start_time = time.time()
+                    # Performing OCR, overwriting input file to not cause storage bloat
+                    input_path = serializer.instance.file.path
+                    output_path = input_path
 
-                try: 
-                    ocr_result = create_searchable_pdf(input_path, output_path)
+                    try: 
+                        ocr_result = create_searchable_pdf(input_path, output_path)
 
-                    instance = serializer.instance
-                    instance.searchable = True
-                    instance.save()
-                
-                except Exception as e:
-                    print("ERROR")
-                    print(e)
+                        instance = serializer.instance
+                        instance.searchable = True
+                        instance.save()
+                    
+                    except Exception as e:
+                        print("ERROR")
+                        print(e)
 
-                uploaded_documents.append(serializer.data)
-                
-                end_time = time.time()
-                print(f"OCR Processing Time for {file.name}: {end_time - start_time} seconds")
+                    uploaded_documents.append(serializer.data)
+                    
+                    end_time = time.time()
+                    print(f"OCR Processing Time for {file.name}: {end_time - start_time} seconds")
 
             return Response(uploaded_documents, status=status.HTTP_201_CREATED)
 

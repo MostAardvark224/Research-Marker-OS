@@ -71,3 +71,5 @@ def create_searchable_pdf(input_path, output_path):
         if os.path.exists(temp_output_path):
             os.remove(temp_output_path)
         return "failed"
+    
+get_ocr_engine()  # Preload the OCR engine at module load time
