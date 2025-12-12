@@ -103,9 +103,9 @@ async function renderPage(pageNum) {
 
   try {
     const page = await pdfDoc.getPage(pageNum);
-
     const scale = zoomLevel.value / 100;
     const viewport = page.getViewport({ scale });
+
     const outputScale = window.devicePixelRatio || 1;
 
     const context = canvas.getContext("2d");
@@ -113,8 +113,11 @@ async function renderPage(pageNum) {
     canvas.width = Math.floor(viewport.width * outputScale);
     canvas.height = Math.floor(viewport.height * outputScale);
 
-    canvas.style.width = Math.floor(viewport.width) + "px";
-    canvas.style.height = Math.floor(viewport.height) + "px";
+    const cssWidth = viewport.width + "px";
+    const cssHeight = viewport.height + "px";
+
+    canvas.style.width = cssWidth;
+    canvas.style.height = cssHeight;
 
     const transform =
       outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null;
@@ -129,8 +132,11 @@ async function renderPage(pageNum) {
 
     if (textLayerDiv) {
       textLayerDiv.innerHTML = "";
-      textLayerDiv.style.width = Math.floor(viewport.width) + "px";
-      textLayerDiv.style.height = Math.floor(viewport.height) + "px";
+
+      textLayerDiv.style.width = cssWidth;
+      textLayerDiv.style.height = cssHeight;
+
+      textLayerDiv.style.setProperty("--scale-factor", scale);
 
       const textContent = await page.getTextContent();
       const textLayer = new pdfjsLib.TextLayer({
@@ -145,7 +151,6 @@ async function renderPage(pageNum) {
     console.error(`Error rendering page ${pageNum}:`, err);
   }
 }
-
 async function renderAllPages() {
   if (!pdfDoc) return;
   const promises = [];
