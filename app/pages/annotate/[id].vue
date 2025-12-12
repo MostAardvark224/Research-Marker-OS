@@ -19,6 +19,94 @@ const canvasRefs = ref([]);
 const textLayerRefs = ref([]);
 const mainScrollContainer = ref(null);
 
+// Search Functionality
+const searchQuery = ref("");
+const searchResults = ref([]);
+const currentMatchIndex = ref(-1);
+const pageTextContent = ref({});
+const isSearching = ref(false);
+let searchDebounce = null;
+
+async function extractAllText() {
+  if (!pdfDoc) return;
+  const numPages = pdfDoc.numPages;
+
+  for (let i = 1; i <= numPages; i++) {
+    try {
+      const page = await pdfDoc.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageStr = textContent.items.map((item) => item.str).join(" ");
+      pageTextContent.value[i] = pageStr;
+    } catch (e) {
+      console.warn(`Could not extract text for page ${i}`);
+    }
+  }
+}
+
+function performSearch() {
+  const query = searchQuery.value.toLowerCase().trim();
+  console.log(query);
+  searchResults.value = [];
+  currentMatchIndex.value = -1;
+
+  if (!query) {
+    renderAllPages();
+    return;
+  }
+
+  isSearching.value = true;
+
+  for (const [pageNumStr, text] of Object.entries(pageTextContent.value)) {
+    const pageNum = parseInt(pageNumStr);
+    const lowerText = text.toLowerCase();
+
+    if (lowerText.includes(query)) {
+      searchResults.value.push({ page: pageNum });
+    }
+  }
+
+  if (searchResults.value.length > 0) {
+    currentMatchIndex.value = 0;
+    scrollToPage(searchResults.value[0].page);
+  }
+
+  renderAllPages();
+  isSearching.value = false;
+}
+
+const nextMatch = () => {
+  if (searchResults.value.length === 0) return;
+
+  if (currentMatchIndex.value < searchResults.value.length - 1) {
+    currentMatchIndex.value++;
+  } else {
+    currentMatchIndex.value = 0;
+  }
+
+  scrollToPage(searchResults.value[currentMatchIndex.value].page);
+};
+
+const prevMatch = () => {
+  if (searchResults.value.length === 0) return;
+
+  if (currentMatchIndex.value > 0) {
+    currentMatchIndex.value--;
+  } else {
+    currentMatchIndex.value = searchResults.value.length - 1;
+  }
+
+  scrollToPage(searchResults.value[currentMatchIndex.value].page);
+};
+
+watch(searchQuery, () => {
+  console.log("Searching for:", searchQuery.value);
+  if (searchDebounce) clearTimeout(searchDebounce);
+  searchDebounce = setTimeout(() => {
+    performSearch();
+    console.log("Searching for:", searchQuery.value);
+  }, 300); // 300ms debounce
+});
+
 // State
 const isSidebarOpen = ref(true);
 const sidebarWidth = ref(320);
@@ -69,7 +157,7 @@ const toggleSidebar = () => {
 };
 
 const zoomIn = () => {
-  if (zoomLevel.value < 300) zoomLevel.value += 10;
+  if (zoomLevel.value < 500) zoomLevel.value += 10;
 };
 const zoomOut = () => {
   if (zoomLevel.value > 50) zoomLevel.value -= 10;
@@ -148,8 +236,23 @@ async function renderPage(pageNum) {
       });
       await textLayer.render();
 
-      const spans = textLayerDiv.querySelectorAll("span");
-      console.log("First span styles:", spans[0]?.style.cssText);
+      if (searchQuery.value.trim() !== "") {
+        const query = searchQuery.value.trim();
+        // escape special regex characters in the query just in case
+        const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const regex = new RegExp(`(${escapedQuery})`, "gi");
+
+        const spans = textLayerDiv.querySelectorAll("span");
+
+        spans.forEach((span) => {
+          if (regex.test(span.textContent)) {
+            span.innerHTML = span.textContent.replace(
+              regex,
+              `<mark class="bg-yellow-500/40 text-transparent rounded-sm">$1</mark>`
+            );
+          }
+        });
+      }
     }
   } catch (err) {
     console.error(`Error rendering page ${pageNum}:`, err);
@@ -175,6 +278,7 @@ async function loadPdf(data) {
     await nextTick();
     await renderAllPages();
     setupIntersectionObserver();
+    extractAllText();
   } catch (err) {
     console.error("Error loading PDF doc:", err);
     error.value = "Failed to parse PDF document.";
@@ -250,8 +354,6 @@ onMounted(async () => {
 
     try {
       const viewerModule = await import("pdfjs-dist/web/pdf_viewer.mjs");
-      console.log("viewerModule contents:", Object.keys(viewerModule));
-      console.log("TextLayer:", viewerModule.TextLayer);
       TextLayerClass = viewerModule.TextLayer;
     } catch (e) {
       console.warn("Could not load TextLayer.", e);
@@ -281,13 +383,38 @@ onMounted(async () => {
       class="relative flex h-16 shrink-0 items-center justify-between border-b border-slate-800 bg-slate-900 px-4 shadow-sm z-20"
     >
       <div class="flex items-center gap-4">
-        <button class="icon-btn" title="Search Document">
-          <Icon name="ph:magnifying-glass" class="h-5 w-5" />
-        </button>
+        <div class="hidden md:flex items-center gap-2" title="Search Document">
+          <SearchBar v-model:search-query="searchQuery" />
+
+          <div
+            v-if="searchQuery"
+            class="flex items-center gap-1 bg-slate-800 rounded-lg px-2 py-1 border border-slate-700"
+          >
+            <span class="text-xs text-slate-400 font-mono w-12 text-center">
+              {{ searchResults.length > 0 ? currentMatchIndex + 1 : 0 }} /
+              {{ searchResults.length }}
+            </span>
+            <div class="w-px h-4 bg-slate-700 mx-1"></div>
+            <button
+              @click="prevMatch"
+              class="p-1 hover:text-white text-slate-400 transition-colors disabled:opacity-50"
+              :disabled="searchResults.length === 0"
+            >
+              <Icon name="ph:caret-up" class="h-3.5 w-3.5" />
+            </button>
+            <button
+              @click="nextMatch"
+              class="p-1 hover:text-white text-slate-400 transition-colors disabled:opacity-50"
+              :disabled="searchResults.length === 0"
+            >
+              <Icon name="ph:caret-down" class="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
 
         <div class="h-5 w-px bg-slate-700/50"></div>
 
-        <div class="flex items-center gap-2">
+        <div class="hidden lg:flex items-center gap-1">
           <button
             class="icon-btn"
             :disabled="currentPage <= 1"
@@ -325,10 +452,10 @@ onMounted(async () => {
       </div>
 
       <div
-        class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 hidden md:flex"
+        class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-30 ml-4"
       >
         <div
-          class="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800/50 p-1 shadow-sm"
+          class="flex items-center gap-1 rounded-xl border border-slate-700 bg-slate-800/50 p-1 shadow-sm"
         >
           <button class="tool-btn" title="Undo">
             <Icon name="ph:arrow-u-up-left" class="h-5 w-5" />
@@ -348,7 +475,7 @@ onMounted(async () => {
           <button class="tool-btn" title="Draw">
             <Icon name="ph:pencil-simple" class="h-5 w-5" />
           </button>
-          <button class="tool-btn" title="Sticky Note">
+          <button class="tool-btn hidden sm:flex" title="Sticky Note">
             <Icon name="ph:note" class="h-5 w-5" />
           </button>
 
@@ -363,9 +490,10 @@ onMounted(async () => {
                 :style="{ backgroundColor: selectedColor }"
               ></div>
             </button>
+
             <div
               v-if="isColorPickerOpen"
-              class="absolute top-full left-1/2 mt-2 -translate-x-1/2 flex flex-col gap-2 rounded-lg border border-slate-700 bg-slate-800 p-2 shadow-xl z-50"
+              class="absolute top-full mt-2 left-1/2 -translate-x-1/2 flex flex-col gap-2 rounded-lg border border-slate-700 bg-slate-800 p-2 shadow-xl z-50"
             >
               <button
                 v-for="color in colors"
@@ -399,7 +527,7 @@ onMounted(async () => {
 
       <div class="flex items-center gap-3">
         <div
-          class="flex items-center rounded-md border border-slate-700 bg-slate-800"
+          class="hidden lg:flex items-center rounded-md border border-slate-700 bg-slate-800"
         >
           <button
             class="p-1.5 hover:bg-slate-700 hover:text-white transition-colors"
@@ -407,9 +535,17 @@ onMounted(async () => {
           >
             <Icon name="ph:minus" class="h-3.5 w-3.5" />
           </button>
+          <input
+            type="number"
+            v-model.number="zoomLevel"
+            min="50"
+            max="500"
+            aria-label="Zoom Level"
+            class="w-7 text-center text-[14px] font-medium text-slate-300 select-none bg-transparent outline-none border-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+          />
           <span
-            class="w-12 text-center text-xs font-medium text-slate-300 select-none"
-            >{{ zoomLevel }}%</span
+            class="text-[14px] font-medium text-slate-400 select-none pr-0.5"
+            >%</span
           >
           <button
             class="p-1.5 hover:bg-slate-700 hover:text-white transition-colors"
@@ -435,11 +571,11 @@ onMounted(async () => {
     <div class="flex flex-1 overflow-hidden relative">
       <main
         ref="mainScrollContainer"
-        class="flex-1 overflow-y-auto overflow-x-hidden bg-slate-950 p-8 flex flex-col items-center gap-2"
+        class="flex-1 overflow-auto bg-slate-950 p-8 flex flex-col items-start gap-4"
       >
         <div
           v-if="loading"
-          class="text-slate-500 flex flex-col items-center mt-20"
+          class="w-full text-slate-500 flex flex-col items-center mt-20"
         >
           <Icon name="ph:spinner" class="h-8 w-8 animate-spin mb-2" />
           <p>Loading PDF...</p>
@@ -447,7 +583,7 @@ onMounted(async () => {
 
         <div
           v-else-if="error"
-          class="text-red-400 flex flex-col items-center mt-20"
+          class="w-full text-red-400 flex flex-col items-center mt-20"
         >
           <Icon name="ph:warning" class="h-8 w-8 mb-2" />
           <p>{{ error }}</p>
@@ -457,7 +593,7 @@ onMounted(async () => {
           <div
             v-for="page in totalPages"
             :key="page"
-            class="flex flex-col items-center"
+            class="mx-auto flex flex-col items-center"
           >
             <div
               :ref="(el) => (pageContainerRefs[page - 1] = el)"

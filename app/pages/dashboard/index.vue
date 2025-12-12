@@ -3,6 +3,23 @@
     :class="`w-screen h-screen overflow-hidden flex flex-col ${colorScheme.containerBg} ${colorScheme.textPrimary}`"
     @click="closeMenus"
   >
+    <div
+      v-if="isUploading"
+      class="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm cursor-wait"
+      @click.stop
+    >
+      <Icon
+        name="material-symbols:progress-activity"
+        class="text-6xl text-blue-500 animate-spin mb-4"
+      />
+      <h3 class="text-xl font-semibold text-white">
+        Uploading & Processing...
+      </h3>
+      <p class="text-slate-400 mt-2 text-sm">
+        Please do not close this window. This may take a couple minutes depending on the size of your file
+      </p>
+    </div>
+
     <div class="flex-1 flex flex-col w-full h-full overflow-hidden">
       <div
         :class="`flex-1 flex flex-col overflow-hidden ${colorScheme.containerBorder} ${colorScheme.containerBg}`"
@@ -37,37 +54,18 @@
             />
 
             <div
-              @click="!isUploading && (showUpload = true)"
-              :class="[
-                `ml-3 inline-flex items-center gap-1.5 transition-colors rounded-lg ${colorScheme.btnPrimary} px-3 py-1.5`,
-                isUploading
-                  ? 'opacity-75 cursor-wait'
-                  : `${colorScheme.btnPrimaryHover} cursor-pointer`,
-              ]"
+              @click="showUpload = true"
+              :class="`ml-3 inline-flex items-center gap-1.5 transition-colors rounded-lg ${colorScheme.btnPrimary} px-3 py-1.5 ${colorScheme.btnPrimaryHover} cursor-pointer`"
             >
-              <template v-if="isUploading">
-                <Icon
-                  name="material-symbols:progress-activity"
-                  :class="`text-2xl ${colorScheme.btnPrimaryText} animate-spin`"
-                />
-                <span
-                  :class="`text-xs font-semibold leading-none ${colorScheme.btnPrimaryText}`"
-                >
-                  Uploading...
-                </span>
-              </template>
-
-              <template v-else>
-                <Icon
-                  name="material-symbols:upload-sharp"
-                  :class="`text-2xl ${colorScheme.btnPrimaryText}`"
-                />
-                <span
-                  :class="`text-xs font-semibold leading-none ${colorScheme.btnPrimaryText}`"
-                >
-                  Upload Papers
-                </span>
-              </template>
+              <Icon
+                name="material-symbols:upload-sharp"
+                :class="`text-2xl ${colorScheme.btnPrimaryText}`"
+              />
+              <span
+                :class="`text-xs font-semibold leading-none ${colorScheme.btnPrimaryText}`"
+              >
+                Upload Papers
+              </span>
             </div>
           </div>
 

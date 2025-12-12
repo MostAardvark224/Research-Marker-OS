@@ -3,7 +3,7 @@ const emit = defineEmits(["files-selected", "close"]);
 
 const fileInput = ref(null);
 const selectedFiles = ref([]);
-const skipOcr = ref(false);
+const skipOcr = ref(true);
 
 const triggerFileDialog = () => {
   fileInput.value?.click();
