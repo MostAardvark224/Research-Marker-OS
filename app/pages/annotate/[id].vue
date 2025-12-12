@@ -137,15 +137,19 @@ async function renderPage(pageNum) {
       textLayerDiv.style.height = cssHeight;
 
       textLayerDiv.style.setProperty("--scale-factor", scale);
+      textLayerDiv.style.setProperty("--total-scale-factor", scale);
 
       const textContent = await page.getTextContent();
+
       const textLayer = new pdfjsLib.TextLayer({
         textContentSource: textContent,
         container: textLayerDiv,
         viewport: viewport,
-        textDivs: [],
       });
       await textLayer.render();
+
+      const spans = textLayerDiv.querySelectorAll("span");
+      console.log("First span styles:", spans[0]?.style.cssText);
     }
   } catch (err) {
     console.error(`Error rendering page ${pageNum}:`, err);
@@ -165,6 +169,8 @@ async function loadPdf(data) {
     const loadingTask = pdfjsLib.getDocument(data);
     pdfDoc = await loadingTask.promise;
     totalPages.value = pdfDoc.numPages;
+
+    await pdfDoc.getDownloadInfo();
 
     await nextTick();
     await renderAllPages();
@@ -244,6 +250,8 @@ onMounted(async () => {
 
     try {
       const viewerModule = await import("pdfjs-dist/web/pdf_viewer.mjs");
+      console.log("viewerModule contents:", Object.keys(viewerModule));
+      console.log("TextLayer:", viewerModule.TextLayer);
       TextLayerClass = viewerModule.TextLayer;
     } catch (e) {
       console.warn("Could not load TextLayer.", e);
@@ -573,27 +581,13 @@ onMounted(async () => {
   text-align: initial;
   inset: 0;
   overflow: hidden;
-  line-height: 1;
-  text-size-adjust: none;
-  transform-origin: 0% 0%;
   opacity: 1;
 }
 
 :deep(.textLayer span) {
   color: transparent;
-  position: absolute;
-  white-space: pre;
-  cursor: text;
-  transform-origin: 0% 0%;
-
-  box-sizing: content-box;
-  letter-spacing: normal;
-  word-spacing: normal;
-  line-height: 1;
-  margin: 0;
-  padding: 0;
-  border: none;
   outline: none;
+  transform-origin: 0% 0%;
 }
 
 :deep(.textLayer ::selection) {
