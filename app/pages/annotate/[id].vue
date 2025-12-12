@@ -1,4 +1,5 @@
 <script setup>
+import { select } from "#build/ui";
 import "pdfjs-dist/web/pdf_viewer.css";
 
 const route = useRoute();
@@ -19,95 +20,7 @@ const canvasRefs = ref([]);
 const textLayerRefs = ref([]);
 const mainScrollContainer = ref(null);
 
-// Search Functionality
-const searchQuery = ref("");
-const searchResults = ref([]);
-const currentMatchIndex = ref(-1);
-const pageTextContent = ref({});
-const isSearching = ref(false);
-let searchDebounce = null;
-
-async function extractAllText() {
-  if (!pdfDoc) return;
-  const numPages = pdfDoc.numPages;
-
-  for (let i = 1; i <= numPages; i++) {
-    try {
-      const page = await pdfDoc.getPage(i);
-      const textContent = await page.getTextContent();
-      const pageStr = textContent.items.map((item) => item.str).join(" ");
-      pageTextContent.value[i] = pageStr;
-    } catch (e) {
-      console.warn(`Could not extract text for page ${i}`);
-    }
-  }
-}
-
-function performSearch() {
-  const query = searchQuery.value.toLowerCase().trim();
-  console.log(query);
-  searchResults.value = [];
-  currentMatchIndex.value = -1;
-
-  if (!query) {
-    renderAllPages();
-    return;
-  }
-
-  isSearching.value = true;
-
-  for (const [pageNumStr, text] of Object.entries(pageTextContent.value)) {
-    const pageNum = parseInt(pageNumStr);
-    const lowerText = text.toLowerCase();
-
-    if (lowerText.includes(query)) {
-      searchResults.value.push({ page: pageNum });
-    }
-  }
-
-  if (searchResults.value.length > 0) {
-    currentMatchIndex.value = 0;
-    scrollToPage(searchResults.value[0].page);
-  }
-
-  renderAllPages();
-  isSearching.value = false;
-}
-
-const nextMatch = () => {
-  if (searchResults.value.length === 0) return;
-
-  if (currentMatchIndex.value < searchResults.value.length - 1) {
-    currentMatchIndex.value++;
-  } else {
-    currentMatchIndex.value = 0;
-  }
-
-  scrollToPage(searchResults.value[currentMatchIndex.value].page);
-};
-
-const prevMatch = () => {
-  if (searchResults.value.length === 0) return;
-
-  if (currentMatchIndex.value > 0) {
-    currentMatchIndex.value--;
-  } else {
-    currentMatchIndex.value = searchResults.value.length - 1;
-  }
-
-  scrollToPage(searchResults.value[currentMatchIndex.value].page);
-};
-
-watch(searchQuery, () => {
-  console.log("Searching for:", searchQuery.value);
-  if (searchDebounce) clearTimeout(searchDebounce);
-  searchDebounce = setTimeout(() => {
-    performSearch();
-    console.log("Searching for:", searchQuery.value);
-  }, 300); // 300ms debounce
-});
-
-// State
+// General State
 const isSidebarOpen = ref(true);
 const sidebarWidth = ref(320);
 const currentPage = ref(1);
@@ -118,6 +31,39 @@ const isColorPickerOpen = ref(false);
 const selectedColor = ref("#ef4444");
 const isResizing = ref(false);
 const isManualScrolling = ref(false);
+
+const selectColor = (color) => {
+  selectedColor.value = color;
+};
+
+// Top toolbar state
+const activeTool = ref("cursor");
+function changeActiveTool(newToolButton) {
+  activeTool.value = newToolButton;
+  console.log("Active tool changed to:", newToolButton);
+}
+
+// Sidebar stat
+const sidebarActiveTab = ref("stickyNotes");
+function changeSidebarTab(tabName) {
+  sidebarActiveTab.value = tabName;
+}
+
+// For border transition
+const sliderStyle = computed(() => {
+  if (sidebarActiveTab.value === "stickyNotes") {
+    return {
+      left: "0%",
+      width: "50%",
+    };
+  } else if (sidebarActiveTab.value === "notepad") {
+    return {
+      left: "50%",
+      width: "50%",
+    };
+  }
+  return { left: "0%", width: "50%" };
+});
 
 const colors = [
   "#ef4444",
@@ -367,11 +313,100 @@ onMounted(async () => {
     }
 
     await fetchPaper();
+    console.log(activeTool.value);
   } catch (err) {
     console.error("Failed to load PDF libraries:", err);
     error.value = "Failed to initialize PDF viewer.";
     loading.value = false;
   }
+});
+
+// Search Functionality
+const searchQuery = ref("");
+const searchResults = ref([]);
+const currentMatchIndex = ref(-1);
+const pageTextContent = ref({});
+const isSearching = ref(false);
+let searchDebounce = null;
+
+async function extractAllText() {
+  if (!pdfDoc) return;
+  const numPages = pdfDoc.numPages;
+
+  for (let i = 1; i <= numPages; i++) {
+    try {
+      const page = await pdfDoc.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageStr = textContent.items.map((item) => item.str).join(" ");
+      pageTextContent.value[i] = pageStr;
+    } catch (e) {
+      console.warn(`Could not extract text for page ${i}`);
+    }
+  }
+}
+
+function performSearch() {
+  const query = searchQuery.value.toLowerCase().trim();
+  console.log(query);
+  searchResults.value = [];
+  currentMatchIndex.value = -1;
+
+  if (!query) {
+    renderAllPages();
+    return;
+  }
+
+  isSearching.value = true;
+
+  for (const [pageNumStr, text] of Object.entries(pageTextContent.value)) {
+    const pageNum = parseInt(pageNumStr);
+    const lowerText = text.toLowerCase();
+
+    if (lowerText.includes(query)) {
+      searchResults.value.push({ page: pageNum });
+    }
+  }
+
+  if (searchResults.value.length > 0) {
+    currentMatchIndex.value = 0;
+    scrollToPage(searchResults.value[0].page);
+  }
+
+  renderAllPages();
+  isSearching.value = false;
+}
+
+const nextMatch = () => {
+  if (searchResults.value.length === 0) return;
+
+  if (currentMatchIndex.value < searchResults.value.length - 1) {
+    currentMatchIndex.value++;
+  } else {
+    currentMatchIndex.value = 0;
+  }
+
+  scrollToPage(searchResults.value[currentMatchIndex.value].page);
+};
+
+const prevMatch = () => {
+  if (searchResults.value.length === 0) return;
+
+  if (currentMatchIndex.value > 0) {
+    currentMatchIndex.value--;
+  } else {
+    currentMatchIndex.value = searchResults.value.length - 1;
+  }
+
+  scrollToPage(searchResults.value[currentMatchIndex.value].page);
+};
+
+watch(searchQuery, () => {
+  console.log("Searching for:", searchQuery.value);
+  if (searchDebounce) clearTimeout(searchDebounce);
+  searchDebounce = setTimeout(() => {
+    performSearch();
+    console.log("Searching for:", searchQuery.value);
+  }, 300); // 300ms debounce
 });
 </script>
 
@@ -466,17 +501,41 @@ onMounted(async () => {
 
           <div class="mx-1 h-5 w-px bg-slate-600/50"></div>
 
-          <button class="tool-btn active-tool" title="Select Cursor">
-            <Icon name="ph:cursor" class="h-5 w-5" />
+          <button
+            id="cursor"
+            @click="changeActiveTool('cursor')"
+            class="tool-btn"
+            :class="{ 'active-tool': activeTool === 'cursor' }"
+            title="Select Cursor"
+          >
+            <Icon name="ph:cursor" class="text-[16px]" />
           </button>
-          <button class="tool-btn" title="Highlight Text">
-            <Icon name="ph:highlighter" class="h-5 w-5" />
+          <button
+            id="highlighter"
+            @click="changeActiveTool('highlighter')"
+            :class="{ 'active-tool': activeTool === 'highlighter' }"
+            class="tool-btn"
+            title="Highlight Text"
+          >
+            <Icon name="ph:highlighter" class="text-[16px]" />
           </button>
-          <button class="tool-btn" title="Draw">
-            <Icon name="ph:pencil-simple" class="h-5 w-5" />
+          <button
+            id="draw"
+            @click="changeActiveTool('draw')"
+            class="tool-btn"
+            :class="{ 'active-tool': activeTool === 'draw' }"
+            title="Draw"
+          >
+            <Icon name="ph:pencil-simple" class="text-[16px]" />
           </button>
-          <button class="tool-btn hidden sm:flex" title="Sticky Note">
-            <Icon name="ph:note" class="h-5 w-5" />
+          <button
+            id="stickyNote"
+            @click="changeActiveTool('stickyNote')"
+            :class="{ 'active-tool': activeTool === 'stickyNote' }"
+            class="tool-btn"
+            title="Sticky Note"
+          >
+            <Icon name="ph:note" class="text-[16px]" />
           </button>
 
           <div class="relative mx-0.5">
@@ -626,24 +685,49 @@ onMounted(async () => {
         :class="{ 'border-none opacity-0 overflow-hidden': !isSidebarOpen }"
       >
         <div
-          class="h-12 border-b border-slate-800 flex items-center px-2 shrink-0"
+          class="relative h-12 border-b border-slate-800 flex items-center px-2 shrink-0"
         >
           <div
-            class="flex-1 text-center py-2 text-sm font-medium text-slate-200 border-b-2 border-indigo-500"
+            class="absolute bottom-0 h-0.5 bg-indigo-500 transition-all duration-300 ease-in-out"
+            :style="sliderStyle"
+          ></div>
+
+          <div
+            @click="changeSidebarTab('stickyNotes')"
+            class="flex-1 text-center py-2 text-sm font-medium transition-colors z-10"
+            :class="{
+              'text-slate-200': sidebarActiveTab === 'stickyNotes',
+              'text-slate-500 hover:text-slate-300 cursor-pointer':
+                sidebarActiveTab !== 'stickyNotes',
+            }"
           >
-            Notes
+            Sticky Notes
           </div>
           <div
-            class="flex-1 text-center py-2 text-sm font-medium text-slate-500 hover:text-slate-300 cursor-pointer"
+            @click="changeSidebarTab('notepad')"
+            class="flex-1 text-center py-2 text-sm font-medium transition-colors z-10"
+            :class="{
+              'text-slate-200': sidebarActiveTab === 'notepad',
+              'text-slate-500 hover:text-slate-300 cursor-pointer':
+                sidebarActiveTab !== 'notepad',
+            }"
           >
-            Info
+            Notepad
           </div>
         </div>
 
+        <!-- Add v-ifs in each container, depending on whether they have notes or not. -->
         <div
+          v-show="sidebarActiveTab === 'stickyNotes'"
           class="flex-1 p-6 flex flex-col items-center justify-center text-slate-600"
         >
-          <span class="text-sm italic opacity-50">No content available</span>
+          <span class="text-sm italic opacity-50">Sticky Notes content</span>
+        </div>
+        <div
+          v-show="sidebarActiveTab === 'notepad'"
+          class="flex-1 p-6 flex flex-col items-center justify-center text-slate-600"
+        >
+          <span class="text-sm italic opacity-50">Notepad content</span>
         </div>
       </aside>
     </div>
