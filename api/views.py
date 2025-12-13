@@ -117,3 +117,35 @@ class getPaper(APIView):
         response['Content-Disposition'] = f'inline; filename="{document.title}.pdf"'
 
         return response
+
+# Handle all annotation-related operations
+class AnnotationsViewSet(viewsets.ModelViewSet):
+    queryset = models.Annotations.objects.all()
+    serializer_class = serializers.AnnotationSerializer
+    lookup_field = 'document' # b/c only 1 annotations object per document
+
+    # Get or create so that it works on every post req
+    def create(self, request, *args, **kwargs):
+        doc_id = request.data.get('document', None)
+        
+        annotation, created = models.Annotations.objects.get_or_create(
+            document=models.Document.objects.get(pk=doc_id), 
+            defaults={
+                'highlight_data': request.data.get('highlight_data', {}),
+                'notepad': request.data.get('notepad', ''),
+                'sticky_note_data': request.data.get('sticky_note_data', {}),
+                }
+            )
+        
+        if not created:
+            # Update existing annotation
+            annotation.highlight_data = request.data.get('highlight_data', annotation.highlight_data)
+            annotation.notepad = request.data.get('notepad', annotation.notepad)
+            annotation.sticky_note_data = request.data.get('sticky_note_data', annotation.sticky_note_data)
+            annotation.save()
+        
+        return Response(
+            serializers.AnnotationSerializer(annotation).data, 
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK
+        )
+    

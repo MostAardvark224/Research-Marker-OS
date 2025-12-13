@@ -7,6 +7,7 @@ router = DefaultRouter()
 
 router.register(r'documents', DocumentsViewSet, basename='documents')
 router.register(r'folders', views.FoldersViewSet, basename='folders')
+router.register(r'annotations', views.AnnotationsViewSet, basename='annotations')
 
 urlpatterns = [
     path('complete-fetch/', views.CompleteFetch.as_view(), name='complete-fetch'),

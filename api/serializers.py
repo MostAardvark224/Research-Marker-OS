@@ -15,3 +15,7 @@ class FolderSerializer(serializers.ModelSerializer):
         model = models.Folder
         fields = ['id', 'name', 'created_at', 'documents']
 
+class AnnotationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.Annotations
+        fields = '__all__'

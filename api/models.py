@@ -19,7 +19,9 @@ class Document(models.Model):
     
 class Annotations(models.Model):
     document = models.ForeignKey(Document, related_name='annotations', on_delete=models.CASCADE)
-    content = models.TextField()
+    highlight_data = models.JSONField(null=True,)
+    notepad = models.TextField(null=True, blank=True)
+    sticky_note_data = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
