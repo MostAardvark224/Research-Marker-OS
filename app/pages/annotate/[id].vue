@@ -1,6 +1,7 @@
 <script setup>
 import { select } from "#build/ui";
 import "pdfjs-dist/web/pdf_viewer.css";
+import { createPDFAnnotator } from "@recogito/pdf-annotator";
 
 const route = useRoute();
 const id = route.params.id;
@@ -305,15 +306,7 @@ onMounted(async () => {
       console.warn("Could not load TextLayer.", e);
     }
 
-    try {
-      const annotModule = await import("annotpdf");
-      AnnotationFactory = annotModule.AnnotationFactory;
-    } catch (e) {
-      console.warn("Could not load annotpdf", e);
-    }
-
     await fetchPaper();
-    console.log(activeTool.value);
   } catch (err) {
     console.error("Failed to load PDF libraries:", err);
     error.value = "Failed to initialize PDF viewer.";
@@ -321,7 +314,9 @@ onMounted(async () => {
   }
 });
 
-// Search Functionality
+// Annotation Func
+
+// Search Func
 const searchQuery = ref("");
 const searchResults = ref([]);
 const currentMatchIndex = ref(-1);
@@ -519,15 +514,7 @@ watch(searchQuery, () => {
           >
             <Icon name="ph:highlighter" class="text-[16px]" />
           </button>
-          <button
-            id="draw"
-            @click="changeActiveTool('draw')"
-            class="tool-btn"
-            :class="{ 'active-tool': activeTool === 'draw' }"
-            title="Draw"
-          >
-            <Icon name="ph:pencil-simple" class="text-[16px]" />
-          </button>
+
           <button
             id="stickyNote"
             @click="changeActiveTool('stickyNote')"
@@ -536,6 +523,15 @@ watch(searchQuery, () => {
             title="Sticky Note"
           >
             <Icon name="ph:note" class="text-[16px]" />
+          </button>
+          <button
+            id="deleteAnnotation"
+            @click="changeActiveTool('deleteAnnotation')"
+            class="tool-btn"
+            :class="{ 'active-tool': activeTool === 'deleteAnnotation' }"
+            title="Delete Annotation"
+          >
+            <Icon name="material-symbols:delete-outline" class="text-[16px]" />
           </button>
 
           <div class="relative mx-0.5">
@@ -586,7 +582,7 @@ watch(searchQuery, () => {
 
       <div class="flex items-center gap-3">
         <div
-          class="hidden lg:flex items-center rounded-md border border-slate-700 bg-slate-800"
+          class="hidden md:flex items-center rounded-md border border-slate-700 bg-slate-800"
         >
           <button
             class="p-1.5 hover:bg-slate-700 hover:text-white transition-colors"
