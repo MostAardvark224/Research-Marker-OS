@@ -2,6 +2,7 @@
 import { select } from "#build/ui";
 import "pdfjs-dist/web/pdf_viewer.css";
 
+// General States
 const route = useRoute();
 const id = route.params.id;
 
@@ -16,15 +17,18 @@ let pdfBytes = null;
 let factory = null;
 const savedHighlights = ref([]);
 const stickyNoteData = ref([]);
-let saveNotepadDebounce = null;
 const notepadData = ref("");
+
+const undoStack = ref([]);
+const redoStack = ref([]);
+
+const activeStickyNoteId = ref(null);
 
 const pageContainerRefs = ref([]);
 const canvasRefs = ref([]);
 const textLayerRefs = ref([]);
 const mainScrollContainer = ref(null);
 
-// General State
 const isSidebarOpen = ref(true);
 const sidebarWidth = ref(320);
 const currentPage = ref(1);
@@ -36,19 +40,7 @@ const selectedColor = ref("#f59e0b");
 const isResizing = ref(false);
 const isManualScrolling = ref(false);
 
-async function fetchAnnotations() {
-  try {
-    const data = await $fetch(`/api/annotations/${id}/`, { method: "GET" });
-    if (data) {
-      if (data.highlight_data) savedHighlights.value = data.highlight_data;
-      if (data.notepad) notepadData.value = data.notepad;
-      if (data.sticky_note_data) stickyNoteData.value = data.sticky_note_data;
-    }
-  } catch (e) {
-    console.warn("No existing annotations found or failed to fetch", e);
-  }
-}
-
+// Highlight Events
 const handleTextSelection = async () => {
   if (activeTool.value !== "highlighter") return;
 
@@ -90,6 +82,7 @@ const handleTextSelection = async () => {
 
   const newHighlight = {
     id: crypto.randomUUID(),
+    type: "highlight",
     page: pageIndex,
     text: selectedText,
     color: selectedColor.value,
@@ -97,12 +90,17 @@ const handleTextSelection = async () => {
   };
 
   savedHighlights.value.push(newHighlight);
+
+  undoStack.value.push({ type: "add", data: newHighlight });
+  redoStack.value = [];
+
   renderHighlight(newHighlight, container);
   selection.removeAllRanges();
 
-  await saveHighlightToBackend();
+  await saveAnnotationsToBackend();
 };
 
+// Shows the highlight on the pdf
 const renderHighlight = (highlight, textLayerElement) => {
   if (!textLayerElement) {
     textLayerElement = textLayerRefs.value[highlight.page - 1];
@@ -114,10 +112,10 @@ const renderHighlight = (highlight, textLayerElement) => {
     div.classList.add("custom-highlight");
     div.dataset.id = highlight.id;
 
-    // Style of highlight
     div.style.position = "absolute";
     div.style.backgroundColor = highlight.color;
-    div.style.pointerEvents = "none";
+    div.style.pointerEvents = "auto";
+    div.style.cursor = "pointer";
     div.style.mixBlendMode = "darken";
 
     div.style.left = `calc(${rect.x}px * var(--scale-factor))`;
@@ -125,12 +123,235 @@ const renderHighlight = (highlight, textLayerElement) => {
     div.style.width = `calc(${rect.width}px * var(--scale-factor))`;
     div.style.height = `calc(${rect.height}px * var(--scale-factor))`;
 
+    div.addEventListener("click", (e) => {
+      handleAnnotationClick(e, highlight);
+    });
+
     textLayerElement.appendChild(div);
   });
 };
 
-// Saving to backend
-async function saveHighlightToBackend() {
+// Deleting Highlights
+const handleAnnotationClick = async (event, annotation) => {
+  event.stopPropagation();
+
+  if (activeTool.value === "deleteAnnotation") {
+    if (annotation.type === "highlight") {
+      const pageIndex = annotation.page - 1;
+      const textLayer = textLayerRefs.value[pageIndex];
+      if (textLayer) {
+        const elements = textLayer.querySelectorAll(
+          `[data-id="${annotation.id}"]`
+        );
+        elements.forEach((el) => el.remove());
+      }
+
+      savedHighlights.value = savedHighlights.value.filter(
+        (h) => h.id !== annotation.id
+      );
+
+      undoStack.value.push({ type: "delete", data: annotation });
+      redoStack.value = [];
+    } else if (annotation.type === "stickyNote") {
+      const pageIndex = annotation.page - 1;
+      const textLayer = textLayerRefs.value[pageIndex];
+      if (textLayer) {
+        const el = textLayer.querySelector(`[data-id="${annotation.id}"]`);
+        if (el) el.remove();
+      }
+      stickyNoteData.value = stickyNoteData.value.filter(
+        (s) => s.id !== annotation.id
+      );
+      if (activeStickyNoteId.value === annotation.id) {
+        activeStickyNoteId.value = null;
+      }
+
+      undoStack.value.push({ type: "delete", data: annotation });
+      redoStack.value = [];
+    }
+
+    await saveAnnotationsToBackend();
+  } else if (annotation.type === "stickyNote") {
+    activeStickyNoteId.value = annotation.id;
+    changeSidebarTab("stickyNotes");
+    if (!isSidebarOpen.value) isSidebarOpen.value = true;
+  }
+};
+
+// Sticky Note Events
+const handleLayerClick = async (event, pageNum) => {
+  if (activeTool.value !== "stickyNote") return;
+
+  const textLayer = textLayerRefs.value[pageNum - 1];
+  if (!textLayer) return;
+
+  const rect = textLayer.getBoundingClientRect();
+  const scale = zoomLevel.value / 100;
+
+  const x = (event.clientX - rect.left) / scale;
+  const y = (event.clientY - rect.top) / scale;
+
+  const newSticky = {
+    id: crypto.randomUUID(),
+    type: "stickyNote",
+    page: pageNum,
+    x: x,
+    y: y,
+    content: "",
+    color: selectedColor.value,
+    timestamp: new Date().toISOString(),
+  };
+
+  stickyNoteData.value.push(newSticky);
+
+  undoStack.value.push({ type: "add", data: newSticky });
+  redoStack.value = [];
+
+  renderStickyNote(newSticky, textLayer);
+
+  activeStickyNoteId.value = newSticky.id;
+  changeSidebarTab("stickyNotes");
+  if (!isSidebarOpen.value) isSidebarOpen.value = true;
+
+  await saveAnnotationsToBackend();
+};
+
+// Shows the sticky note on the pdf
+const renderStickyNote = (note, textLayerElement) => {
+  if (!textLayerElement) {
+    textLayerElement = textLayerRefs.value[note.page - 1];
+  }
+  if (!textLayerElement) return;
+
+  // styling
+  const iconDiv = document.createElement("div");
+  iconDiv.dataset.id = note.id;
+  iconDiv.classList.add("sticky-note-icon");
+  iconDiv.style.position = "absolute";
+  iconDiv.style.left = `calc(${note.x}px * var(--scale-factor))`;
+  iconDiv.style.top = `calc(${note.y}px * var(--scale-factor))`;
+  iconDiv.style.width = "36px";
+  iconDiv.style.height = "36px";
+  iconDiv.style.transform = "translate(-50%, -50%)";
+  iconDiv.style.cursor = "pointer";
+  iconDiv.style.pointerEvents = "auto";
+  iconDiv.style.zIndex = "20";
+  iconDiv.style.filter =
+    "drop-shadow(0 4px 3px rgb(0 0 0 / 0.07)) drop-shadow(0 2px 2px rgb(0 0 0 / 0.06))";
+
+  // svg icon
+  iconDiv.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" style="width: 100%; height: 100%;">
+            <rect x="16" y="16" width="224" height="224" rx="12" ry="12"
+                  fill="${note.color}"
+                  stroke="rgba(0,0,0,0.1)" stroke-width="4" />
+
+            <g stroke="rgba(0,0,0,0.2)" stroke-width="12" stroke-linecap="round">
+                <line x1="48" y1="88" x2="208" y2="88" />
+                <line x1="48" y1="136" x2="208" y2="136" />
+                <line x1="48" y1="184" x2="176" y2="184" />
+            </g>
+        </svg>
+    `;
+
+  iconDiv.addEventListener("click", (e) => handleAnnotationClick(e, note));
+  textLayerElement.appendChild(iconDiv);
+};
+
+// undo/redo functions
+const performUndo = async () => {
+  const action = undoStack.value.pop();
+  if (!action) return;
+
+  if (action.type === "add") {
+    if (action.data.type === "highlight") {
+      savedHighlights.value = savedHighlights.value.filter(
+        (h) => h.id !== action.data.id
+      );
+      const pageIndex = action.data.page - 1;
+      const textLayer = textLayerRefs.value[pageIndex];
+      if (textLayer) {
+        textLayer
+          .querySelectorAll(`[data-id="${action.data.id}"]`)
+          .forEach((el) => el.remove());
+      }
+    } else if (action.data.type === "stickyNote") {
+      stickyNoteData.value = stickyNoteData.value.filter(
+        (s) => s.id !== action.data.id
+      );
+      const pageIndex = action.data.page - 1;
+      const textLayer = textLayerRefs.value[pageIndex];
+      if (textLayer) {
+        const el = textLayer.querySelector(`[data-id="${action.data.id}"]`);
+        if (el) el.remove();
+      }
+      if (activeStickyNoteId.value === action.data.id)
+        activeStickyNoteId.value = null;
+    }
+    redoStack.value.push(action);
+  } else if (action.type === "delete") {
+    // Inverse of Delete is Add
+    if (action.data.type === "highlight") {
+      savedHighlights.value.push(action.data);
+      const textLayer = textLayerRefs.value[action.data.page - 1];
+      if (textLayer) renderHighlight(action.data, textLayer);
+    } else if (action.data.type === "stickyNote") {
+      stickyNoteData.value.push(action.data);
+      const textLayer = textLayerRefs.value[action.data.page - 1];
+      if (textLayer) renderStickyNote(action.data, textLayer);
+    }
+    redoStack.value.push(action);
+  }
+  await saveAnnotationsToBackend();
+};
+
+const performRedo = async () => {
+  const action = redoStack.value.pop();
+  if (!action) return;
+
+  if (action.type === "add") {
+    if (action.data.type === "highlight") {
+      savedHighlights.value.push(action.data);
+      const textLayer = textLayerRefs.value[action.data.page - 1];
+      if (textLayer) renderHighlight(action.data, textLayer);
+    } else if (action.data.type === "stickyNote") {
+      stickyNoteData.value.push(action.data);
+      const textLayer = textLayerRefs.value[action.data.page - 1];
+      if (textLayer) renderStickyNote(action.data, textLayer);
+    }
+    undoStack.value.push(action);
+  } else if (action.type === "delete") {
+    if (action.data.type === "highlight") {
+      savedHighlights.value = savedHighlights.value.filter(
+        (h) => h.id !== action.data.id
+      );
+      const pageIndex = action.data.page - 1;
+      const textLayer = textLayerRefs.value[pageIndex];
+      if (textLayer) {
+        textLayer
+          .querySelectorAll(`[data-id="${action.data.id}"]`)
+          .forEach((el) => el.remove());
+      }
+    } else if (action.data.type === "stickyNote") {
+      stickyNoteData.value = stickyNoteData.value.filter(
+        (s) => s.id !== action.data.id
+      );
+      const pageIndex = action.data.page - 1;
+      const textLayer = textLayerRefs.value[pageIndex];
+      if (textLayer) {
+        const el = textLayer.querySelector(`[data-id="${action.data.id}"]`);
+        if (el) el.remove();
+      }
+      if (activeStickyNoteId.value === action.data.id)
+        activeStickyNoteId.value = null;
+    }
+    undoStack.value.push(action);
+  }
+  await saveAnnotationsToBackend();
+};
+
+// general function to update annotations to backend
+async function saveAnnotationsToBackend() {
   try {
     await $fetch("/api/annotations/", {
       method: "POST",
@@ -146,7 +367,32 @@ async function saveHighlightToBackend() {
   }
 }
 
-// Sidebar stat
+// Gets annotations from backend and loads into state vars
+async function fetchAnnotations() {
+  try {
+    const data = await $fetch(`/api/annotations/${id}/`, { method: "GET" });
+    if (data) {
+      if (data.highlight_data) savedHighlights.value = data.highlight_data;
+      if (data.notepad) notepadData.value = data.notepad;
+      if (data.sticky_note_data) stickyNoteData.value = data.sticky_note_data;
+    }
+  } catch (e) {
+    console.warn("No existing annotations found or failed to fetch", e);
+  }
+}
+
+// Tool bar helper functions
+const selectColor = (color) => {
+  selectedColor.value = color;
+};
+
+const activeTool = ref("cursor");
+function changeActiveTool(newToolButton) {
+  activeTool.value = newToolButton;
+  console.log("Active tool changed to:", newToolButton);
+}
+
+// Sidebar state
 const sidebarActiveTab = ref("stickyNotes");
 function changeSidebarTab(tabName) {
   sidebarActiveTab.value = tabName;
@@ -154,61 +400,55 @@ function changeSidebarTab(tabName) {
 
 // Sidebar functions
 // Notepad
+let saveNotepadDebounce = null;
 watch(notepadData, () => {
   if (saveNotepadDebounce) clearTimeout(saveNotepadDebounce);
-
-  // prevents server overload, 3s debounce
   saveNotepadDebounce = setTimeout(() => {
-    saveNotepadToBackend();
-  }, 3000);
+    saveAnnotationsToBackend();
+  }, 1500);
 });
 
-async function saveNotepadToBackend() {
-  try {
-    await fetch("/api/annotations/", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        document: id,
-        highlight_data: savedHighlights.value,
-        notepad: notepadData.value,
-        sticky_note_data: stickyNoteData.value,
-      }),
-    });
-  } catch (e) {
-    console.error("Failed to save notepad data", e);
-  }
-}
+let saveStickyDebounce = null;
+watch(
+  stickyNoteData,
+  () => {
+    if (saveStickyDebounce) clearTimeout(saveStickyDebounce);
+    saveStickyDebounce = setTimeout(() => {
+      saveAnnotationsToBackend();
+    }, 1500);
+  },
+  { deep: true }
+);
 
-// Sticky Notes
-async function saveStickyNoteToBackend() {
-  try {
-    await fetch("/api/annotations/", {
-      method: "POST",
-      body: {
-        document: id,
-        notepad: notepadData.value,
-      },
-    });
-  } catch (e) {
-    console.error("Failed to save notepad data", e);
+const focusStickyNote = (noteId) => {
+  const note = stickyNoteData.value.find((n) => n.id === noteId);
+  if (note) {
+    scrollToPage(note.page);
+    activeStickyNoteId.value = noteId;
   }
-}
-
-const selectColor = (color) => {
-  selectedColor.value = color;
 };
 
-// Top toolbar state
-const activeTool = ref("cursor");
-function changeActiveTool(newToolButton) {
-  activeTool.value = newToolButton;
-  console.log("Active tool changed to:", newToolButton);
-}
+const deleteStickyNote = async (noteId) => {
+  const note = stickyNoteData.value.find((n) => n.id === noteId);
+  if (!note) return;
 
-// For border transition
+  const pageIndex = note.page - 1;
+  const textLayer = textLayerRefs.value[pageIndex];
+  if (textLayer) {
+    const el = textLayer.querySelector(`[data-id="${noteId}"]`);
+    if (el) el.remove();
+  }
+
+  stickyNoteData.value = stickyNoteData.value.filter((s) => s.id !== noteId);
+  if (activeStickyNoteId.value === noteId) activeStickyNoteId.value = null;
+
+  undoStack.value.push({ type: "delete", data: note });
+  redoStack.value = [];
+
+  await saveAnnotationsToBackend();
+};
+
+// For border transition when switching tabs
 const sliderStyle = computed(() => {
   if (sidebarActiveTab.value === "stickyNotes") {
     return {
@@ -224,6 +464,7 @@ const sliderStyle = computed(() => {
   return { left: "0%", width: "50%" };
 });
 
+// Color wheel in tool bar
 const colors = [
   "#ef4444",
   "#f59e0b",
@@ -233,6 +474,7 @@ const colors = [
   "#ec4899",
 ];
 
+// Sidebar resizing (drag)
 const startResize = () => {
   isResizing.value = true;
   document.body.style.cursor = "col-resize";
@@ -261,6 +503,7 @@ const toggleSidebar = () => {
   isSidebarOpen.value = !isSidebarOpen.value;
 };
 
+// zoom helpers
 const zoomIn = () => {
   if (zoomLevel.value < 500) zoomLevel.value += 10;
 };
@@ -333,6 +576,9 @@ async function renderPage(pageNum) {
       textLayerDiv.style.setProperty("--total-scale-factor", scale);
       textLayerDiv.setAttribute("data-page-number", pageNum);
 
+      // C=click listener for sticky note placement
+      textLayerDiv.onclick = (e) => handleLayerClick(e, pageNum);
+
       const textContent = await page.getTextContent();
 
       const textLayer = new pdfjsLib.TextLayer({
@@ -347,9 +593,13 @@ async function renderPage(pageNum) {
       );
       pageHighlights.forEach((h) => renderHighlight(h, textLayerDiv));
 
+      const pageStickyNotes = stickyNoteData.value.filter(
+        (s) => s.page === pageNum
+      );
+      pageStickyNotes.forEach((s) => renderStickyNote(s, textLayerDiv));
+
       if (searchQuery.value.trim() !== "") {
         const query = searchQuery.value.trim();
-        // escape special regex characters in the query just in case
         const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
         const regex = new RegExp(`(${escapedQuery})`, "gi");
 
@@ -570,7 +820,7 @@ watch(searchQuery, () => {
   searchDebounce = setTimeout(() => {
     performSearch();
     console.log("Searching for:", searchQuery.value);
-  }, 300); // 300ms debounce
+  }, 3000); // 3s debounce to keep load off of backend
 });
 </script>
 
@@ -656,10 +906,20 @@ watch(searchQuery, () => {
         <div
           class="flex items-center gap-1 rounded-xl border border-slate-700 bg-slate-800/50 p-1 shadow-sm"
         >
-          <button class="tool-btn" title="Undo">
+          <button
+            class="tool-btn"
+            title="Undo"
+            @click="performUndo"
+            :disabled="undoStack.length === 0"
+          >
             <Icon name="ph:arrow-u-up-left" class="h-5 w-5" />
           </button>
-          <button class="tool-btn" title="Redo">
+          <button
+            class="tool-btn"
+            title="Redo"
+            @click="performRedo"
+            :disabled="redoStack.length === 0"
+          >
             <Icon name="ph:arrow-u-up-right" class="h-5 w-5" />
           </button>
 
@@ -743,7 +1003,7 @@ watch(searchQuery, () => {
           >
             <Icon
               :name="isAnnotationsHidden ? 'ph:eye-slash' : 'ph:eye'"
-              class="text-[16px]"
+              class="h-5 w-5"
             />
           </button>
         </div>
@@ -796,6 +1056,7 @@ watch(searchQuery, () => {
       <main
         ref="mainScrollContainer"
         class="flex-1 overflow-auto bg-slate-950 p-8 flex flex-col items-start gap-4"
+        :class="{ 'hide-annotations': isAnnotationsHidden }"
       >
         <div
           v-if="loading"
@@ -883,9 +1144,46 @@ watch(searchQuery, () => {
 
         <div
           v-show="sidebarActiveTab === 'stickyNotes'"
-          class="flex-1 p-6 flex flex-col items-center justify-center text-slate-600"
+          class="flex-1 p-4 flex flex-col overflow-y-auto gap-3"
         >
-          <span class="text-sm italic opacity-50">Sticky Notes content</span>
+          <div
+            v-if="stickyNoteData.length === 0"
+            class="flex flex-col items-center justify-center h-32 text-slate-600"
+          >
+            <span class="text-sm italic opacity-50"
+              >Click on PDF to add note</span
+            >
+          </div>
+          <div
+            v-for="note in stickyNoteData"
+            :key="note.id"
+            class="bg-slate-800 p-3 rounded border border-slate-700 hover:border-slate-600 transition-colors"
+            :class="{
+              'ring-2 ring-indigo-500': activeStickyNoteId === note.id,
+            }"
+            @click="focusStickyNote(note.id)"
+          >
+            <div class="flex justify-between items-start mb-2">
+              <div class="flex items-center gap-2">
+                <div
+                  class="w-3 h-3 rounded-full"
+                  :style="{ backgroundColor: note.color }"
+                ></div>
+                <span class="text-xs text-slate-400">Page {{ note.page }}</span>
+              </div>
+              <button
+                @click.stop="deleteStickyNote(note.id)"
+                class="text-slate-500 hover:text-red-400"
+              >
+                <Icon name="material-symbols:delete-outline" class="w-4 h-4" />
+              </button>
+            </div>
+            <textarea
+              v-model="note.content"
+              class="w-full bg-slate-900/50 text-slate-300 text-sm p-2 rounded border border-slate-700/50 focus:outline-none focus:border-indigo-500/50 resize-none h-20"
+              placeholder="Type note..."
+            ></textarea>
+          </div>
         </div>
         <div
           v-show="sidebarActiveTab === 'notepad'"
@@ -970,6 +1268,12 @@ watch(searchQuery, () => {
   inset: 0;
   overflow: hidden;
   opacity: 1;
+}
+
+/* Hide Annotations Logic */
+.hide-annotations :deep(.custom-highlight),
+.hide-annotations :deep(.sticky-note-icon) {
+  display: none !important;
 }
 
 :deep(.textLayer span) {
