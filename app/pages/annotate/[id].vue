@@ -34,11 +34,15 @@ const sidebarWidth = ref(320);
 const currentPage = ref(1);
 const totalPages = ref(0);
 const zoomLevel = ref(100);
+const inputZoomLevel = ref(100);
+let zoomDebounce = null;
 const isAnnotationsHidden = ref(false);
 const isColorPickerOpen = ref(false);
 const selectedColor = ref("#f59e0b");
 const isResizing = ref(false);
 const isManualScrolling = ref(false);
+
+const renderTasks = {};
 
 // Highlight Events
 const handleTextSelection = async () => {
@@ -505,10 +509,29 @@ const toggleSidebar = () => {
 
 // zoom helpers
 const zoomIn = () => {
-  if (zoomLevel.value < 500) zoomLevel.value += 10;
+  if (zoomLevel.value < 500) {
+    const newLevel = zoomLevel.value + 10;
+    zoomLevel.value = newLevel;
+    inputZoomLevel.value = newLevel;
+  }
 };
+
 const zoomOut = () => {
-  if (zoomLevel.value > 50) zoomLevel.value -= 10;
+  if (zoomLevel.value > 50) {
+    const newLevel = zoomLevel.value - 10;
+    zoomLevel.value = newLevel;
+    inputZoomLevel.value = newLevel;
+  }
+};
+
+const handleZoomInput = () => {
+  let val = parseInt(inputZoomLevel.value);
+  if (isNaN(val)) val = 100;
+  if (val < 50) val = 50;
+  if (val > 500) val = 500;
+
+  inputZoomLevel.value = val;
+  zoomLevel.value = val; // triggers render
 };
 
 const scrollToPage = (pageNumber) => {
@@ -537,6 +560,11 @@ async function renderPage(pageNum) {
 
   if (!canvas) return;
 
+  if (renderTasks[pageNum]) {
+    renderTasks[pageNum].cancel();
+    delete renderTasks[pageNum];
+  }
+
   try {
     const page = await pdfDoc.getPage(pageNum);
     const scale = zoomLevel.value / 100;
@@ -564,7 +592,12 @@ async function renderPage(pageNum) {
       viewport: viewport,
     };
 
-    await page.render(renderContext).promise;
+    const renderTask = page.render(renderContext);
+    renderTasks[pageNum] = renderTask;
+
+    await renderTask.promise;
+
+    delete renderTasks[pageNum];
 
     if (textLayerDiv) {
       textLayerDiv.innerHTML = "";
@@ -616,6 +649,9 @@ async function renderPage(pageNum) {
       }
     }
   } catch (err) {
+    if (err.name === "RenderingCancelledException") {
+      return;
+    }
     console.error(`Error rendering page ${pageNum}:`, err);
   }
 }
@@ -701,8 +737,13 @@ async function fetchPaper() {
 }
 
 watch(zoomLevel, async () => {
-  await nextTick();
-  await renderAllPages();
+  if (zoomDebounce) clearTimeout(zoomDebounce);
+
+  // 150 ms debounce
+  zoomDebounce = setTimeout(async () => {
+    await nextTick();
+    await renderAllPages();
+  }, 50);
 });
 
 onMounted(async () => {
@@ -1021,11 +1062,13 @@ watch(searchQuery, () => {
           </button>
           <input
             type="number"
-            v-model.number="zoomLevel"
+            v-model.number="inputZoomLevel"
+            @keydown.enter="handleZoomInput"
+            @blur="handleZoomInput"
             min="50"
             max="500"
             aria-label="Zoom Level"
-            class="w-7 text-center text-[14px] font-medium text-slate-300 select-none bg-transparent outline-none border-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+            class="w-10 text-center text-[14px] font-medium text-slate-300 select-none bg-transparent outline-none border-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
           />
           <span
             class="text-[14px] font-medium text-slate-400 select-none pr-0.5"
@@ -1201,6 +1244,14 @@ watch(searchQuery, () => {
 </template>
 
 <style scoped>
+canvas {
+  transition: width 0.25s ease-out, height 0.25s ease-out;
+}
+
+.textLayer {
+  transition: width 0.25 ease-out, height 0.25s ease-out;
+}
+
 .icon-btn {
   border-radius: 0.25rem;
   padding: 0.5rem;

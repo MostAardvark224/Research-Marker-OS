@@ -16,7 +16,8 @@
         Uploading & Processing...
       </h3>
       <p class="text-slate-400 mt-2 text-sm">
-        Please do not close this window. This may take a couple minutes depending on the size of your file
+        Please do not close this window. This may take a couple minutes
+        depending on the size of your file
       </p>
     </div>
 
@@ -55,7 +56,7 @@
 
             <div
               @click="showUpload = true"
-              :class="`ml-3 inline-flex items-center gap-1.5 transition-colors rounded-lg ${colorScheme.btnPrimary} px-3 py-1.5 ${colorScheme.btnPrimaryHover} cursor-pointer`"
+              :class="`ml-3 inline-flex items-center gap-1.5 transition-colors rounded-lg ${colorScheme.btnPrimary} px-3 py-2 ${colorScheme.btnPrimaryHover} cursor-pointer`"
             >
               <Icon
                 name="material-symbols:upload-sharp"
@@ -67,6 +68,21 @@
                 Upload Papers
               </span>
             </div>
+
+            <NuxtLink
+              to="/knowledge-base"
+              :class="`ml-3 inline-flex items-center gap-1.5 transition-colors rounded-lg ${colorScheme.btnSecondary} px-3 py-2 ${colorScheme.btnSecondaryHover} cursor-pointer`"
+            >
+              <Icon
+                name="material-symbols:book-ribbon-outline"
+                :class="`text-2xl ${colorScheme.btnPrimaryText}`"
+              />
+              <span
+                :class="`text-xs font-semibold leading-none ${colorScheme.btnPrimaryText}`"
+              >
+                Knowledge Index
+              </span>
+            </NuxtLink>
           </div>
 
           <div class="flex items-center gap-2">
@@ -509,6 +525,9 @@ const colorScheme = ref({
   btnPrimary: "bg-blue-600",
   btnPrimaryHover: "hover:bg-blue-700",
   btnPrimaryText: "text-white",
+
+  btnSecondary: "bg-green-600",
+  btnSecondaryHover: "hover:bg-green-700",
 
   inputBg: "bg-slate-900",
   inputBorder: "border-slate-700",
