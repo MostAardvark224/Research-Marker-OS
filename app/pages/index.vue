@@ -60,9 +60,9 @@
           <div class="flex flex-wrap gap-4">
             <NuxtLink
               to="/dashboard"
-              class="h-12 px-8 rounded bg-white text-black font-semibold flex items-center justify-center hover:bg-slate-200 transition-colors"
+              class="rounded text-black font-semibold flex items-center justify-center transition-colors"
             >
-              Get started
+              <GetStartedButton />
             </NuxtLink>
             <button
               class="h-12 px-8 rounded border border-white/10 text-slate-300 font-medium hover:bg-white/5 hover:text-white transition-colors flex items-center gap-2"

@@ -1,7 +1,6 @@
 <script setup>
 import { select } from "#build/ui";
 import "pdfjs-dist/web/pdf_viewer.css";
-import { createPDFAnnotator } from "@recogito/pdf-annotator";
 
 const route = useRoute();
 const id = route.params.id;
@@ -15,6 +14,10 @@ let TextLayerClass = null;
 let pdfDoc = null;
 let pdfBytes = null;
 let factory = null;
+const savedHighlights = ref([]);
+const stickyNoteData = ref([]);
+let saveNotepadDebounce = null;
+const notepadData = ref("");
 
 const pageContainerRefs = ref([]);
 const canvasRefs = ref([]);
@@ -29,9 +32,170 @@ const totalPages = ref(0);
 const zoomLevel = ref(100);
 const isAnnotationsHidden = ref(false);
 const isColorPickerOpen = ref(false);
-const selectedColor = ref("#ef4444");
+const selectedColor = ref("#f59e0b");
 const isResizing = ref(false);
 const isManualScrolling = ref(false);
+
+async function fetchAnnotations() {
+  try {
+    const data = await $fetch(`/api/annotations/${id}/`, { method: "GET" });
+    if (data) {
+      if (data.highlight_data) savedHighlights.value = data.highlight_data;
+      if (data.notepad) notepadData.value = data.notepad;
+      if (data.sticky_note_data) stickyNoteData.value = data.sticky_note_data;
+    }
+  } catch (e) {
+    console.warn("No existing annotations found or failed to fetch", e);
+  }
+}
+
+const handleTextSelection = async () => {
+  if (activeTool.value !== "highlighter") return;
+
+  const selection = window.getSelection();
+  if (
+    !selection ||
+    selection.rangeCount === 0 ||
+    selection.toString().trim() === ""
+  )
+    return;
+
+  const range = selection.getRangeAt(0);
+  const selectedText = selection.toString();
+
+  let container = range.commonAncestorContainer;
+  while (container && !container.classList?.contains("textLayer")) {
+    container = container.parentNode;
+  }
+
+  if (!container) return;
+
+  const pageIndex = parseInt(container.getAttribute("data-page-number"));
+
+  const pageRect = container.getBoundingClientRect();
+  const rawRects = range.getClientRects();
+
+  const highlightRects = [];
+
+  const scale = zoomLevel.value / 100;
+
+  for (const rect of rawRects) {
+    highlightRects.push({
+      x: (rect.left - pageRect.left) / scale,
+      y: (rect.top - pageRect.top) / scale,
+      width: rect.width / scale,
+      height: rect.height / scale,
+    });
+  }
+
+  const newHighlight = {
+    id: crypto.randomUUID(),
+    page: pageIndex,
+    text: selectedText,
+    color: selectedColor.value,
+    rects: highlightRects,
+  };
+
+  savedHighlights.value.push(newHighlight);
+  renderHighlight(newHighlight, container);
+  selection.removeAllRanges();
+
+  await saveHighlightToBackend();
+};
+
+const renderHighlight = (highlight, textLayerElement) => {
+  if (!textLayerElement) {
+    textLayerElement = textLayerRefs.value[highlight.page - 1];
+  }
+  if (!textLayerElement) return;
+
+  highlight.rects.forEach((rect) => {
+    const div = document.createElement("div");
+    div.classList.add("custom-highlight");
+    div.dataset.id = highlight.id;
+
+    // Style of highlight
+    div.style.position = "absolute";
+    div.style.backgroundColor = highlight.color;
+    div.style.pointerEvents = "none";
+    div.style.mixBlendMode = "darken";
+
+    div.style.left = `calc(${rect.x}px * var(--scale-factor))`;
+    div.style.top = `calc(${rect.y}px * var(--scale-factor))`;
+    div.style.width = `calc(${rect.width}px * var(--scale-factor))`;
+    div.style.height = `calc(${rect.height}px * var(--scale-factor))`;
+
+    textLayerElement.appendChild(div);
+  });
+};
+
+// Saving to backend
+async function saveHighlightToBackend() {
+  try {
+    await $fetch("/api/annotations/", {
+      method: "POST",
+      body: {
+        document: id,
+        highlight_data: savedHighlights.value,
+        notepad: notepadData.value,
+        sticky_note_data: stickyNoteData.value,
+      },
+    });
+  } catch (e) {
+    console.error("Failed to save annotation", e);
+  }
+}
+
+// Sidebar stat
+const sidebarActiveTab = ref("stickyNotes");
+function changeSidebarTab(tabName) {
+  sidebarActiveTab.value = tabName;
+}
+
+// Sidebar functions
+// Notepad
+watch(notepadData, () => {
+  if (saveNotepadDebounce) clearTimeout(saveNotepadDebounce);
+
+  // prevents server overload, 3s debounce
+  saveNotepadDebounce = setTimeout(() => {
+    saveNotepadToBackend();
+  }, 3000);
+});
+
+async function saveNotepadToBackend() {
+  try {
+    await fetch("/api/annotations/", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        document: id,
+        highlight_data: savedHighlights.value,
+        notepad: notepadData.value,
+        sticky_note_data: stickyNoteData.value,
+      }),
+    });
+  } catch (e) {
+    console.error("Failed to save notepad data", e);
+  }
+}
+
+// Sticky Notes
+async function saveStickyNoteToBackend() {
+  try {
+    await fetch("/api/annotations/", {
+      method: "POST",
+      body: {
+        document: id,
+        notepad: notepadData.value,
+      },
+    });
+  } catch (e) {
+    console.error("Failed to save notepad data", e);
+  }
+}
 
 const selectColor = (color) => {
   selectedColor.value = color;
@@ -42,12 +206,6 @@ const activeTool = ref("cursor");
 function changeActiveTool(newToolButton) {
   activeTool.value = newToolButton;
   console.log("Active tool changed to:", newToolButton);
-}
-
-// Sidebar stat
-const sidebarActiveTab = ref("stickyNotes");
-function changeSidebarTab(tabName) {
-  sidebarActiveTab.value = tabName;
 }
 
 // For border transition
@@ -173,6 +331,7 @@ async function renderPage(pageNum) {
 
       textLayerDiv.style.setProperty("--scale-factor", scale);
       textLayerDiv.style.setProperty("--total-scale-factor", scale);
+      textLayerDiv.setAttribute("data-page-number", pageNum);
 
       const textContent = await page.getTextContent();
 
@@ -182,6 +341,11 @@ async function renderPage(pageNum) {
         viewport: viewport,
       });
       await textLayer.render();
+
+      const pageHighlights = savedHighlights.value.filter(
+        (h) => h.page === pageNum
+      );
+      pageHighlights.forEach((h) => renderHighlight(h, textLayerDiv));
 
       if (searchQuery.value.trim() !== "") {
         const query = searchQuery.value.trim();
@@ -306,7 +470,10 @@ onMounted(async () => {
       console.warn("Could not load TextLayer.", e);
     }
 
+    await fetchAnnotations();
     await fetchPaper();
+
+    document.addEventListener("mouseup", handleTextSelection);
   } catch (err) {
     console.error("Failed to load PDF libraries:", err);
     error.value = "Failed to initialize PDF viewer.";
@@ -314,7 +481,9 @@ onMounted(async () => {
   }
 });
 
-// Annotation Func
+onUnmounted(() => {
+  document.removeEventListener("mouseup", handleTextSelection);
+});
 
 // Search Func
 const searchQuery = ref("");
@@ -574,7 +743,7 @@ watch(searchQuery, () => {
           >
             <Icon
               :name="isAnnotationsHidden ? 'ph:eye-slash' : 'ph:eye'"
-              class="h-5 w-5"
+              class="text-[16px]"
             />
           </button>
         </div>
@@ -712,7 +881,6 @@ watch(searchQuery, () => {
           </div>
         </div>
 
-        <!-- Add v-ifs in each container, depending on whether they have notes or not. -->
         <div
           v-show="sidebarActiveTab === 'stickyNotes'"
           class="flex-1 p-6 flex flex-col items-center justify-center text-slate-600"
@@ -721,9 +889,13 @@ watch(searchQuery, () => {
         </div>
         <div
           v-show="sidebarActiveTab === 'notepad'"
-          class="flex-1 p-6 flex flex-col items-center justify-center text-slate-600"
+          class="flex-1 p-4 overflow-y-auto"
         >
-          <span class="text-sm italic opacity-50">Notepad content</span>
+          <textarea
+            v-model="notepadData"
+            placeholder="Start typing your notes here..."
+            class="w-full h-full bg-slate-800 text-slate-200 p-3 rounded-lg border border-slate-700 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm resize-none transition-colors"
+          ></textarea>
         </div>
       </aside>
     </div>
