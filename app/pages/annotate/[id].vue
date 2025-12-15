@@ -202,6 +202,7 @@ const handleLayerClick = async (event, pageNum) => {
     x: x,
     y: y,
     content: "",
+    tag: "",
     color: selectedColor.value,
     timestamp: new Date().toISOString(),
   };
@@ -218,6 +219,41 @@ const handleLayerClick = async (event, pageNum) => {
   if (!isSidebarOpen.value) isSidebarOpen.value = true;
 
   await saveAnnotationsToBackend();
+};
+
+// Sticky note tags
+const tagOptions = [
+  { label: "Select Tag", value: "" }, // Default state
+  { label: "Definition", value: "definition", color: "text-blue-400" },
+  { label: "Question", value: "question", color: "text-amber-400" },
+  { label: "Insight", value: "insight", color: "text-purple-400" },
+  { label: "Evidence", value: "evidence", color: "text-emerald-400" },
+  { label: "Critique", value: "critique", color: "text-rose-400" },
+  { label: "Follow-up", value: "follow-up", color: "text-sky-400" },
+];
+const activeDropdownId = ref(null);
+
+const toggleDropdown = (noteId) => {
+  if (activeDropdownId.value === noteId) {
+    activeDropdownId.value = null;
+  } else {
+    activeDropdownId.value = noteId;
+  }
+};
+
+const setNoteTag = (note, option) => {
+  note.tag = option.value; // Assigns value to the data model
+  activeDropdownId.value = null;
+};
+
+const getTagLabel = (tagValue) => {
+  const option = tagOptions.find((opt) => opt.value === tagValue);
+  return option ? option.label : "Select Tag";
+};
+
+const getTagColor = (tagValue) => {
+  const option = tagOptions.find((opt) => opt.value === tagValue);
+  return option ? option.color : "text-slate-500";
 };
 
 // Shows the sticky note on the pdf
@@ -1207,23 +1243,65 @@ watch(searchQuery, () => {
             @click="focusStickyNote(note.id)"
           >
             <div class="flex justify-between items-start mb-2">
-              <div class="flex items-center gap-2">
+              <div class="flex items-center gap-2 relative">
                 <div
-                  class="w-3 h-3 rounded-full"
+                  class="w-2 h-2 rounded-full"
                   :style="{ backgroundColor: note.color }"
                 ></div>
-                <span class="text-xs text-slate-400">Page {{ note.page }}</span>
+
+                <span class="text-xs text-slate-400 mr-1"
+                  >Page {{ note.page }}</span
+                >
+
+                <div class="relative">
+                  <button
+                    @click.stop="toggleDropdown(note.id)"
+                    class="flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-slate-600 bg-slate-900/50 hover:bg-slate-700 transition-all group"
+                  >
+                    <span
+                      class="text-[10px] font-medium"
+                      :class="getTagColor(note.tag)"
+                    >
+                      {{ getTagLabel(note.tag) }}
+                    </span>
+                    <Icon
+                      name="ph:caret-down-bold"
+                      class="w-2.5 h-2.5 text-slate-500 group-hover:text-slate-300 transition-colors"
+                    />
+                  </button>
+
+                  <div
+                    v-if="activeDropdownId === note.id"
+                    class="absolute top-full left-0 mt-1 w-28 py-1 rounded-lg border border-slate-600 bg-slate-800 shadow-xl z-50 flex flex-col gap-0.5"
+                  >
+                    <button
+                      v-for="option in tagOptions"
+                      :key="option.value"
+                      @click.stop="setNoteTag(note, option)"
+                      class="text-left px-3 py-1.5 text-[11px] font-medium hover:bg-white/5 transition-colors"
+                      :class="[
+                        note.tag === option.value
+                          ? 'bg-white/5 ' + option.color
+                          : 'text-slate-400',
+                      ]"
+                    >
+                      {{ option.label }}
+                    </button>
+                  </div>
+                </div>
               </div>
+
               <button
                 @click.stop="deleteStickyNote(note.id)"
-                class="text-slate-500 hover:text-red-400"
+                class="text-slate-600 hover:text-red-400 transition-colors"
               >
-                <Icon name="material-symbols:delete-outline" class="w-4 h-4" />
+                <Icon name="ph:trash" class="w-4 h-4" />
               </button>
             </div>
+
             <textarea
               v-model="note.content"
-              class="w-full bg-slate-900/50 text-slate-300 text-sm p-2 rounded border border-slate-700/50 focus:outline-none focus:border-indigo-500/50 resize-none h-20"
+              class="w-full bg-slate-900/50 text-slate-300 text-sm p-2 rounded border border-slate-700/50 focus:outline-none focus:border-indigo-500/50 resize-none h-20 custom-scrollbar"
               placeholder="Type note..."
             ></textarea>
           </div>

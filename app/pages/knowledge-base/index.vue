@@ -38,7 +38,7 @@
             </p>
           </div>
 
-          <div class="mb-16 relative group">
+          <div class="mb-4 relative group">
             <div
               class="absolute inset-y-0 left-4 flex items-center pointer-events-none"
             >
@@ -49,9 +49,51 @@
             </div>
             <input
               type="text"
-              placeholder="Search concepts, highlight text, or tags..."
+              placeholder="Search concepts, highlight text, or tags... (hint: use the @ symbol to narrow your search)"
               class="w-full bg-white/[0.03] border border-white/10 rounded-2xl py-5 pl-12 pr-6 text-lg text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500/50 focus:bg-white/[0.05] focus:ring-1 focus:ring-indigo-500/50 transition-all shadow-lg shadow-black/50"
             />
+          </div>
+
+          <div class="flex justify-center items-center gap-5 mb-10">
+            <NuxtLink
+              to="/knowledge-base/smart-collections"
+              class="group flex flex-col items-center gap-2"
+            >
+              <div
+                class="w-12 h-12 rounded-xl border border-purple-500/20 bg-purple-500/5 hover:bg-purple-500/20 hover:border-purple-500/50 hover:scale-105 active:scale-95 flex items-center justify-center transition-all duration-300 shadow-[0_0_15px_-3px_rgba(168,85,247,0.15)] group-hover:shadow-[0_0_20px_-3px_rgba(168,85,247,0.3)]"
+              >
+                <Icon
+                  name="uil:layer-group"
+                  class="text-xl text-purple-400 group-hover:text-purple-200 transition-colors"
+                />
+              </div>
+              <span
+                class="text-[11px] font-semibold uppercase tracking-widest text-slate-300 group-hover:text-purple-400 transition-colors"
+                >Collections</span
+              >
+            </NuxtLink>
+
+            <button
+              @click="focusAIChat"
+              class="group flex flex-col items-center gap-2"
+            >
+              <div
+                class="w-12 h-12 rounded-xl border border-cyan-500/20 bg-cyan-500/5 hover:bg-cyan-500/20 hover:border-cyan-500/50 hover:scale-105 active:scale-95 flex items-center justify-center transition-all duration-300 shadow-[0_0_15px_-3px_rgba(34,211,238,0.15)] group-hover:shadow-[0_0_20px_-3px_rgba(34,211,238,0.3)] relative overflow-hidden"
+              >
+                <div
+                  class="absolute inset-0 bg-gradient-to-tr from-transparent via-white/10 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"
+                ></div>
+                <Icon
+                  name="heroicons:sparkles-20-solid"
+                  class="text-xl text-cyan-400 group-hover:text-cyan-200 transition-colors"
+                />
+              </div>
+              <span
+                @click="focusAIChat"
+                class="text-[11px] font-semibold uppercase tracking-widest text-slate-300 group-hover:text-cyan-400 transition-colors"
+                >Ask AI</span
+              >
+            </button>
           </div>
 
           <div class="mb-12">
@@ -62,11 +104,11 @@
                 <Icon name="uil:pen" class="text-indigo-400" />
                 Recent Annotations
               </h2>
-              <button
+              <!-- <button
                 class="text-xs text-slate-500 hover:text-white transition-colors"
               >
                 View All
-              </button>
+              </button> -->
             </div>
 
             <div
@@ -220,6 +262,7 @@
         <div class="p-6 border-t border-white/5 bg-[#050508]">
           <div class="relative">
             <textarea
+              ref="chatInputRef"
               rows="1"
               placeholder="Use '@' to reference paper titles"
               class="w-full bg-slate-900/50 border border-white/10 rounded-xl py-4 pl-4 pr-12 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500/40 focus:bg-slate-900 resize-none overflow-hidden transition-all"
@@ -230,11 +273,6 @@
               <Icon name="uil:message" class="text-lg" />
             </button>
           </div>
-          <div class="mt-3 flex justify-center">
-            <span class="text-[10px] text-slate-600"
-              >AI can make mistakes. Verify important information.</span
-            >
-          </div>
         </div>
       </aside>
     </div>
@@ -242,11 +280,16 @@
 </template>
 
 <script setup>
-// No logic required for aesthetic mock
+const chatInputRef = ref(null);
+
+const focusAIChat = () => {
+  if (chatInputRef.value) {
+    chatInputRef.value.focus();
+  }
+};
 </script>
 
 <style scoped>
-/* Scrollbar Styling for Webkit */
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
   height: 6px;
