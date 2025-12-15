@@ -46,43 +46,99 @@
             </h2>
 
             <Icon
+              @click="showSettings = true"
               name="material-symbols:settings"
-              :class="`ml-3 text-2xl ${colorScheme.headerText}`"
+              :class="`ml-3 text-2xl ${colorScheme.headerText} cursor-pointer hover:text-blue-400 transition-colors`"
             />
             <Icon
               name="uil:github"
               :class="`ml-3 text-2xl ${colorScheme.headerText}`"
             />
 
-            <div
-              @click="showUpload = true"
-              :class="`ml-3 inline-flex items-center gap-1.5 transition-colors rounded-lg ${colorScheme.btnPrimary} px-3 py-2 ${colorScheme.btnPrimaryHover} cursor-pointer`"
-            >
-              <Icon
-                name="material-symbols:upload-sharp"
-                :class="`text-2xl ${colorScheme.btnPrimaryText}`"
-              />
-              <span
-                :class="`text-xs font-semibold leading-none ${colorScheme.btnPrimaryText}`"
+            <div class="flex items-center gap-2">
+              <button
+                type="button"
+                @click="showUpload = true"
+                :class="[
+                  'group flex items-center gap-2 rounded-lg transition-all duration-200 ml-2',
+                  'p-2 sm:px-3 sm:py-2',
+                  colorScheme.btnPrimary,
+                  colorScheme.btnPrimaryHover,
+                ]"
+                aria-label="Upload Papers"
               >
-                Upload Papers
-              </span>
-            </div>
+                <Icon
+                  name="material-symbols:upload-sharp"
+                  :class="[
+                    'text-2xl flex-shrink-0',
+                    colorScheme.btnPrimaryText,
+                  ]"
+                />
+                <span
+                  :class="[
+                    'hidden md:inline text-xs font-semibold leading-none',
+                    colorScheme.btnPrimaryText,
+                  ]"
+                >
+                  Upload Papers
+                </span>
+              </button>
 
-            <NuxtLink
-              to="/knowledge-base"
-              :class="`ml-3 inline-flex items-center gap-1.5 transition-colors rounded-lg ${colorScheme.btnSecondary} px-3 py-2 ${colorScheme.btnSecondaryHover} cursor-pointer`"
-            >
-              <Icon
-                name="material-symbols:book-ribbon-outline"
-                :class="`text-2xl ${colorScheme.btnPrimaryText}`"
-              />
-              <span
-                :class="`text-xs font-semibold leading-none ${colorScheme.btnPrimaryText}`"
+              <NuxtLink
+                to="/knowledge-base"
+                :class="[
+                  'group flex items-center gap-2 rounded-lg transition-all duration-200',
+                  'p-2 sm:px-3 sm:py-2',
+                  colorScheme.btnSecondary,
+                  colorScheme.btnSecondaryHover,
+                ]"
+                aria-label="Knowledge Index"
               >
-                Knowledge Index
-              </span>
-            </NuxtLink>
+                <Icon
+                  name="material-symbols:book-ribbon-outline"
+                  :class="[
+                    'text-2xl flex-shrink-0',
+                    colorScheme.btnPrimaryText,
+                  ]"
+                />
+                <span
+                  :class="[
+                    'hidden md:inline text-xs font-semibold leading-none',
+                    colorScheme.btnPrimaryText,
+                  ]"
+                >
+                  Knowledge Index
+                </span>
+              </NuxtLink>
+
+              <button
+                type="button"
+                @click="showScholarInbox = true"
+                :class="[
+                  'group flex items-center gap-2 rounded-lg transition-all duration-200 mr-2',
+                  'p-2 sm:px-3 sm:py-2',
+                  colorScheme.btnTertiary,
+                  colorScheme.btnTertiaryHover,
+                ]"
+                aria-label="Upload Papers"
+              >
+                <Icon
+                  name="material-symbols:school"
+                  :class="[
+                    'text-2xl flex-shrink-0',
+                    colorScheme.btnPrimaryText,
+                  ]"
+                />
+                <span
+                  :class="[
+                    'hidden md:inline text-xs font-semibold leading-none',
+                    colorScheme.btnPrimaryText,
+                  ]"
+                >
+                  Scholar Inbox
+                </span>
+              </button>
+            </div>
           </div>
 
           <div class="flex items-center gap-2">
@@ -308,7 +364,7 @@
               </div>
 
               <div
-                :class="`flex-1 overflow-auto rounded-xl border ${colorScheme.tableBorder} ${colorScheme.tableBg}`"
+                :class="`flex-1 overflow-y-auto overflow-x-auto rounded-xl border ${colorScheme.tableBorder} ${colorScheme.tableBg}`"
               >
                 <table class="min-w-full table-auto border-collapse text-sm">
                   <thead class="sticky top-0 z-10">
@@ -367,8 +423,8 @@
                         </span>
                       </td>
 
-                      <td class="px-4 py-3 align-middle">
-                        <div class="flex flex-col gap-0.5 max-w-xs md:max-w-md">
+                      <td class="px-4 py-3 align-middle max-w-xs md:max-w-sm">
+                        <div class="flex flex-col gap-0.5">
                           <input
                             v-if="paperToRename?.id === paper.id"
                             v-model="newPaperTitle"
@@ -478,6 +534,13 @@
       </div>
     </div>
 
+    <ScholarInboxModal
+      v-if="showScholarInbox"
+      @close="showScholarInbox = false"
+    />
+
+    <SettingsModal v-if="showSettings" @close="showSettings = false" />
+
     <FileUploadModal
       v-if="showUpload"
       @close="showUpload = false"
@@ -528,6 +591,9 @@ const colorScheme = ref({
 
   btnSecondary: "bg-green-600",
   btnSecondaryHover: "hover:bg-green-700",
+
+  btnTertiary: "bg-black",
+  btnTertiaryHover: "hover:bg-gray-800",
 
   inputBg: "bg-slate-900",
   inputBorder: "border-slate-700",
@@ -591,6 +657,8 @@ const vFocus = {
 // State vars
 const isUploading = ref(false);
 const showUpload = ref(false);
+const showScholarInbox = ref(false);
+const showSettings = ref(false);
 
 const filesToUpload = ref([]);
 const folderList = ref([]);
