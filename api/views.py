@@ -214,9 +214,17 @@ class FetchScholarInboxPapers(APIView):
                 'folder': folder_pk 
             }
             
-            serializer = serializers.DocumentSerializer(data=data)
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
+            try:
+                serializer = serializers.DocumentSerializer(data=data)
+                serializer.is_valid(raise_exception=True)
+                serializer.save()
+            except Exception as e: 
+                print(f"Issue with saving Scholar Inbox pdf file to storage: {e}")
+                print("Skipping this file for now.")
+                continue
+        
+        return Response({'message': 'Papers fetched'}, status=status.HTTP_200_OK)
+
 
 
 

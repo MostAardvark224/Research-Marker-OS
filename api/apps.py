@@ -7,7 +7,6 @@ class ApiConfig(AppConfig):
 
     # simulating a fake request to run the view on django startup for Scholar Inbox integration 
     def ready(self):
-        print("Running scholar inbox fetch")
         import os
         from datetime import date, datetime
         from api.scholar_inbox import fetch_scholar_inbox_papers
@@ -20,7 +19,6 @@ class ApiConfig(AppConfig):
         user_data = prefs.get('user_preferences', {})
         scholar_prefs = user_data.get('scholar_inbox', {})
         auto_import = scholar_prefs.get('auto_import', False)
-        print(auto_import)
         if auto_import:
             last_import_date_str = scholar_prefs.get('last_import_date', None)
 

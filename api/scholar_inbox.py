@@ -75,8 +75,9 @@ async def fetch_scholar_inbox_papers(login_url, amount_of_papers):
         # Ordering by relevance
         arxiv_links.sort(key=lambda x: x['relevance'], reverse=True)
 
-        if type(amount_of_papers) != str: # str means too keep all, not str means that theres a limit
-            arxiv_links = arxiv_links[:amount_of_papers] 
+        if (type(amount_of_papers) != str): # str means too keep all, not str means that theres a limit
+            if (len(arxiv_links) > amount_of_papers):
+                arxiv_links = arxiv_links[:amount_of_papers] 
 
         # Downloading PDFs from ArXiv API
         print(f"Found {len(arxiv_links)} papers. Starting API fetch and download")
@@ -121,4 +122,5 @@ async def fetch_scholar_inbox_papers(login_url, amount_of_papers):
 
         cleaned_arxiv_links = [paper for paper in arxiv_links if 'pdf_content' in paper and paper['pdf_content'] is not None]
 
+        print("cleaned arxiv links returned")
         return cleaned_arxiv_links
