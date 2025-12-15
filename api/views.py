@@ -15,7 +15,14 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
 from . import models, serializers
 from .OCR import create_searchable_pdf
+from .user_preferences import load_user_preferences, write_user_preferences
 
+import asyncio
+import aiohttp
+from .scholar_inbox import fetch_scholar_inbox_papers
+from django.core.files.base import ContentFile
+from django.core.files.uploadedfile import InMemoryUploadedFile
+import io
 
 # View that returns folders, documents are nested within.
 class CompleteFetch(APIView):
@@ -149,3 +156,67 @@ class AnnotationsViewSet(viewsets.ModelViewSet):
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK
         )
     
+class UserPreferencesView(APIView): 
+    def get(self, request): 
+        preferences = load_user_preferences()
+        return Response(preferences, status=status.HTTP_200_OK)
+
+    def put(self, request): 
+        preferences = request.data.get('preferences', {})
+        print(preferences)
+        write_user_preferences(preferences)
+        return Response({'message': 'Preferences updated successfully.'}, status=status.HTTP_200_OK)
+
+# Runs fetch from scholar inbox and uplaods papers to "Scholar Inbox" folder
+class FetchScholarInboxPapers(APIView):
+    def post(self, request):
+        # Running fetch, logic can be altered in scholar_inbox.py
+        login_url = os.getenv("SCHOLAR_INBOX_PERSONAL_LOGIN", "")
+        amount_to_import = request.data.get('amount_to_import', 'all')
+
+        if (login_url == ""):
+            print("ADD LOGIN URL TO BACKEND ENV FILE")
+            return Response({'error': 'Scholar Inbox login URL not configured.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        papers_dict = loop.run_until_complete(fetch_scholar_inbox_papers(login_url, amount_to_import))
+        loop.close()
+
+        if (papers_dict is None) or (len(papers_dict) == 0):    
+            return Response({'message': 'No new papers found in Scholar Inbox.'}, status=status.HTTP_200_OK)
+
+        # Writing papers to "Scholar Inbox" folder
+        # Making sure that a "Scholar Inbox" folder exists
+        folder, created = models.Folder.objects.get_or_create(name="Scholar Inbox")
+        folder_pk = folder.pk
+
+        for paper in papers_dict: 
+            pdf_content = paper.get('pdf_content', None)
+            title = paper.get('title', 'Untitled Paper')
+
+            if pdf_content is None:
+                print(f"Skipping {title} due to missing PDF content.")
+                continue
+
+            pdf_file = InMemoryUploadedFile(
+                file=io.BytesIO(pdf_content),
+                field_name='file',
+                name=f"{title}.pdf",
+                content_type='application/pdf',
+                size=len(pdf_content),
+                charset=None
+            )
+
+            data = {
+                'file': pdf_file, 
+                'title': title, 
+                'folder': folder_pk 
+            }
+            
+            serializer = serializers.DocumentSerializer(data=data)
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+
+
+

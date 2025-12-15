@@ -12,6 +12,8 @@ router.register(r'annotations', views.AnnotationsViewSet, basename='annotations'
 urlpatterns = [
     path('complete-fetch/', views.CompleteFetch.as_view(), name='complete-fetch'),
     path('get-paper/<int:pk>/', views.getPaper.as_view(), name='get-paper'),
+    path('user-preferences/', views.UserPreferencesView.as_view(), name='user-preferences'),
+    path('fetch-scholar-inbox-papers/', views.FetchScholarInboxPapers.as_view(), name='fetch-scholar-inbox-papers'),
 ]
 
 urlpatterns += router.urls
