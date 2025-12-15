@@ -589,7 +589,7 @@ const colorScheme = ref({
   btnPrimaryHover: "hover:bg-blue-700",
   btnPrimaryText: "text-white",
 
-  btnSecondary: "bg-green-600",
+  btnSecondary: "bg-emerald-600",
   btnSecondaryHover: "hover:bg-green-700",
 
   btnTertiary: "bg-black",
