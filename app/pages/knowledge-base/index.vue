@@ -36,6 +36,10 @@
             <p class="text-slate-400">
               Manage your papers, annotations, and generated insights.
             </p>
+            <p class="pt-2 text-xs text-slate-500">
+              See docs on GitHub for a full feature overview & advanced
+              searching techniques.
+            </p>
           </div>
 
           <div class="mb-4 relative group">
@@ -95,7 +99,7 @@
             </button>
           </div>
 
-          <div v-if="hasAnnotations" class="space-y-12">
+          <div v-if="hasAnnotations && !searchActive" class="space-y-12">
             <div class="relative w-full overflow-hidden mask-sides">
               <div class="flex gap-6 w-max animate-scroll-left">
                 <div
@@ -186,7 +190,7 @@
           </div>
 
           <div
-            v-else
+            v-else-if="!hasAnnotations && !searchActive"
             class="flex flex-col items-center justify-center py-20 opacity-50"
           >
             <Icon
@@ -200,6 +204,9 @@
               Start highlighting your papers to see them here.
             </p>
           </div>
+
+          <!-- search func -->
+          <div v-else></div>
         </div>
       </main>
 
@@ -279,7 +286,7 @@
 
 <script setup>
 const userNotes = ref([]);
-
+// fetching user notes
 async function fetchNotes() {
   try {
     const res = await $fetch("/api/search-notes", {
@@ -390,9 +397,37 @@ const bottomRowDocs = computed(() => {
 });
 
 const countAnnotations = computed(() => userNotes.value.length);
-const hasAnnotations = computed(() => userNotes.value.length > 0);
 
+/* 
+Search functionality 
+- When user starts typing, animation goes away and search results show up
+- Highlight in green if the user selects/types a match
+- @paper: Searches in papers  
+- @highlight: Searches in highlight text 
+- @sticky: Searches in sticky note content 
+- @recent: Searches within the past week 
+- @collections (COME BACK TO THIS)
+will also implement cool ui stuff for UX with the @
+- Whenever a search result is clicked, open that paper in a new tab
+*/
+
+const searchActive = ref(false);
+const searchResults = ref([]);
+function getSearchResults(at_paper, at_highlight, at_sticky) {}
+
+// Ai chat
+
+/* 
+@ functionality 
+- @paper:<paperTitle> match with paper title and upload that pdf as model context
+- @recent: context for the past week (limit somehow)
+- @collections (COME BACK TO THIS)
+
+*/
+
+const hasAnnotations = computed(() => userNotes.value.length > 0);
 const chatInputRef = ref(null);
+
 const focusAIChat = () => {
   if (chatInputRef.value) {
     chatInputRef.value.focus();
