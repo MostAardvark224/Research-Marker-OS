@@ -250,7 +250,6 @@ document_title: {
         tag, 
     }
 }
-
 """
 
 # Gets notes so that user can search on the frontend.
@@ -281,9 +280,26 @@ class SearchNotesView(APIView):
             
         return Response(final_data)
         
+"""
+AI features: 
+Using gemini API. I may add OpenAI and Claude later, but I'm sure that it would be very easy to switch out the model provider.
+- RAG + Context Engineering should work the same since everything's being appended to the prompt.
+- Actual model choice/thinking budget can be configured in user_preferences either thru frontend UI or thru messing with the JSON file
+- Default will be Gemini 2.5 Flash, since it's cheap.
+
+Will save chat logs into local db. You can build out functionality to view them if you would like, not sure I'll have time to get around to this but it may/may not come in the future.
+- By default not going to save metadata and or pdfs being uploaded because they can bloat very quickly.
+
+functionality: 
+- The view will be equipped to handle pdfs.
+- @paper:<paper-title> will send the paper pdf as well as any annotations to the model 
+    - Multiple papers can be send for cross comparisons between the two 
+- @recent: sends recent annotations (up to a certain amount of data) to the model for summary and analysis of key points
+- Minize hallucinations thru prompting the LLM for citations in the system prompt.
+"""
 
 class AIChatView(APIView): 
-    pass
+    gemini_key = os.getenv("GEMINI_API_KEY")
 
 class VectorGraphView(APIView):
     pass
