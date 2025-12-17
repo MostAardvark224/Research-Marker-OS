@@ -286,7 +286,9 @@
         </div>
       </main>
 
-      <aside class="w-[30%] bg-[#050508] relative flex flex-col">
+      <aside
+        class="w-[30%] bg-[#050508] fixed right-0 top-[65px] bottom-0 flex flex-col border-l border-white/5 overflow-hidden z-30"
+      >
         <div
           class="p-6 border-b border-white/5 flex items-center gap-3 bg-[#050508]/90 backdrop-blur z-10"
         >
@@ -308,7 +310,7 @@
         </div>
 
         <div
-          class="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar flex flex-col"
+          class="flex-1 overflow-y-auto p-6 pb-32 space-y-6 custom-scrollbar flex flex-col"
         >
           <div class="flex gap-4">
             <div
@@ -340,7 +342,9 @@
           </div>
         </div>
 
-        <div class="p-6 border-t border-white/5 bg-[#050508]">
+        <div
+          class="absolute bottom-0 left-0 w-full p-6 border-t border-white/5 bg-[#050508] z-20"
+        >
           <div class="relative">
             <textarea
               ref="chatInputRef"
@@ -361,6 +365,10 @@
 </template>
 
 <script setup>
+const {
+  public: { frontendOrigin },
+} = useRuntimeConfig();
+
 const userNotes = ref([]);
 // fetching user notes
 async function fetchNotes() {
@@ -578,7 +586,7 @@ function getSearchResults(
 
   possibleVals.forEach((doc) => {
     // check if document is within recent window (a week) for tagging
-    const dateStr = doc.updated_at || doc.annotations?.updated_at;
+    const dateStr = doc.annotations?.updated_at;
     const isRecent = dateStr ? new Date(dateStr) >= oneWeekAgo : false;
     const displayDate = dateStr ? new Date(dateStr).toLocaleDateString() : "";
 
@@ -595,6 +603,7 @@ function getSearchResults(
         typeColor: "text-indigo-400",
         isRecent,
         date: displayDate,
+        paper_id: doc.doc_id,
       });
     }
 
@@ -611,6 +620,7 @@ function getSearchResults(
             typeColor: "text-emerald-400",
             isRecent,
             date: displayDate,
+            paper_id: doc.doc_id,
           });
         }
       });
@@ -627,6 +637,7 @@ function getSearchResults(
             typeColor: "text-purple-400",
             isRecent,
             date: displayDate,
+            paper_id: doc.doc_id,
           });
         }
       });
@@ -646,6 +657,7 @@ function getSearchResults(
           typeColor: "text-amber-400",
           isRecent,
           date: displayDate,
+          paper_id: doc.doc_id,
         });
       }
     }
@@ -694,6 +706,14 @@ const highlightMatch = (text) => {
     '<span class="text-green-400 font-bold bg-green-400/10 rounded px-1">$1</span>'
   );
 };
+
+// when result card clicked, send to url
+function sendToPaper(result) {
+  // default frontend origin is localhost:3000, if this isn't working check ur env vars
+  const doc_id = result.paper_id;
+  const url = `${frontendOrigin}/annotate/${doc_id}`;
+  window.open(url, "_blank"); // opens in a new window
+}
 
 // Ai chat
 
