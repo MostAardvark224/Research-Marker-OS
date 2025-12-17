@@ -24,12 +24,13 @@ class AnnotationSerializer(serializers.ModelSerializer):
 
 class GroupedAnnotationsSerializer(serializers.ModelSerializer): 
     document__title = serializers.CharField(source="title")
+    document__pk = serializers.IntegerField(source="pk")
 
     annotations = serializers.SerializerMethodField()
 
     class Meta:
         model = models.Document
-        fields = ('document__title', 'annotations')
+        fields = ('document__title', 'document__pk', 'annotations')
         
     def get_annotations(self, document_instance):
         non_empty_q = (

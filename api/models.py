@@ -23,6 +23,7 @@ class Annotations(models.Model):
     notepad = models.TextField(null=True, blank=True)
     sticky_note_data = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"Annotation for {self.document.title} at {self.created_at}"

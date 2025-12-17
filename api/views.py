@@ -268,10 +268,12 @@ class SearchNotesView(APIView):
         final_data = []
         for item in serializer.data:
             title = item.pop('document__title')
+            doc_id = item.pop('document__pk')
             annotations = item['annotations'][0]
             final_data.append(
                 dict(
                     title=title,
+                    doc_id=doc_id, 
                     annotations=annotations
                 )
             )
