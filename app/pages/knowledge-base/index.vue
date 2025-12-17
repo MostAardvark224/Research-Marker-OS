@@ -54,7 +54,7 @@
             />
           </div>
 
-          <div class="flex justify-center items-center gap-5 mb-10">
+          <div class="flex justify-center items-center gap-5 mb-16">
             <NuxtLink
               to="/knowledge-base/smart-collections"
               class="group flex flex-col items-center gap-2"
@@ -89,119 +89,116 @@
                 />
               </div>
               <span
-                @click="focusAIChat"
                 class="text-[11px] font-semibold uppercase tracking-widest text-slate-300 group-hover:text-cyan-400 transition-colors"
                 >Ask AI</span
               >
             </button>
           </div>
 
-          <div class="mb-12">
-            <div class="flex items-center justify-between mb-6">
-              <h2
-                class="text-lg font-medium text-white flex items-center gap-2"
-              >
-                <Icon name="uil:pen" class="text-indigo-400" />
-                Recent Annotations
-              </h2>
-              <!-- <button
-                class="text-xs text-slate-500 hover:text-white transition-colors"
-              >
-                View All
-              </button> -->
+          <div v-if="hasAnnotations" class="space-y-12">
+            <div class="relative w-full overflow-hidden mask-sides">
+              <div class="flex gap-6 w-max animate-scroll-left">
+                <div
+                  v-for="(doc, index) in topRowDocs"
+                  :key="`${doc.title}-1-${index}`"
+                  class="w-[320px] h-44 rounded-2xl border border-white/10 bg-[#0A0A0C]/80 backdrop-blur-sm hover:bg-[#15151A] hover:border-indigo-500/30 p-5 flex flex-col justify-between transition-all group cursor-pointer shadow-lg shadow-black/20"
+                >
+                  <div>
+                    <div class="flex justify-between items-start mb-3">
+                      <div class="flex items-center gap-2">
+                        <span
+                          class="w-1.5 h-1.5 rounded-full bg-indigo-400"
+                        ></span>
+                        <span
+                          class="text-[10px] uppercase tracking-wider text-slate-500 font-bold"
+                          >Top Source</span
+                        >
+                      </div>
+                      <span
+                        class="text-[10px] bg-white/5 px-2 py-0.5 rounded text-indigo-300"
+                        >{{ doc.count }} Notes</span
+                      >
+                    </div>
+                    <h3
+                      class="text-sm font-medium text-slate-200 line-clamp-2 leading-snug group-hover:text-indigo-200 transition-colors"
+                    >
+                      {{ doc.title }}
+                    </h3>
+                  </div>
+                  <div class="relative">
+                    <p class="text-[16px] text-slate-500 italic line-clamp-2">
+                      "{{ doc.content }}"
+                    </p>
+                    <div class="absolute bottom-0 right-0">
+                      <Icon
+                        name="uil:arrow-right"
+                        class="text-slate-600 group-hover:text-indigo-400 group-hover:translate-x-1 transition-all"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <div
-              class="flex gap-4 overflow-x-auto pb-4 custom-scrollbar mask-right"
-            >
-              <div
-                class="min-w-[280px] h-48 rounded-xl border border-white/10 bg-white/[0.02] hover:bg-white/[0.04] p-5 flex flex-col justify-between transition-all cursor-pointer group"
-              >
-                <div>
-                  <div class="flex items-center gap-2 mb-3">
-                    <span class="w-2 h-2 rounded-full bg-yellow-400"></span>
-                    <span
-                      class="text-xs text-slate-500 uppercase tracking-wider"
-                      >Highlight</span
-                    >
-                  </div>
-                  <p
-                    class="text-sm text-slate-300 line-clamp-3 leading-relaxed font-serif italic"
-                  >
-                    "xyz text from highlight..."
-                  </p>
-                </div>
+            <div class="relative w-full overflow-hidden mask-sides">
+              <div class="flex gap-6 w-max animate-scroll-right hover:pause">
                 <div
-                  class="flex items-center gap-2 text-xs text-slate-500 group-hover:text-indigo-300 transition-colors"
+                  v-for="(doc, index) in bottomRowDocs"
+                  :key="`${doc.title}-2-${index}`"
+                  class="w-[320px] h-44 rounded-2xl border border-white/10 bg-[#0A0A0C]/80 backdrop-blur-sm hover:bg-[#15151A] hover:border-purple-500/30 p-5 flex flex-col justify-between transition-all group cursor-pointer shadow-lg shadow-black/20"
                 >
-                  <Icon name="uil:file-alt" />
-                  <span>xyz paper name</span>
-                </div>
-              </div>
-
-              <div
-                class="min-w-[280px] h-48 rounded-xl border border-white/10 bg-white/[0.02] hover:bg-white/[0.04] p-5 flex flex-col justify-between transition-all cursor-pointer group"
-              >
-                <div>
-                  <div class="flex items-center gap-2 mb-3">
-                    <span class="w-2 h-2 rounded-full bg-pink-400"></span>
-                    <span
-                      class="text-xs text-slate-500 uppercase tracking-wider"
-                      >Sticky Note</span
+                  <div>
+                    <div class="flex justify-between items-start mb-3">
+                      <div class="flex items-center gap-2">
+                        <span
+                          class="w-1.5 h-1.5 rounded-full bg-purple-400"
+                        ></span>
+                        <span
+                          class="text-[10px] uppercase tracking-wider text-slate-500 font-bold"
+                          >Heavy Read</span
+                        >
+                      </div>
+                      <span
+                        class="text-[10px] bg-white/5 px-2 py-0.5 rounded text-purple-300"
+                        >{{ doc.count }} Notes</span
+                      >
+                    </div>
+                    <h3
+                      class="text-sm font-medium text-slate-200 line-clamp-2 leading-snug group-hover:text-purple-200 transition-colors"
                     >
+                      {{ doc.title }}
+                    </h3>
                   </div>
-                  <p
-                    class="text-sm text-slate-300 line-clamp-3 leading-relaxed"
-                  >
-                    xyz sticky note
-                  </p>
+                  <div class="relative">
+                    <p class="text-[16px] text-slate-500 italic line-clamp-2">
+                      "{{ doc.content }}"
+                    </p>
+                    <div class="absolute bottom-0 right-0">
+                      <Icon
+                        name="uil:arrow-right"
+                        class="text-slate-600 group-hover:text-purple-400 group-hover:translate-x-1 transition-all"
+                      />
+                    </div>
+                  </div>
                 </div>
-                <div
-                  class="flex items-center gap-2 text-xs text-slate-500 group-hover:text-pink-300 transition-colors"
-                >
-                  <Icon name="uil:file-alt" />
-                  <span>xyz paper title</span>
-                </div>
-              </div>
-
-              <div
-                class="min-w-[280px] h-48 rounded-xl border border-dashed border-white/10 bg-transparent flex flex-col items-center justify-center gap-3 text-slate-600"
-              >
-                <Icon name="uil:plus" class="text-2xl" />
-                <span class="text-sm">New Annotation</span>
               </div>
             </div>
           </div>
 
-          <div>
-            <div class="flex items-center justify-between mb-6">
-              <h2
-                class="text-lg font-medium text-white flex items-center gap-2"
-              >
-                <Icon name="uil:layer-group" class="text-purple-400" />
-                Smart Collections
-              </h2>
-            </div>
-            <div class="flex gap-4 overflow-x-auto pb-4 custom-scrollbar">
-              <div
-                class="min-w-[200px] h-32 rounded-xl bg-gradient-to-br from-indigo-500/10 to-transparent border border-indigo-500/20 p-4 flex flex-col justify-end hover:border-indigo-500/40 transition-colors cursor-pointer"
-              >
-                <h3 class="font-medium text-indigo-100">xyz</h3>
-                <span class="text-xs text-indigo-400/70">xyz Papers</span>
-              </div>
-              <div
-                class="min-w-[200px] h-32 rounded-xl bg-gradient-to-br from-purple-500/10 to-transparent border border-purple-500/20 p-4 flex flex-col justify-end hover:border-purple-500/40 transition-colors cursor-pointer"
-              >
-                <h3 class="font-medium text-purple-100">xyz</h3>
-                <span class="text-xs text-purple-400/70">xyz Papers</span>
-              </div>
-              <div
-                class="min-w-[200px] h-32 rounded-xl bg-gradient-to-br from-slate-800/30 to-transparent border border-white/10 p-4 flex flex-col justify-end hover:bg-slate-800/50 transition-colors cursor-pointer"
-              >
-                <h3 class="font-medium text-slate-300">xyz</h3>
-                <span class="text-xs text-slate-500">xyz Papers</span>
-              </div>
-            </div>
+          <div
+            v-else
+            class="flex flex-col items-center justify-center py-20 opacity-50"
+          >
+            <Icon
+              name="uil:files-landscapes-alt"
+              class="text-6xl text-slate-700 mb-4"
+            />
+            <h3 class="text-lg font-medium text-slate-500">
+              No annotations found
+            </h3>
+            <p class="text-sm text-slate-600">
+              Start highlighting your papers to see them here.
+            </p>
           </div>
         </div>
       </main>
@@ -241,9 +238,10 @@
               <div
                 class="p-4 rounded-xl rounded-tl-none bg-white/[0.03] border border-white/5 text-sm text-slate-300 leading-relaxed"
               >
-                Hello! I have indexed <strong>x papers</strong> and
-                <strong>y annotations</strong>. I can help you summarize
-                documents, find connections between concepts, or draft outlines.
+                Hello! I have indexed
+                <strong>{{ countAnnotations }} papers</strong>. I can help you
+                summarize documents, find connections between concepts, or draft
+                outlines.
               </div>
             </div>
           </div>
@@ -280,8 +278,121 @@
 </template>
 
 <script setup>
-const chatInputRef = ref(null);
+const userNotes = ref([]);
 
+async function fetchNotes() {
+  try {
+    const res = await $fetch("/api/search-notes", {
+      method: "GET",
+    });
+    userNotes.value = res;
+  } catch (error) {
+    console.error(`error fetching notes ${error}`);
+  }
+}
+
+onMounted(() => {
+  fetchNotes();
+});
+
+/* Setting up display for carousel animation
+Picks even amount of sticky notes or highlights to display in template cards
+Need 12 cards to fill scroll without artificial inflation, so will look for as many as possible before we reach that point.
+returns a list of dicts where in the template you can just do v-for and display everything. Make sure to run thru prepareInfiniteList so that it's carousel ready.
+
+each card needs a
+1. count (idx)
+2. paper title
+3. annotation to display
+*/
+
+const carouselCards = computed(() => {
+  const lastPicked = ref("highlight");
+
+  if (!userNotes.value || Object.keys(userNotes.value).length === 0) {
+    console.log("Data is empty or not loaded yet");
+    return [];
+  }
+
+  let allCards = [];
+
+  Object.entries(userNotes.value).forEach(([idx, obj]) => {
+    let content = "";
+
+    if (
+      lastPicked.value == "highlight" &&
+      obj.annotations.sticky_note_data.length != 0
+    ) {
+      // need to get a sticky note
+      content = obj.annotations.sticky_note_data[0].content;
+      lastPicked.value = "sticky";
+    } else if (
+      lastPicked.value == "sticky" &&
+      obj.annotations.highlight_data.length != 0
+    ) {
+      // get highlight
+      content = obj.annotations.highlight_data[0].text;
+      lastPicked.value = "highlight";
+    } else {
+      // default to whatever the paper has
+      if (obj.annotations.highlight_data.length != 0) {
+        content = obj.annotations.highlight_data[0].text;
+        lastPicked.value = "highlight";
+      } else if (obj.annotations.sticky_note_data.length != 0) {
+        content = obj.annotations.sticky_note_data[0].content;
+        lastPicked.value = "sticky";
+      }
+    }
+
+    let cardObj = {
+      count: idx,
+      title: obj.title,
+      content: content,
+    };
+
+    if (content && content.trim() !== "") {
+      allCards.push(cardObj);
+    }
+  });
+
+  // Limit to 50 cards as to not cause perf issues
+  if (allCards.length > 50) {
+    allCards = allCards.slice(0, 50);
+  }
+
+  return allCards;
+});
+
+// Function copies items until there's enough to fit in the infinite scroll (12 * 2)
+// doubles at the end so that the snap back isn't noticeable to the user when the animation ends
+const prepareInfiniteList = (items) => {
+  if (!items || items.length === 0) return [];
+
+  let baseList = [...items];
+  while (baseList.length < 12) {
+    baseList = [...baseList, ...items];
+  }
+
+  return [...baseList, ...baseList];
+};
+
+const topRowDocs = computed(() => {
+  let arr1 = carouselCards.value.slice(0, carouselCards.value.length / 2);
+  return prepareInfiniteList(arr1);
+});
+
+const bottomRowDocs = computed(() => {
+  let arr2 = carouselCards.value.slice(
+    carouselCards.value.length / 2,
+    carouselCards.value.length
+  );
+  return prepareInfiniteList(arr2);
+});
+
+const countAnnotations = computed(() => userNotes.value.length);
+const hasAnnotations = computed(() => userNotes.value.length > 0);
+
+const chatInputRef = ref(null);
 const focusAIChat = () => {
   if (chatInputRef.value) {
     chatInputRef.value.focus();
@@ -318,11 +429,49 @@ const focusAIChat = () => {
 }
 .animate-gradient {
   background-size: 200% auto;
-  animation: gradient 5s ease infinite;
+  animation: gradient 10s ease infinite;
 }
 
-.mask-right {
-  mask-image: linear-gradient(to right, black 85%, transparent 100%);
-  -webkit-mask-image: linear-gradient(to right, black 85%, transparent 100%);
+@keyframes scrollLeft {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes scrollRight {
+  0% {
+    transform: translateX(-50%);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+.animate-scroll-left {
+  animation: scrollLeft 60s linear infinite;
+}
+
+.animate-scroll-right {
+  animation: scrollRight 60s linear infinite;
+}
+
+.mask-sides {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black 10%,
+    black 90%,
+    transparent
+  );
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    black 10%,
+    black 90%,
+    transparent
+  );
 }
 </style>
