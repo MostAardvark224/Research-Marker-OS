@@ -1,5 +1,7 @@
 import api.models as models
 from rest_framework import serializers
+from django.db.models import Q
+
 
 # class FolderSerializer(serializers.ModelSerializer):
 
@@ -19,3 +21,24 @@ class AnnotationSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.Annotations
         fields = '__all__'
+
+class GroupedAnnotationsSerializer(serializers.ModelSerializer): 
+    document__title = serializers.CharField(source="title")
+
+    annotations = serializers.SerializerMethodField()
+
+    class Meta:
+        model = models.Document
+        fields = ('document__title', 'annotations')
+        
+    def get_annotations(self, document_instance):
+        non_empty_q = (
+            Q(highlight_data__isnull=False) |
+            Q(sticky_note_data__isnull=False)
+        )
+        
+        filtered_annotations = document_instance.annotations.filter(non_empty_q)
+        
+        serializer = AnnotationSerializer(filtered_annotations, many=True)
+        
+        return serializer.data

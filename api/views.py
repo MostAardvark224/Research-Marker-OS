@@ -16,7 +16,7 @@ from rest_framework.response import Response
 from . import models, serializers
 from .OCR import create_searchable_pdf
 from .user_preferences import load_user_preferences, write_user_preferences
-
+from django.db.models import Q
 import asyncio
 import aiohttp
 from .scholar_inbox import fetch_scholar_inbox_papers
@@ -225,6 +225,65 @@ class FetchScholarInboxPapers(APIView):
         
         return Response({'message': 'Papers fetched'}, status=status.HTTP_200_OK)
 
+"""
+Knowledge Index idea dump: (hopefully this should help anyone reading this understand my thoughts about the knowledge index so that you can tweak however you like)
 
+Three main functions: 
+1. Search notes (easiest)
+2. AI features (medium)
+3. Vector graph of relations between ideas (hardest)
+
+Search
+View that returns necessary info for knowledge index search
+
+output format: 
+
+document_title: {
+    highlight data: {
+        page, 
+        text,
+    },
+    notepad, 
+    stickynote data : {
+        page, 
+        content,
+        tag, 
+    }
+}
+
+"""
+
+# Gets notes so that user can search on the frontend.
+class SearchNotesView(APIView):
+    def get(request, self, format=None): 
+        documents = models.Document.objects.filter(
+        annotations__in = models.Annotations.objects.filter(
+            Q(highlight_data__isnull = False) | 
+            Q(sticky_note_data__isnull = False) 
+        )
+        ).distinct()
+
+        serializer = serializers.GroupedAnnotationsSerializer(documents, many=True)
+
+        final_data = []
+        for item in serializer.data:
+            title = item.pop('document__title')
+            annotations = item['annotations'][0]
+            final_data.append(
+                dict(
+                    title=title,
+                    annotations=annotations
+                )
+            )
+            
+            
+        return Response(final_data)
+        
+
+class AIChatView(APIView): 
+    pass
+
+class VectorGraphView(APIView):
+    pass
 
 

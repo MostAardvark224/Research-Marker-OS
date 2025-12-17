@@ -1,11 +1,11 @@
 {
-    "user_preferences": {
-        "general": {},
-        "scholar_inbox": {
-            "auto_import": true,
-            "last_import_date": "2025-12-14",
-            "amount_to_import": 1
-        },
-        "ai": {}
-    }
+  "user_preferences": {
+    "general": {},
+    "scholar_inbox": {
+      "auto_import": false,
+      "last_import_date": "null",
+      "amount_to_import": 0
+    },
+    "ai": {}
+  }
 }

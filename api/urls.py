@@ -14,6 +14,8 @@ urlpatterns = [
     path('get-paper/<int:pk>/', views.getPaper.as_view(), name='get-paper'),
     path('user-preferences/', views.UserPreferencesView.as_view(), name='user-preferences'),
     path('fetch-scholar-inbox-papers/', views.FetchScholarInboxPapers.as_view(), name='fetch-scholar-inbox-papers'),
+    path('search-notes', views.SearchNotesView.as_view(), name=
+         'search-notes')
 ]
 
 urlpatterns += router.urls
