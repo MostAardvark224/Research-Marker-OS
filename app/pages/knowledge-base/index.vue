@@ -42,7 +42,7 @@
             </p>
           </div>
 
-          <div class="mb-4 relative group">
+          <div class="mb-4 relative group z-50">
             <div
               class="absolute inset-y-0 left-4 flex items-center pointer-events-none"
             >
@@ -53,12 +53,48 @@
             </div>
             <input
               type="text"
+              v-model="searchQuery"
+              @input="handleInput"
+              @keydown.down.prevent="navigateSuggestions(1)"
+              @keydown.up.prevent="navigateSuggestions(-1)"
+              @keydown.enter.prevent="selectSuggestion"
               placeholder="Search concepts, highlight text, or tags... (hint: use the @ symbol to narrow your search)"
               class="w-full bg-white/[0.03] border border-white/10 rounded-2xl py-5 pl-12 pr-6 text-lg text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500/50 focus:bg-white/[0.05] focus:ring-1 focus:ring-indigo-500/50 transition-all shadow-lg shadow-black/50"
             />
+
+            <div
+              v-if="showSuggestions"
+              class="absolute top-full mt-2 w-full bg-[#15151A] border border-white/10 rounded-xl overflow-hidden shadow-2xl z-50"
+            >
+              <div
+                v-for="(suggestion, index) in filteredSuggestions"
+                :key="suggestion"
+                class="px-4 py-3 cursor-pointer hover:bg-white/5 flex items-center gap-3 transition-colors"
+                :class="{ 'bg-white/10': activeSuggestionIndex === index }"
+                @click="applyFilter(suggestion)"
+              >
+                <div
+                  class="w-6 h-6 rounded bg-indigo-500/20 flex items-center justify-center text-indigo-400 text-xs font-bold"
+                >
+                  @
+                </div>
+                <span class="text-sm text-slate-200">{{ suggestion }}</span>
+              </div>
+            </div>
           </div>
 
-          <div class="flex justify-center items-center gap-5 mb-16">
+          <div
+            v-if="errorMsg"
+            class="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-center gap-2"
+          >
+            <Icon name="uil:exclamation-circle" />
+            {{ errorMsg }}
+          </div>
+
+          <div
+            v-if="!searchActive"
+            class="flex justify-center items-center gap-5 mb-16"
+          >
             <NuxtLink
               to="/knowledge-base/smart-collections"
               class="group flex flex-col items-center gap-2"
@@ -205,8 +241,48 @@
             </p>
           </div>
 
-          <!-- search func -->
-          <div v-else></div>
+          <div v-else class="space-y-4">
+            <div
+              v-if="searchResults.length === 0"
+              class="text-center py-12 text-slate-500"
+            >
+              No results found matching your query.
+            </div>
+
+            <div
+              v-for="(result, index) in searchResults"
+              :key="index"
+              @click="sendToPaper(result)"
+              class="p-5 rounded-2xl border border-white/10 bg-[#0A0A0C]/80 backdrop-blur-sm hover:bg-[#15151A] hover:border-indigo-500/30 transition-all group"
+            >
+              <div class="flex justify-between items-start mb-2">
+                <div class="flex items-center gap-2">
+                  <span
+                    class="px-2 py-0.5 rounded bg-white/5 text-[10px] font-bold uppercase tracking-wider"
+                    :class="result.typeColor"
+                  >
+                    {{ result.matchType }}
+                  </span>
+                  <span
+                    v-if="result.isRecent"
+                    class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 text-[10px] font-bold uppercase tracking-wider"
+                  >
+                    Recent
+                  </span>
+                </div>
+                <span class="text-xs text-slate-600">{{ result.date }}</span>
+              </div>
+
+              <h3 class="text-sm font-medium text-indigo-200 mb-2">
+                {{ result.title }}
+              </h3>
+
+              <p
+                class="text-sm text-slate-400 leading-relaxed"
+                v-html="highlightMatch(result.content)"
+              ></p>
+            </div>
+          </div>
         </div>
       </main>
 
@@ -293,6 +369,7 @@ async function fetchNotes() {
       method: "GET",
     });
     userNotes.value = res;
+    console.log(userNotes.value);
   } catch (error) {
     console.error(`error fetching notes ${error}`);
   }
@@ -398,32 +475,240 @@ const bottomRowDocs = computed(() => {
 
 const countAnnotations = computed(() => userNotes.value.length);
 
-/* 
-Search functionality 
+/* Search functionality
 - When user starts typing, animation goes away and search results show up
 - Highlight in green if the user selects/types a match
-- @paper: Searches in papers  
-- @highlight: Searches in highlight text 
-- @sticky: Searches in sticky note content 
-- @recent: Searches within the past week 
+- @paper: Searches in papers  
+- @highlight: Searches in highlight text
+- @sticky: Searches in sticky note content
+- @recent: Searches within the past week
 - @collections (COME BACK TO THIS)
+
+*note to self -> make sure search is implemented robustly and @recent works with other filters.
+- No mixing and matching filters with anything besides <x> and @recent
+- Don't allow user to set @paper and @highlight for ex (make a warning somewhere)
+- Recent is defined as within the past week
+
 will also implement cool ui stuff for UX with the @
 - Whenever a search result is clicked, open that paper in a new tab
+
+For template:
+On the search card will highlight the similarity with the search query
+
 */
 
-const searchActive = ref(false);
-const searchResults = ref([]);
-function getSearchResults(at_paper, at_highlight, at_sticky) {}
+const searchQuery = ref("");
+const searchActive = computed(() => searchQuery.value.length > 0);
+const errorMsg = ref("");
+
+// Auto-complete logic
+const showSuggestions = ref(false);
+const validFilters = ["paper", "highlight", "sticky", "notepad", "recent"];
+const activeSuggestionIndex = ref(0);
+
+const filteredSuggestions = computed(() => {
+  const match = searchQuery.value.match(/@(\w*)$/); // regex finds out if query contains @
+  if (!match) return [];
+  const query = match[1].toLowerCase(); // gets the string user types after @
+  return validFilters.filter((f) => f.startsWith(query)); //find valid filters from list
+});
+
+// checks on each input on whether @ suggestions sshould be active
+const handleInput = (e) => {
+  errorMsg.value = "";
+  const match = searchQuery.value.match(/@(\w*)$/);
+  showSuggestions.value = !!match && filteredSuggestions.value.length > 0;
+  if (showSuggestions.value) activeSuggestionIndex.value = 0;
+};
+
+// completes @<filter> whenever you hit enter on a filter suggestion
+const applyFilter = (filter) => {
+  const regex = /@(\w*)$/;
+  searchQuery.value = searchQuery.value.replace(regex, `@${filter} `);
+  showSuggestions.value = false;
+  if (chatInputRef.value) chatInputRef.value.focus();
+};
+
+// up and down on @ suggestions
+const navigateSuggestions = (direction) => {
+  if (!showSuggestions.value) return;
+  const len = filteredSuggestions.value.length;
+  activeSuggestionIndex.value =
+    (activeSuggestionIndex.value + direction + len) % len;
+};
+
+const selectSuggestion = () => {
+  if (showSuggestions.value) {
+    applyFilter(filteredSuggestions.value[activeSuggestionIndex.value]);
+  }
+};
+
+// final func to get search results
+function getSearchResults(
+  query,
+  at_paper,
+  at_highlight,
+  at_notepad,
+  at_sticky,
+  at_recent
+) {
+  // handling @ filters
+  let possibleVals = userNotes.value;
+
+  const oneWeekAgo = new Date();
+  oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+
+  if (at_recent) {
+    possibleVals = possibleVals.filter((obj) => {
+      const dateStr = obj.annotations?.updated_at;
+      if (!dateStr) return false;
+      const lastUpdate = new Date(dateStr);
+      return lastUpdate >= oneWeekAgo;
+    });
+  }
+
+  // makes sure that user can't select two of the following tags in same query
+  const trueCount = at_paper + at_highlight + at_sticky + at_notepad;
+  if (trueCount >= 2) {
+    errorMsg.value = "You can only use 1 filter + @recent at a time.";
+    return [];
+  }
+
+  let flattenedResults = [];
+
+  possibleVals.forEach((doc) => {
+    // check if document is within recent window (a week) for tagging
+    const dateStr = doc.updated_at || doc.annotations?.updated_at;
+    const isRecent = dateStr ? new Date(dateStr) >= oneWeekAgo : false;
+    const displayDate = dateStr ? new Date(dateStr).toLocaleDateString() : "";
+
+    const cleanQuery = query.toLowerCase();
+
+    // check which filters are active. If none, check all fields.
+
+    // @paper
+    if (at_paper && doc.title.toLowerCase().includes(cleanQuery)) {
+      flattenedResults.push({
+        title: doc.title,
+        content: doc.title, // bc the match is the title
+        matchType: "Paper Match",
+        typeColor: "text-indigo-400",
+        isRecent,
+        date: displayDate,
+      });
+    }
+
+    const anns = doc.annotations || {};
+
+    // @highlights
+    if (at_highlight || trueCount === 0) {
+      (anns.highlight_data || []).forEach((h) => {
+        if (h.text.toLowerCase().includes(cleanQuery)) {
+          flattenedResults.push({
+            title: doc.title,
+            content: h.text,
+            matchType: "Highlight",
+            typeColor: "text-emerald-400",
+            isRecent,
+            date: displayDate,
+          });
+        }
+      });
+    }
+
+    // @sticky
+    if (at_sticky || trueCount === 0) {
+      (anns.sticky_note_data || []).forEach((s) => {
+        if (s.content.toLowerCase().includes(cleanQuery)) {
+          flattenedResults.push({
+            title: doc.title,
+            content: s.content,
+            matchType: "Sticky Note",
+            typeColor: "text-purple-400",
+            isRecent,
+            date: displayDate,
+          });
+        }
+      });
+    }
+
+    // @notepad
+    if (at_notepad || trueCount === 0) {
+      if (
+        anns.notepad &&
+        typeof anns.notepad === "string" &&
+        anns.notepad.toLowerCase().includes(cleanQuery)
+      ) {
+        flattenedResults.push({
+          title: doc.title,
+          content: anns.notepad,
+          matchType: "Notepad",
+          typeColor: "text-amber-400",
+          isRecent,
+          date: displayDate,
+        });
+      }
+    }
+  });
+
+  return flattenedResults.slice(0, 100);
+}
+
+const searchResults = computed(() => {
+  if (!searchQuery.value) return [];
+
+  const q = searchQuery.value;
+  const at_paper = q.includes("@paper");
+  const at_highlight = q.includes("@highlight");
+  const at_notepad = q.includes("@notepad");
+  const at_sticky = q.includes("@sticky");
+  const at_recent = q.includes("@recent");
+
+  // Remove tags before query gets searched
+  const cleanQuery = q
+    .replace(/@(paper|highlight|notepad|sticky|recent)\s?/g, "")
+    .trim();
+
+  if (!cleanQuery && (at_paper || at_highlight || at_notepad || at_sticky))
+    return [];
+
+  return getSearchResults(
+    cleanQuery,
+    at_paper,
+    at_highlight,
+    at_notepad,
+    at_sticky,
+    at_recent
+  );
+});
+
+// highlights matching text on template
+const highlightMatch = (text) => {
+  if (!searchQuery.value) return text;
+  const cleanTerm = searchQuery.value.replace(/@\w+\s?/g, "").trim();
+  if (!cleanTerm) return text;
+
+  const regex = new RegExp(`(${cleanTerm})`, "gi");
+  return text.replace(
+    regex,
+    '<span class="text-green-400 font-bold bg-green-400/10 rounded px-1">$1</span>'
+  );
+};
 
 // Ai chat
 
-/* 
-@ functionality 
+/* @ functionality
 - @paper:<paperTitle> match with paper title and upload that pdf as model context
 - @recent: context for the past week (limit somehow)
 - @collections (COME BACK TO THIS)
 
 */
+const paperSuggestions = computed(() => {
+  return userNotes.value.map((doc) => ({
+    label: doc.title,
+    id: doc.id,
+  }));
+});
 
 const hasAnnotations = computed(() => userNotes.value.length > 0);
 const chatInputRef = ref(null);
