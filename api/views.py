@@ -407,7 +407,7 @@ class AIChatView(APIView):
             try: 
                 annot_data = json.dumps(annot_data)
             except Exception as e: 
-                print(f"error with converting @recent data to JSON {e}")
+                print(f"error with converting @paper data to JSON {e}")
                 pass
 
             context_block = context_template.format(annot_data=annot_data)
@@ -425,9 +425,59 @@ class AIChatView(APIView):
             return Response({"model_response": model_response}, status=status.HTTP_200_OK)
             
 
-        # handles @folder
+        # handles @folder, doesn't send any paper pdfs
         elif folder_ids != None:
-            pass
+            # get all necessary data (all 3 layers)
+            folders = models.Folder.objects.filter(pk__in = folder_ids).prefetch_related(
+            'documents', 
+            'documents__annotations'
+        )
+            
+            """
+            creating an organized context dict. for model
+            struct looks like .
+            folder1 : {
+                doc1 : {
+                    annotations
+                },
+                doc2 : {
+                    annotations
+                },
+            }, etc.
+            """
+            folder_context = {}
+            for folder in folders: 
+                folder_context[folder.name] = {}
+                folder_id = folder.id # type: ignore
+                papers = models.Document.objects.filter(folder = folder_id)
+
+                # gets the paper titles and annotations in an easy to understand structure for model
+                annot_serializer = serializers.GroupedAnnotationsSerializer(papers, many=True)
+                annot_data = annot_serializer.data
+                folder_context[folder.name] = annot_data
+
+            try: 
+                folder_context = json.dumps(folder_context)
+            except Exception as e: 
+                print(f"error with converting @folder data to JSON {e}")
+                pass
+
+            if folder_context != {} and folder_context != None: 
+                context_block = context_template.format(annot_data=folder_context)
+                prompt += "\n\n" + context_block    
+                print(prompt) # delete later
+
+                model_response = send_prompt(
+                    gemini_key = gemini_key, 
+                    model = gemini_model, 
+                    prompt = prompt, 
+                    )
+                
+                return Response({"model_response": model_response}, status=status.HTTP_200_OK)
+            
+            else: 
+                print("No folder context, some error in AIChatView most likely")
+                return Response({"error": "Model pipeline failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         # running rag if enabled
         elif rag_enabled != None:
