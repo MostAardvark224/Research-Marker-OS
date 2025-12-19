@@ -18,7 +18,7 @@ class Document(models.Model):
         return self.title
     
 class Annotations(models.Model):
-    document = models.ForeignKey(Document, related_name='annotations', on_delete=models.CASCADE)
+    document = models.OneToOneField(Document, related_name='annotations', on_delete=models.CASCADE)
     highlight_data = models.JSONField(null=True,)
     notepad = models.TextField(null=True, blank=True)
     sticky_note_data = models.JSONField(null=True, blank=True)
@@ -27,3 +27,9 @@ class Annotations(models.Model):
 
     def __str__(self):
         return f"Annotation for {self.document.title} at {self.created_at}"
+
+# Update whenever AI chat implementation is done
+class ChatModelLogs(models.Model): 
+    name = models.CharField(max_length=255)
+    updated_at = models.DateTimeField(auto_now=True)
+    content = models.TextField()

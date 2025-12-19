@@ -7,22 +7,37 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.views import APIView
 import os
+import json
 from pathlib import Path
 from django.http import Http404, FileResponse
 import time
+from django.utils import timezone
+from datetime import timedelta
 from rest_framework import viewsets, status
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
 from . import models, serializers
-from .OCR import create_searchable_pdf
 from .user_preferences import load_user_preferences, write_user_preferences
 from django.db.models import Q
 import asyncio
 import aiohttp
-from .scholar_inbox import fetch_scholar_inbox_papers
 from django.core.files.base import ContentFile
 from django.core.files.uploadedfile import InMemoryUploadedFile
 import io
+
+# to bool helper method for flag parsing
+def to_bool(value):
+    if isinstance(value, bool):
+        return value
+    
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in ('yes', 'true', 't', 'y', '1', 'on'):
+            return True
+        if normalized in ('no', 'false', 'f', 'n', '0', 'off'):
+            return False
+            
+    return bool(value) # fallback
 
 # View that returns folders, documents are nested within.
 class CompleteFetch(APIView):
@@ -39,6 +54,7 @@ class CompleteFetch(APIView):
         }, status=status.HTTP_200_OK)
 
 # View that handles all document-related operations
+from .OCR import create_searchable_pdf
 class DocumentsViewSet(viewsets.ModelViewSet):
     queryset = models.Document.objects.all()
     serializer_class = serializers.DocumentSerializer
@@ -168,6 +184,7 @@ class UserPreferencesView(APIView):
         return Response({'message': 'Preferences updated successfully.'}, status=status.HTTP_200_OK)
 
 # Runs fetch from scholar inbox and uplaods papers to "Scholar Inbox" folder
+from .scholar_inbox import fetch_scholar_inbox_papers
 class FetchScholarInboxPapers(APIView):
     def post(self, request):
         # Running fetch, logic can be altered in scholar_inbox.py
@@ -283,26 +300,146 @@ class SearchNotesView(APIView):
 """
 AI features: 
 Using gemini API. I may add OpenAI and Claude later, but I'm sure that it would be very easy to switch out the model provider.
+    - just look for the "send_prompt" function in ai.py and just modify it to send to whatever API you like
 - RAG + Context Engineering should work the same since everything's being appended to the prompt.
 - Actual model choice/thinking budget can be configured in user_preferences either thru frontend UI or thru messing with the JSON file
-- Default will be Gemini 2.5 Flash, since it's cheap.
+- Default will be Gemini 3 Flash, since it's cheap.
 
 Save chat logs and build out UI interface to present them.
 
-functionality: 
+frontend functionality: 
 - The view will be equipped to handle pdfs.
 - @paper:<paper-title> will send the paper pdf as well as any annotations to the model 
     - Multiple papers can be send for cross comparisons between the two 
 - @recent: sends recent annotations (up to a certain amount of data) to the model for summary and analysis of key points
--@folder: sends the whole folder context
+-@folder: sends the whole folder context, but doesn't send pdfs
+
+- only one of these at a time
+- make rag enabled false if one of these are typed since this already provides necessary context
+
 - Minize hallucinations thru prompting the LLM for citations in the system prompt.
+
+note to self: implement Latex and markdown
 
 Button where user can pick whether they want to use RAG or not.
 Rag will get top 2-3 embeddings with n cos similarity and append them to the prompt as context.
 """
-class AIChatView(APIView): 
-    gemini_key = os.getenv("GEMINI_API_KEY")
+# TODO: Implement chat log saving
 
+from .ai import send_prompt
+class AIChatView(APIView): 
+    def post(self, request, format=None):
+        gemini_key = os.getenv("GEMINI_API_KEY")
+        if not gemini_key: 
+            return Response({"error": "Gemini API key not set. See docs."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        gemini_model = os.getenv("GEMINI_MODEL")
+        if not gemini_model: 
+            return Response({"error": "Gemini model not set. See docs."}, status=status.HTTP_400_BAD_REQUEST)
+        
+        prompt = request.get("prompt", "")
+        if not prompt:
+            return Response({"error": "Prompt is required"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        # handling context injections w/ @paper and @recent, etc.
+        # plan is to append a contxt block to the prompt var
+        # getting flags
+        context_template = """The following section contains the raw research annotations retrieved from the user's library. This data is the "Source of Truth" for the current conversation. 
+
+        - USE this data to answer queries accurately.
+        - PRIORITIZE the information in this block over your general pre-trained knowledge.
+        - IF the data is insufficient to answer a question, explicitly state what is missing.
+        - Refer to papers by their titles.
+
+        --- DATA START ---
+        {annot_data}
+        --- DATA END ---"""
+        context_block = ""
+
+        at_recent = to_bool(request.get("at_recent", False))
+        paper_ids = request.getlist("paper_ids", None)
+        folder_ids = request.getlist("folder_ids", None)
+        rag_enabled = to_bool(request.get("rag_enabled", False))
+
+        # handling flags
+
+        # making sure that only one flag is set
+        paper_id_bool = (paper_ids != None and paper_ids != [])
+        folder_id_bool = (folder_ids != None and folder_ids != [])
+        
+        true_count = at_recent + paper_id_bool + folder_id_bool + rag_enabled
+        if true_count > 1: 
+            return Response({"error": "You can only have one unique context flag, i.e. you cannot do @recent and @paper in the same prompt, but two @paper calls are allowed."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # handles @recent
+        if at_recent: # gets annotations that are a week old or less and pass to model
+            one_week_ago = timezone.now() - timedelta(days=7)
+            recent_data = models.Document.objects.filter(
+                annotations__in = models.Annotations.objects.filter(updated_at__gte=one_week_ago)
+            )
+            serializer = serializers.GroupedAnnotationsSerializer(recent_data, many=True)
+            annot_data = serializer.data
+            try: 
+                annot_data = json.dumps(annot_data)
+            except Exception as e: 
+                print(f"error with converting @recent data to JSON {e}")
+                pass
+
+            context_block = context_template.format(annot_data=annot_data)
+            prompt += "\n\n" + context_block    
+            print(prompt) # delete later
+
+            model_response = send_prompt(
+                gemini_key = gemini_key, 
+                model = gemini_model, 
+                prompt = prompt)
+
+            return Response({"model_response": model_response}, status=status.HTTP_200_OK)
+
+        # handles @paper
+        elif paper_ids != None:
+            papers = models.Document.objects.filter(pk__in = paper_ids)
+            pdf_paths = [Path(p.file.path) for p in papers if p.file]
+
+            # Getting annotations
+            annot_serializer = serializers.GroupedAnnotationsSerializer(papers, many=True)
+            annot_data = annot_serializer.data
+            try: 
+                annot_data = json.dumps(annot_data)
+            except Exception as e: 
+                print(f"error with converting @recent data to JSON {e}")
+                pass
+
+            context_block = context_template.format(annot_data=annot_data)
+            prompt += "\n\n" + context_block    
+            print(prompt) # delete later
+
+            model_response = send_prompt(
+                gemini_key = gemini_key, 
+                model = gemini_model, 
+                prompt = prompt, 
+                pdf_count=len(pdf_paths), 
+                pdf_paths = pdf_paths
+                )
+            
+            return Response({"model_response": model_response}, status=status.HTTP_200_OK)
+            
+
+        # handles @folder
+        elif folder_ids != None:
+            pass
+
+        # running rag if enabled
+        elif rag_enabled != None:
+            pass
+
+        # running normal model if not context or no rag 
+        else: 
+            pass
+
+        # fallback response
+        return Response({"error": "Model pipeline failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                
 
 
 """
