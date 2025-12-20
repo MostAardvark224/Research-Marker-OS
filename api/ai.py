@@ -89,8 +89,9 @@ def send_prompt(gemini_key, model, prompt, pdf_count=0, pdf_paths=[], chat_id=No
 
     # FORMATTING
     - Use Markdown for structure (headers, bolding, lists).
-    - Use LaTeX for any mathematical formulas or scientific notations (e.g., $E=mc^2$).
-    - If the user provides a code snippet or technical logic, provide optimizations if relevant.
+    - Use LaTeX for ALL mathematical formulas or scientific notations.
+    - IMPORTANT: Wrap inline math in single dollar signs (e.g., $E=mc^2$).
+    - IMPORTANT: Wrap block equations in double dollar signs (e.g., $$ x = ... $$).
 
     # LIMITATIONS
     - Do not hallucinate data that isn't present in the user's annotations or papers. However you can use general knowledge if no data is passed to you in the context.
