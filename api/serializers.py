@@ -37,9 +37,16 @@ class GroupedAnnotationsSerializer(serializers.ModelSerializer):
             Q(highlight_data__isnull=False) |
             Q(sticky_note_data__isnull=False)
         )
-        
-        filtered_annotations = document_instance.annotations.filter(non_empty_q)
+
+        filtered_annotations = models.Annotations.objects.filter(
+            document=document_instance
+        ).filter(non_empty_q)
         
         serializer = AnnotationSerializer(filtered_annotations, many=True)
         
         return serializer.data
+    
+class ChatLogSerializer(serializers.ModelSerializer): 
+    class Meta: 
+        model = models.ChatLogs
+        fields = '__all__'

@@ -34,7 +34,7 @@ def to_bool(value):
         normalized = value.strip().lower()
         if normalized in ('yes', 'true', 't', 'y', '1', 'on'):
             return True
-        if normalized in ('no', 'false', 'f', 'n', '0', 'off'):
+        if normalized in ('no', 'false', 'f', 'n', '0', 'off', None):
             return False
             
     return bool(value) # fallback
@@ -324,10 +324,11 @@ note to self: implement Latex and markdown
 Button where user can pick whether they want to use RAG or not.
 Rag will get top 2-3 embeddings with n cos similarity and append them to the prompt as context.
 """
-# TODO: Implement chat log saving
+from typing import Optional
+chatlog_obj: Optional[models.ChatLogs] = None # satisfies pylance
 
-from .ai import send_prompt
-class AIChatView(APIView): 
+from .ai import add_message_to_chat ,send_prompt, name_chat
+class AIChatView(APIView):
     def post(self, request, format=None):
         gemini_key = os.getenv("GEMINI_API_KEY")
         if not gemini_key: 
@@ -341,6 +342,23 @@ class AIChatView(APIView):
         if not prompt:
             return Response({"error": "Prompt is required"}, status=status.HTTP_400_BAD_REQUEST)
         
+        # Saving chat logs
+        chat_id = request.get("chat_id", None)
+        chatlog_obj = None
+
+        # means that this is a new chat
+        if not chat_id:
+            # using a model to create a new chat name based on input prompt
+            chat_name = name_chat(gemini_key, prompt)
+            chatlog_obj = models.ChatLogs.objects.create(
+                name=chat_name,
+            )
+            chat_id = chatlog_obj.pk
+        else: # get existing chatlog model obj
+            chatlog_obj = models.ChatLogs.objects.get(
+                    id = chat_id
+            )   
+
         # handling context injections w/ @paper and @recent, etc.
         # plan is to append a contxt block to the prompt var
         # getting flags
@@ -386,15 +404,24 @@ class AIChatView(APIView):
                 pass
 
             context_block = context_template.format(annot_data=annot_data)
-            prompt += "\n\n" + context_block    
-            print(prompt) # delete later
+            new_prompt = prompt +  "\n\n" + context_block    
+            print(new_prompt) # delete later
 
             model_response = send_prompt(
                 gemini_key = gemini_key, 
                 model = gemini_model, 
-                prompt = prompt)
+                prompt = new_prompt)
 
-            return Response({"model_response": model_response}, status=status.HTTP_200_OK)
+            # saving prompt to chatlogs (only original user question)
+            add_message_to_chat(chat_id, "user", prompt) 
+
+            # Save and return model response
+            add_message_to_chat(chat_id, "model", model_response)
+            return Response({
+                "model_response": model_response, 
+                "chat_id": chat_id, 
+                "chat_name": chatlog_obj.name},  
+            status=status.HTTP_200_OK)
 
         # handles @paper
         elif paper_ids != None:
@@ -411,18 +438,27 @@ class AIChatView(APIView):
                 pass
 
             context_block = context_template.format(annot_data=annot_data)
-            prompt += "\n\n" + context_block    
-            print(prompt) # delete later
+            new_prompt = prompt +  "\n\n" + context_block    
+            print(new_prompt) # delete later
 
             model_response = send_prompt(
                 gemini_key = gemini_key, 
                 model = gemini_model, 
-                prompt = prompt, 
+                prompt = new_prompt, 
                 pdf_count=len(pdf_paths), 
                 pdf_paths = pdf_paths
                 )
             
-            return Response({"model_response": model_response}, status=status.HTTP_200_OK)
+            # saving prompt to chatlogs (only original user question)
+            add_message_to_chat(chat_id, "user", prompt)
+
+            # Save and return model response
+            add_message_to_chat(chat_id, "model", model_response)
+            return Response({
+                "model_response": model_response, 
+                "chat_id": chat_id, 
+                "chat_name": chatlog_obj.name}, 
+            status=status.HTTP_200_OK)
             
 
         # handles @folder, doesn't send any paper pdfs
@@ -464,33 +500,73 @@ class AIChatView(APIView):
 
             if folder_context != {} and folder_context != None: 
                 context_block = context_template.format(annot_data=folder_context)
-                prompt += "\n\n" + context_block    
-                print(prompt) # delete later
+                new_prompt = prompt +  "\n\n" + context_block    
+                print(new_prompt) # delete later
 
                 model_response = send_prompt(
                     gemini_key = gemini_key, 
                     model = gemini_model, 
-                    prompt = prompt, 
+                    prompt = new_prompt, 
                     )
                 
-                return Response({"model_response": model_response}, status=status.HTTP_200_OK)
+                 # saving prompt to chatlogs (only original user question)
+                add_message_to_chat(chat_id, "user", prompt)
+
+                # Save and return model response
+                add_message_to_chat(chat_id, "model", model_response)
+                return Response({
+                    "model_response": model_response, 
+                    "chat_id": chat_id, 
+                    "chat_name": chatlog_obj.name},
+                status=status.HTTP_200_OK)
             
             else: 
                 print("No folder context, some error in AIChatView most likely")
                 return Response({"error": "Model pipeline failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         # running rag if enabled
-        elif rag_enabled != None:
-            pass
+        elif rag_enabled:
+            # REPLACE THIS FOR ACTUAL RAG SETUP ONCE SMART COLLECTIONS ARE COMPLETE
+            model_response = send_prompt(
+                    gemini_key = gemini_key, 
+                    model = gemini_model, 
+                    prompt = prompt, 
+                    )
+            
+            # saving prompt to chatlogs (only original user question)
+            add_message_to_chat(chat_id, "user", prompt)
+
+            # Save and return model response
+            add_message_to_chat(chat_id, "model", model_response)
+            return Response({
+                    "model_response": model_response, 
+                    "chat_id": chat_id, 
+                    "chat_name": chatlog_obj.name},  
+                status=status.HTTP_200_OK)
 
         # running normal model if not context or no rag 
         else: 
-            pass
+            model_response = send_prompt(
+                    gemini_key = gemini_key, 
+                    model = gemini_model, 
+                    prompt = prompt, 
+                    )
+            
+            # saving prompt to chatlogs (only original user question)
+            add_message_to_chat(chat_id, "user", prompt)
 
-        # fallback response
-        return Response({"error": "Model pipeline failed"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-                
+            # Save and return model response
+            add_message_to_chat(chat_id, "model", model_response)
+            return Response({
+                    "model_response": model_response, 
+                    "chat_id": chat_id, 
+                    "chat_name": chatlog_obj.name},  
+                status=status.HTTP_200_OK)
 
+# Handles all chat logs
+class ChatLogsViewset(viewsets.ModelViewSet): 
+    queryset = models.ChatLogs.objects.all()
+    serializer_class = serializers.ChatLogSerializer
 
 """
 Smart Collections feature notes (sorry these notes are a bit of a mess)

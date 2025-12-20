@@ -1,4 +1,5 @@
 from django.db import models
+import numpy as np
 
 class Folder(models.Model):
     name = models.CharField(max_length=255, unique=True)
@@ -25,11 +26,26 @@ class Annotations(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    embedding_binary = models.BinaryField(null=True, blank=True)
+
+    def set_embedding(self, float_list):
+        # Convert list to a numpy float32 array and then to bytes
+        self.embedding_binary = np.array(float_list, dtype=np.float32).tobytes()
+
+    def get_embedding(self):
+        # Convert bytes back to a numpy array
+        return np.frombuffer(self.embedding_binary, dtype=np.float32) # type: ignore
+
+
     def __str__(self):
         return f"Annotation for {self.document.title} at {self.created_at}"
 
 # Update whenever AI chat implementation is done
-class ChatModelLogs(models.Model): 
+class ChatLogs(models.Model): 
     name = models.CharField(max_length=255)
+    content = models.JSONField(default=list)
     updated_at = models.DateTimeField(auto_now=True)
-    content = models.TextField()
+
+class SmartCollections(models.Model): 
+    name = models.CharField(max_length=255)
+    created_at = models.DateField(auto_now_add=True)
