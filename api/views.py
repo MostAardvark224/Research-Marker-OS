@@ -403,7 +403,6 @@ class AIChatView(APIView):
 
             context_block = context_template.format(annot_data=annot_data)
             new_prompt = prompt +  "\n\n" + context_block    
-            print(new_prompt) # delete later
 
             model_response = send_prompt(
                 gemini_key = gemini_key, 
@@ -441,7 +440,6 @@ class AIChatView(APIView):
 
             context_block = context_template.format(annot_data=annot_data)
             new_prompt = prompt +  "\n\n" + context_block    
-            print(new_prompt) # delete later
 
             model_response = send_prompt(
                 gemini_key = gemini_key, 
@@ -504,7 +502,6 @@ class AIChatView(APIView):
             if folder_context != {} and folder_context != None: 
                 context_block = context_template.format(annot_data=folder_context)
                 new_prompt = prompt +  "\n\n" + context_block    
-                print(new_prompt) # delete later
 
                 model_response = send_prompt(
                     gemini_key = gemini_key, 
