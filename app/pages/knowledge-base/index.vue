@@ -299,46 +299,114 @@
             <h2 class="text-sm font-semibold text-white">Research Assistant</h2>
             <div class="flex items-center gap-1.5 mt-0.5">
               <span
-                class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"
+                class="w-1.5 h-1.5 rounded-full"
+                :class="
+                  isAiLoading ? 'bg-amber-400 animate-pulse' : 'bg-emerald-500'
+                "
               ></span>
               <span
                 class="text-[10px] text-slate-500 uppercase tracking-wider font-medium"
-                >Online</span
               >
+                {{ isAiLoading ? "Thinking..." : "Online" }}
+              </span>
             </div>
           </div>
         </div>
 
         <div
+          ref="chatContainerRef"
           class="flex-1 overflow-y-auto p-6 pb-32 space-y-6 custom-scrollbar flex flex-col"
         >
-          <div class="flex gap-4">
+          <div v-if="chatHistory.length === 0" class="space-y-6">
+            <div class="flex gap-4">
+              <div
+                class="w-8 h-8 rounded bg-indigo-500/20 flex items-center justify-center shrink-0"
+              >
+                <Icon name="uil:robot" class="text-indigo-400" />
+              </div>
+              <div class="space-y-2">
+                <div class="text-xs text-slate-500">Research Assistant</div>
+                <div
+                  class="p-4 rounded-xl rounded-tl-none bg-white/[0.03] border border-white/5 text-sm text-slate-300 leading-relaxed"
+                >
+                  Hello! I have indexed
+                  <strong>{{ countAnnotations }} papers</strong>. I can help you
+                  summarize documents, find connections between concepts, or
+                  draft outlines.
+                </div>
+              </div>
+            </div>
+            <div
+              class="flex-1 flex flex-col items-center justify-center text-center opacity-30 pointer-events-none select-none pt-20"
+            >
+              <Icon
+                name="uil:comment-alt-lines"
+                class="text-4xl text-slate-700 mb-2"
+              />
+              <p class="text-sm text-slate-600">Ask a question to begin</p>
+            </div>
+          </div>
+
+          <div
+            v-for="(msg, index) in chatHistory"
+            :key="index"
+            class="flex gap-4"
+          >
+            <div
+              v-if="msg.role === 'user'"
+              class="w-8 h-8 shrink-0 flex items-center justify-center"
+            >
+              <div
+                class="w-6 h-6 rounded-full bg-slate-700 border border-white/10 flex items-center justify-center"
+              >
+                <Icon name="uil:user" class="text-slate-300 text-xs" />
+              </div>
+            </div>
+
+            <div
+              v-else
+              class="w-8 h-8 rounded bg-indigo-500/20 flex items-center justify-center shrink-0"
+            >
+              <Icon name="uil:robot" class="text-indigo-400" />
+            </div>
+
+            <div class="space-y-1 max-w-[85%]">
+              <div class="text-xs text-slate-500 capitalize">
+                {{ msg.role === "model" ? "Assistant" : "You" }}
+              </div>
+              <div
+                class="p-4 rounded-xl text-sm leading-relaxed overflow-x-auto"
+                :class="
+                  msg.role === 'user'
+                    ? 'bg-indigo-500/10 border border-indigo-500/20 text-indigo-100 rounded-tr-none'
+                    : 'bg-white/[0.03] border border-white/5 text-slate-300 rounded-tl-none prose prose-invert prose-sm'
+                "
+                v-html="msg.role === 'model' ? msg.displayContent : msg.content"
+              ></div>
+            </div>
+          </div>
+
+          <div v-if="isAiLoading" class="flex gap-4">
             <div
               class="w-8 h-8 rounded bg-indigo-500/20 flex items-center justify-center shrink-0"
             >
               <Icon name="uil:robot" class="text-indigo-400" />
             </div>
-            <div class="space-y-2">
-              <div class="text-xs text-slate-500">Research Assistant</div>
-              <div
-                class="p-4 rounded-xl rounded-tl-none bg-white/[0.03] border border-white/5 text-sm text-slate-300 leading-relaxed"
-              >
-                Hello! I have indexed
-                <strong>{{ countAnnotations }} papers</strong>. I can help you
-                summarize documents, find connections between concepts, or draft
-                outlines.
+            <div
+              class="p-4 rounded-xl rounded-tl-none bg-white/[0.03] border border-white/5"
+            >
+              <div class="flex gap-1">
+                <span
+                  class="w-1.5 h-1.5 bg-slate-500 rounded-full animate-bounce"
+                ></span>
+                <span
+                  class="w-1.5 h-1.5 bg-slate-500 rounded-full animate-bounce delay-100"
+                ></span>
+                <span
+                  class="w-1.5 h-1.5 bg-slate-500 rounded-full animate-bounce delay-200"
+                ></span>
               </div>
             </div>
-          </div>
-
-          <div
-            class="flex-1 flex flex-col items-center justify-center text-center opacity-30 pointer-events-none select-none"
-          >
-            <Icon
-              name="uil:comment-alt-lines"
-              class="text-4xl text-slate-700 mb-2"
-            />
-            <p class="text-sm text-slate-600">Ask a question to begin</p>
           </div>
         </div>
 
@@ -346,17 +414,115 @@
           class="absolute bottom-0 left-0 w-full p-6 border-t border-white/5 bg-[#050508] z-20"
         >
           <div class="relative">
+            <div
+              v-if="showChatSuggestions"
+              class="absolute bottom-full mb-2 w-full bg-[#15151A] border border-white/10 rounded-xl overflow-hidden shadow-2xl z-50 max-h-48 overflow-y-auto custom-scrollbar"
+            >
+              <div
+                v-for="(suggestion, index) in filteredChatSuggestions"
+                :key="suggestion.id"
+                class="px-4 py-3 cursor-pointer hover:bg-white/5 flex items-center gap-3 transition-colors border-b border-white/5 last:border-0"
+                :class="{ 'bg-white/10': activeChatSuggestionIndex === index }"
+                @click="selectChatSuggestion(suggestion)"
+              >
+                <div
+                  class="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold"
+                  :class="
+                    suggestion.type === 'cmd'
+                      ? 'bg-purple-500/20 text-purple-400'
+                      : 'bg-indigo-500/20 text-indigo-400'
+                  "
+                >
+                  {{ suggestion.type === "cmd" ? "/" : "@" }}
+                </div>
+                <span class="text-sm text-slate-200 truncate">{{
+                  suggestion.label
+                }}</span>
+              </div>
+            </div>
+
             <textarea
               ref="chatInputRef"
+              v-model="chatInput"
+              @input="handleChatInput"
+              @keydown.down.prevent="navigateChatSuggestions(1)"
+              @keydown.up.prevent="navigateChatSuggestions(-1)"
+              @keydown.enter.prevent="
+                showChatSuggestions
+                  ? selectChatSuggestion(
+                      filteredChatSuggestions[activeChatSuggestionIndex]
+                    )
+                  : sendChatMessage()
+              "
               rows="1"
-              placeholder="Use '@' to reference paper titles"
-              class="w-full bg-slate-900/50 border border-white/10 rounded-xl py-4 pl-4 pr-12 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500/40 focus:bg-slate-900 resize-none overflow-hidden transition-all"
+              placeholder="Ask a question..."
+              class="w-full bg-slate-900/50 border border-white/10 rounded-xl py-4 pl-4 pr-48 text-sm text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500/40 focus:bg-slate-900 resize-none overflow-hidden transition-all shadow-inner"
             ></textarea>
-            <button
-              class="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 rounded bg-indigo-500/10 text-indigo-400 hover:bg-indigo-500 hover:text-white transition-colors"
+
+            <div
+              class="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-4"
             >
-              <Icon name="uil:message" class="text-lg" />
-            </button>
+              <div
+                class="flex items-center gap-2 border-r border-white/10 pr-4 mb-2"
+              >
+                <div
+                  class="flex items-center gap-2 cursor-pointer"
+                  @click="isRagEnabled = !isRagEnabled"
+                >
+                  <span
+                    class="text-[10px] font-bold uppercase tracking-wider transition-colors"
+                    :class="
+                      isRagEnabled ? 'text-emerald-400' : 'text-slate-600'
+                    "
+                    >RAG</span
+                  >
+                  <div
+                    class="w-8 h-4 rounded-full relative transition-colors duration-200"
+                    :class="
+                      isRagEnabled
+                        ? 'bg-emerald-500/20 border border-emerald-500/50'
+                        : 'bg-slate-800 border border-white/5'
+                    "
+                  >
+                    <div
+                      class="absolute top-0.5 left-0.5 w-2.5 h-2.5 rounded-full bg-current transition-all duration-200 shadow-sm"
+                      :class="
+                        isRagEnabled
+                          ? 'translate-x-4 bg-emerald-400'
+                          : 'translate-x-0 bg-slate-500'
+                      "
+                    ></div>
+                  </div>
+                </div>
+                <div class="relative group">
+                  <Icon
+                    name="uil:question-circle"
+                    class="text-slate-600 hover:text-slate-400 text-lg cursor-help transition-colors mt-1.5"
+                  />
+                  <div
+                    class="absolute bottom-full right-[-50px] mb-4 w-64 p-3 bg-[#15151A] border border-white/10 rounded-xl shadow-2xl text-xs text-slate-400 leading-relaxed opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50"
+                  >
+                    <div class="font-bold text-slate-200 mb-1">
+                      Retrieval Augmented Generation
+                    </div>
+                    <p>Scans your library for context before answering.</p>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                @click="sendChatMessage"
+                :disabled="isAiLoading || !chatInput"
+                class="p-1.5 mb-1.5 rounded transition-all duration-200 flex items-center justify-center"
+                :class="
+                  chatInput
+                    ? 'bg-indigo-500 text-white hover:bg-indigo-400 shadow-lg shadow-indigo-500/20'
+                    : 'bg-indigo-500/10 text-indigo-400/50 cursor-not-allowed'
+                "
+              >
+                <Icon name="uil:message" class="text-lg" />
+              </button>
+            </div>
           </div>
         </div>
       </aside>
@@ -366,14 +532,24 @@
 
 <script setup>
 const {
-  public: { frontendOrigin },
+  public: { frontendOrigin, apiBaseURL },
 } = useRuntimeConfig();
+import { marked } from "marked";
+import DOMPurify from "dompurify";
+
+// Since these files are getting rlly big, going to start using "HEADER" as a way to locate functionality.
+// Two headers as of time of writing
+// HEADER: SEARCH
+// HEADER: AI
+// just control-f to find those sections
+
+// HEADER: SEARCH
 
 const userNotes = ref([]);
 // fetching user notes
 async function fetchNotes() {
   try {
-    const res = await $fetch("/api/search-notes", {
+    const res = await $fetch(`${apiBaseURL}/search-notes/`, {
       method: "GET",
     });
     userNotes.value = res;
@@ -482,6 +658,7 @@ const bottomRowDocs = computed(() => {
 });
 
 const countAnnotations = computed(() => userNotes.value.length);
+const hasAnnotations = computed(() => userNotes.value.length > 0);
 
 /* Search functionality
 - When user starts typing, animation goes away and search results show up
@@ -715,23 +892,177 @@ function sendToPaper(result) {
   window.open(url, "_blank"); // opens in a new window
 }
 
-// Ai chat
+// HEADER: AI
 
 /* @ functionality
 - @paper:<paperTitle> match with paper title and upload that pdf as model context
 - @recent: context for the past week (limit somehow)
 - @collections (COME BACK TO THIS)
-
+More notes can be found in backend api/views.py
 */
-const paperSuggestions = computed(() => {
-  return userNotes.value.map((doc) => ({
-    label: doc.title,
-    id: doc.id,
+
+const chatHistory = ref([]);
+const chatInput = ref("");
+const currentChatId = ref(null);
+const isAiLoading = ref(false);
+const chatContainerRef = ref(null); // auto-scrolling
+const chatInputRef = ref(null); // Ref for the textarea
+const isRagEnabled = ref(false);
+
+// autocomplete logic
+const showChatSuggestions = ref(false);
+const activeChatSuggestionIndex = ref(0);
+
+// combine papers and special commands for suggestions
+const chatSuggestions = computed(() => {
+  const papers = userNotes.value.map((n) => ({
+    type: "paper",
+    label: n.title,
+    id: n.doc_id,
   }));
+  const commands = [{ type: "cmd", label: "recent", id: "recent" }];
+  return [...commands, ...papers];
 });
 
-const hasAnnotations = computed(() => userNotes.value.length > 0);
-const chatInputRef = ref(null);
+const filteredChatSuggestions = computed(() => {
+  const match = chatInput.value.match(/@([\w\s]*)$/);
+  if (!match) return [];
+  const query = match[1].toLowerCase();
+
+  return chatSuggestions.value
+    .filter((item) => item.label.toLowerCase().includes(query))
+    .slice(0, 5); // Limit to 5 suggestions
+});
+
+const handleChatInput = (e) => {
+  // Check for @
+  const match = chatInput.value.match(/@([\w\s]*)$/);
+  showChatSuggestions.value =
+    !!match && filteredChatSuggestions.value.length > 0;
+  if (showChatSuggestions.value) activeChatSuggestionIndex.value = 0;
+};
+
+const navigateChatSuggestions = (direction) => {
+  if (!showChatSuggestions.value) return;
+  const len = filteredChatSuggestions.value.length;
+  activeChatSuggestionIndex.value =
+    (activeChatSuggestionIndex.value + direction + len) % len;
+};
+
+const selectChatSuggestion = (suggestion) => {
+  const regex = /@([\w\s]*)$/;
+  // wrap paper titles in quotes to make parsing easier
+  const replacement =
+    suggestion.type === "paper"
+      ? `@paper:"${suggestion.label}" `
+      : `@${suggestion.label} `;
+
+  chatInput.value = chatInput.value.replace(regex, replacement);
+  showChatSuggestions.value = false;
+  if (chatInputRef.value) chatInputRef.value.focus();
+};
+
+// api logic
+
+// auto-scroll to bottom
+const scrollToBottom = async () => {
+  await nextTick();
+  if (chatContainerRef.value) {
+    chatContainerRef.value.scrollTop = chatContainerRef.value.scrollHeight;
+  }
+};
+
+// parse the raw input string to find context flags
+const parseContextFromInput = (text) => {
+  let paperIds = [];
+  let atRecent = false;
+  let cleanPrompt = text;
+
+  if (text.includes("@recent")) {
+    atRecent = true;
+    cleanPrompt = cleanPrompt.replace("@recent", "");
+  }
+
+  const paperMatches = [...text.matchAll(/@paper:"([^"]+)"/g)];
+
+  paperMatches.forEach((match) => {
+    const title = match[1];
+    const foundNote = userNotes.value.find((n) => n.title === title);
+    if (foundNote) {
+      paperIds.push(foundNote.doc_id);
+    }
+    cleanPrompt = cleanPrompt.replace(match[0], ""); // removes @xyz from prompt
+  });
+
+  return {
+    prompt: cleanPrompt.trim(),
+    paper_ids: paperIds,
+    at_recent: atRecent,
+  };
+};
+
+const parseMarkdown = (rawText) => {
+  if (!rawText) return "";
+  const html = marked.parse(rawText);
+  // prevent XSS
+  return DOMPurify.sanitize(html);
+};
+
+async function sendChatMessage() {
+  if (!chatInput.value.trim() || isAiLoading.value) return;
+
+  const rawInput = chatInput.value;
+  const contextData = parseContextFromInput(rawInput);
+
+  chatHistory.value.push({
+    role: "user",
+    content: rawInput, // raw input so user sees tags
+    displayContent: rawInput,
+  });
+
+  chatInput.value = "";
+  isAiLoading.value = true;
+  await scrollToBottom();
+
+  try {
+    // send to backend
+    const payload = {
+      prompt: contextData.prompt,
+      chat_id: currentChatId.value,
+      paper_ids: contextData.paper_ids,
+      at_recent: contextData.at_recent,
+      rag_enabled: isRagEnabled.value,
+    };
+
+    const res = await $fetch(`${apiBaseURL}/ask-ai/`, {
+      method: "POST",
+      body: payload,
+    });
+
+    // handle response
+    if (res.model_response) {
+      chatHistory.value.push({
+        role: "model",
+        content: res.model_response,
+        displayContent: parseMarkdown(res.model_response),
+      });
+
+      // update session id if new chat
+      if (res.chat_id) currentChatId.value = res.chat_id;
+    }
+  } catch (error) {
+    // error handling
+    console.error("AI Chat Error:", error);
+    chatHistory.value.push({
+      role: "model",
+      content: "Error: Unable to connect to Research Assistant.",
+      displayContent: `<span class="text-red-400">Error: Unable to connect to Research Assistant. (${error.message})</span>`,
+    });
+  } finally {
+    isAiLoading.value = false;
+    await scrollToBottom();
+  }
+}
 
 const focusAIChat = () => {
   if (chatInputRef.value) {
