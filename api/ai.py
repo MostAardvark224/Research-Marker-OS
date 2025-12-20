@@ -23,6 +23,22 @@ def add_message_to_chat(chat_id, role, text):
         obj.content.append(new_message)
         obj.save(update_fields=['messages'])  
 
+# getting chat history to pass to model
+# gets past 10 chats to save tokens
+def get_chat_history(chat_id): 
+    chatlog_obj = models.ChatLogs.objects.get(pk=chat_id)
+    chatlog = chatlog_obj.content
+
+    history = []
+    for msg in chatlog:
+        history.append({
+            "role": msg['role'],
+            "parts": [{"text": msg['content']}]
+        })
+
+    recent_history = history[-10:]
+    return recent_history
+
 # names the AI chat based on the user prompt
 def name_chat(gemini_key, user_prompt):
     client = genai.Client(api_key=gemini_key) 
@@ -58,7 +74,9 @@ def name_chat(gemini_key, user_prompt):
     return response.text
 
 # main function that sends prompt and context to model and returns a response
-def send_prompt(gemini_key, model, prompt, pdf_count=0, pdf_paths=[]):
+def send_prompt(gemini_key, model, prompt, pdf_count=0, pdf_paths=[], chat_id=None):
+    client = genai.Client(api_key=gemini_key) 
+
     sys_prompt = """
     # IDENTITY
     You are the Research Marker Assistant, a specialized AI designed to help researchers, students, and professionals synthesize information from their personal "Knowledge Index." You are analytical, precise, and objective.
@@ -78,62 +96,38 @@ def send_prompt(gemini_key, model, prompt, pdf_count=0, pdf_paths=[]):
     - Do not hallucinate data that isn't present in the user's annotations or papers. However you can use general knowledge if no data is passed to you in the context.
     """
 
-    client = genai.Client(api_key=gemini_key) 
-    
-    # hve to have diff calls based on how many pdfs are being sent
-    if pdf_count > 1: 
-        contents = []
+    # getting recent chat history to give gemini conversation context
+    chat_history = get_chat_history(chat_id)
 
+    chat = client.chats.create(
+        model=model,
+        history=chat_history, 
+        config=types.GenerateContentConfig(
+            system_instruction=sys_prompt, 
+            temperature=0.7
+        )
+    )
+
+    message_contents = []
+
+    # adding pdfs if they need to be added
+    if pdf_count > 0:
         for path in pdf_paths:
             if path.exists():
-                contents.append(
+                message_contents.append(
                     types.Part.from_bytes(
                         data=path.read_bytes(),
                         mime_type='application/pdf',
                     )
                 )
 
-        contents.append(prompt)
+    message_contents.append(prompt)
 
-        response = client.models.generate_content(
-            model=model, 
-            contents=contents, 
-            config=types.GenerateContentConfig(
-                system_instruction=sys_prompt, 
-                temperature=0.7
-            )
-        )
-
-        return response.text
-    
-    elif pdf_count == 1: 
-        response = client.models.generate_content(
-        model=model, 
-        contents=[
-            types.Part.from_bytes(
-                data=pdf_paths[0].read_bytes(),
-                mime_type='application/pdf',
-            ),
-            prompt  
-        ], 
-        config=types.GenerateContentConfig(
-            system_instruction=sys_prompt, 
-            temperature=0.7
-        )
+    response = chat.send_message(
+        message=message_contents
     )
-        
-        return response.text
 
-    else: 
-        response = client.models.generate_content(
-        model=model, 
-        contents=prompt, 
-        config=types.GenerateContentConfig(
-            system_instruction=sys_prompt, 
-            temperature=0.7)
-        )
-
-        return response.text
+    return response.text
 
 def embed_obj(obj): 
     pass

@@ -324,9 +324,6 @@ note to self: implement Latex and markdown
 Button where user can pick whether they want to use RAG or not.
 Rag will get top 2-3 embeddings with n cos similarity and append them to the prompt as context.
 """
-from typing import Optional
-chatlog_obj: Optional[models.ChatLogs] = None # satisfies pylance
-
 from .ai import add_message_to_chat ,send_prompt, name_chat
 class AIChatView(APIView):
     def post(self, request, format=None):
@@ -355,9 +352,10 @@ class AIChatView(APIView):
             )
             chat_id = chatlog_obj.pk
         else: # get existing chatlog model obj
-            chatlog_obj = models.ChatLogs.objects.get(
-                    id = chat_id
-            )   
+            try:
+                chatlog_obj = models.ChatLogs.objects.get(id=chat_id)
+            except models.ChatLogs.DoesNotExist:
+                return Response({"error": "Chat session not found"}, status=404)   
 
         # handling context injections w/ @paper and @recent, etc.
         # plan is to append a contxt block to the prompt var
@@ -410,7 +408,11 @@ class AIChatView(APIView):
             model_response = send_prompt(
                 gemini_key = gemini_key, 
                 model = gemini_model, 
-                prompt = new_prompt)
+                prompt = new_prompt, 
+                pdf_count=0, 
+                pdf_paths=[],
+                chat_id = chat_id
+                )
 
             # saving prompt to chatlogs (only original user question)
             add_message_to_chat(chat_id, "user", prompt) 
@@ -446,7 +448,8 @@ class AIChatView(APIView):
                 model = gemini_model, 
                 prompt = new_prompt, 
                 pdf_count=len(pdf_paths), 
-                pdf_paths = pdf_paths
+                pdf_paths = pdf_paths,
+                chat_id = chat_id
                 )
             
             # saving prompt to chatlogs (only original user question)
@@ -507,6 +510,7 @@ class AIChatView(APIView):
                     gemini_key = gemini_key, 
                     model = gemini_model, 
                     prompt = new_prompt, 
+                    chat_id = chat_id
                     )
                 
                  # saving prompt to chatlogs (only original user question)
@@ -531,6 +535,7 @@ class AIChatView(APIView):
                     gemini_key = gemini_key, 
                     model = gemini_model, 
                     prompt = prompt, 
+                    chat_id = chat_id
                     )
             
             # saving prompt to chatlogs (only original user question)
@@ -550,6 +555,7 @@ class AIChatView(APIView):
                     gemini_key = gemini_key, 
                     model = gemini_model, 
                     prompt = prompt, 
+                    chat_id = chat_id
                     )
             
             # saving prompt to chatlogs (only original user question)
