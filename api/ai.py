@@ -21,7 +21,7 @@ def add_message_to_chat(chat_id, role, text):
             obj.content = []
         
         obj.content.append(new_message)
-        obj.save(update_fields=['messages'])  
+        obj.save(update_fields=['content'])  
 
 # getting chat history to pass to model
 # gets past 10 chats to save tokens
