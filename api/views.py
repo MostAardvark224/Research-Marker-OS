@@ -373,8 +373,8 @@ class AIChatView(APIView):
         context_block = ""
 
         at_recent = to_bool(request.data.get("at_recent", False))
-        paper_ids = request.data.getlist("paper_ids", None)
-        folder_ids = request.data.getlist("folder_ids", None)
+        paper_ids = request.data.get("paper_ids", None)
+        folder_ids = request.data.get("folder_ids", None)
         rag_enabled = to_bool(request.data.get("rag_enabled", False))
 
         # handling flags
