@@ -52,5 +52,11 @@ class ApiConfig(AppConfig):
                 write_user_preferences(prefs)
                 print("Scholar Inbox papers fetched on startup.")
 
+        # Vector embed annotations that require it 
+        # Will embed doc title as well as sticky note & notepad content 
+        # NOTE: use select_related('document') to prevent N+1 on batch updates
+
+        
+
 
 
