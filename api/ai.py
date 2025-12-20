@@ -130,6 +130,8 @@ def send_prompt(gemini_key, model, prompt, pdf_count=0, pdf_paths=[], chat_id=No
 
     return response.text
 
-def embed_obj(obj): 
+# general function to embed all annotations that are marked to be embedded
+# Could do matryoshka embeddings
+def embed_annotations(): 
     pass
 

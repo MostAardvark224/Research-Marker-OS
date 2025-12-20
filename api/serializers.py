@@ -50,3 +50,8 @@ class ChatLogSerializer(serializers.ModelSerializer):
     class Meta: 
         model = models.ChatLogs
         fields = '__all__'
+
+class SmartCollectionsSerializer(serializers.ModelSerializer): 
+    class Meta: 
+        model = models.SmartCollections
+        fields = '__all__'

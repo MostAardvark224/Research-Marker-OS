@@ -622,7 +622,13 @@ Technical Implementation:
 
 8. Send to frontend and render graph
 """
-class SmartCollectionsView(APIView):
-    pass
 
+# returns all smart collections for display on frontend
+class SmartCollectionsViewSet(viewsets.ModelViewSet): 
+    queryset = models.SmartCollections.objects.all()
+    serializer_class = serializers.SmartCollectionsSerializer
 
+    # create logic (this is where the notes are implemented)
+    def create(self, request, *args, **kwargs):
+        
+        return Response()
