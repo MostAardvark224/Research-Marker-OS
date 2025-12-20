@@ -335,12 +335,12 @@ class AIChatView(APIView):
         if not gemini_model: 
             return Response({"error": "Gemini model not set. See docs."}, status=status.HTTP_400_BAD_REQUEST)
         
-        prompt = request.get("prompt", "")
+        prompt = request.data.get("prompt", "")
         if not prompt:
             return Response({"error": "Prompt is required"}, status=status.HTTP_400_BAD_REQUEST)
         
         # Saving chat logs
-        chat_id = request.get("chat_id", None)
+        chat_id = request.data.get("chat_id", None)
         chatlog_obj = None
 
         # means that this is a new chat
@@ -372,10 +372,10 @@ class AIChatView(APIView):
         --- DATA END ---"""
         context_block = ""
 
-        at_recent = to_bool(request.get("at_recent", False))
-        paper_ids = request.getlist("paper_ids", None)
-        folder_ids = request.getlist("folder_ids", None)
-        rag_enabled = to_bool(request.get("rag_enabled", False))
+        at_recent = to_bool(request.data.get("at_recent", False))
+        paper_ids = request.data.getlist("paper_ids", None)
+        folder_ids = request.data.getlist("folder_ids", None)
+        rag_enabled = to_bool(request.data.get("rag_enabled", False))
 
         # handling flags
 
