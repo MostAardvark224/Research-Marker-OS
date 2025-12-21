@@ -6,7 +6,7 @@ import os
 import django
 
 def start_app():
-    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'your_project_name.settings')
+    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings')
     django.setup()
 
     # Only run migrations/embeddings if NOT in reload mode (the child process)
