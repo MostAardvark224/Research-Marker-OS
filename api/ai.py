@@ -5,23 +5,26 @@ import pathlib
 import api.models as models
 import api.serializers as serializers
 from django.utils import timezone
+import os
+import numpy as np 
+backup_gemini_key = os.getenv("GEMINI_API_KEY")
 
 # for saving chat logs
 # this only saves the user prompt and doesn't include added context so that it looks normal in the chat history
 def add_message_to_chat(chat_id, role, text): 
-        obj = models.ChatLogs.objects.get(pk=chat_id)
-        
-        new_message = {
-            "role": role, # user or model
-            "content": text,
-            "timestamp": timezone.now().isoformat()
-        }
-        
-        if obj.content is None:
-            obj.content = []
-        
-        obj.content.append(new_message)
-        obj.save(update_fields=['content'])  
+    obj = models.ChatLogs.objects.get(pk=chat_id)
+    
+    new_message = {
+        "role": role, # user or model
+        "content": text,
+        "timestamp": timezone.now().isoformat()
+    }
+    
+    if obj.content is None:
+        obj.content = []
+    
+    obj.content.append(new_message)
+    obj.save(update_fields=['content'])  
 
 # getting chat history to pass to model
 # gets past 10 chats to save tokens
@@ -130,8 +133,66 @@ def send_prompt(gemini_key, model, prompt, pdf_count=0, pdf_paths=[], chat_id=No
 
     return response.text
 
-# general function to embed all annotations that are marked to be embedded
-# Could do matryoshka embeddings
-def embed_annotations(): 
-    pass
+# general function to embed all annotations that are marked to be embedded (batch)
+def embed_annotations():
+    client = genai.Client(api_key=backup_gemini_key) 
+
+    # getting all anots to update
+    annots_to_embed = list(models.Annotations.objects.filter(
+        needs_embedding=True  
+    ).select_related("document"))
+
+    if not annots_to_embed:
+        print("No annotations to embed.")
+        return
+    
+    print(f"embedding {len(annots_to_embed)} notes.")
+
+    ordered_notes_content = []
+    
+    # droppping noise from annots obj, only want to embed useful stuff
+    for a in annots_to_embed: 
+        title = a.document.title
+        
+        # extract sticky note text only
+        sticky_text = ""
+        data = a.sticky_note_data
+        if isinstance(data, list):
+            extracted_texts = [str(item.get("content", "")) for item in data] # type: ignore
+            sticky_text = "".join(extracted_texts)
+
+        notepad_content = a.notepad or ""
+
+        content_string = f"{title}|{sticky_text}|{notepad_content}" # formatted content string
+        ordered_notes_content.append(content_string)
+
+    # NOTE: I think that gemini might have a limit on how many indiviudal strings u can send at once 
+    # if embedding is erroring this might be the issue, you might have to change it to chunk the requests
+    # but this is prob only an issue if u have 100+ notes in a single session (very unlikely)
+    result = client.models.embed_content(
+        model="text-embedding-004", 
+        contents=ordered_notes_content
+    )
+
+    to_update = []
+    
+    # converting embedding to binary and setting other fields
+    # not gonna use the given method on the annot model because bulk update is faster
+    # can zip bc gemini gurantees they come back in same order
+    for obj, embedding in zip(annots_to_embed, result.embeddings):  # type: ignore
+        obj.embedding_binary = np.array(embedding.values, dtype=np.float32).tobytes()
+        obj.needs_embedding = False
+        to_update.append(obj)
+
+    models.Annotations.objects.bulk_update(to_update, ['embedding_binary', 'needs_embedding'])
+    
+    print(f"Successfully embedded {len(to_update)} annotations.")
+
+
+        
+
+
+
+
+
 

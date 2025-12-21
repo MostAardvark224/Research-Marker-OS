@@ -29,10 +29,15 @@ class Annotations(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    major_topic = models.CharField(max_length=100, null=True)
+    sub_topic = models.CharField(max_length=100, null=True)
+    x_coordinate = models.FloatField(blank=True, db_index=True, null=True),
+    y_coordinate = models.FloatField(blank=True, db_index=True, null=True),
+
     embedding_binary = models.BinaryField(null=True, blank=True)
     needs_embedding = models.BooleanField(default=False)
 
-    content_hash = models.CharField(max_length=64, blank=True)
+    content_hash = models.CharField(max_length=64, blank=True, default="")
 
     def generate_content_hash(self):
         # hashing fields that contribute to embedding
@@ -85,3 +90,6 @@ class ChatLogs(models.Model):
 class SmartCollections(models.Model): 
     name = models.CharField(max_length=255)
     created_at = models.DateField(auto_now_add=True)
+    annotations = models.ManyToManyField(Annotations, blank=True, related_name='collections')
+    
+    

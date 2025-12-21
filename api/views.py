@@ -595,12 +595,12 @@ Technical Implementation:
 1. Embed all notes objects (dim count/model TBD)
 - Not including highlights in the embedding to save money on tokens.
 - Using gemini embedding api for speed. Also, Gemini api is already trained w/ Matryoshka (MRL) system in mind, so I can just slice and normalize vectors for faster computation
-- Will store as a 384 dim embedding
+- Will store as a 512 dim embedding (decided based on MTEB score google provides)
 
-2. Leverage MRL and slice + normalize unit vectors so that they are now 128 dims
+2. Leverage MRL and slice + normalize unit vectors so that they are now 128 dims (will use for vector projection down to 2d)
 
 3. Create clusters of papers based using HDBScan
-- 128 dim vector will now mean that it runs quicker
+- 512 dim vector will keep high quality clusters
 - Will take major clusters and pass them through so I can get make sub-clusters as well
 
 4. Send clusters off to LLM, ask for a singular major topic + sub-topics 

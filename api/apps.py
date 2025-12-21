@@ -53,10 +53,12 @@ class ApiConfig(AppConfig):
                 print("Scholar Inbox papers fetched on startup.")
 
         # Vector embed annotations that require it 
-        # Will embed doc title as well as sticky note & notepad content 
-        # NOTE: use select_related('document') to prevent N+1 on batch updates
-
+        # doing on startup for best ux
+        from api.ai import embed_annotations
+        embed_annotations()
         
+
+
 
 
 
