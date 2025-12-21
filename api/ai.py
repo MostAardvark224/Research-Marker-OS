@@ -183,7 +183,7 @@ def embed_annotations():
         obj.embedding_binary = np.array(embedding.values, dtype=np.float32).tobytes()
         obj.needs_embedding = False
         to_update.append(obj)
-
+    
     models.Annotations.objects.bulk_update(to_update, ['embedding_binary', 'needs_embedding'])
     
     print(f"Successfully embedded {len(to_update)} annotations.")

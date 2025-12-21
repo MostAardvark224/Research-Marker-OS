@@ -52,10 +52,6 @@ class ApiConfig(AppConfig):
                 write_user_preferences(prefs)
                 print("Scholar Inbox papers fetched on startup.")
 
-        # Vector embed annotations that require it 
-        # doing on startup for best ux
-        from api.ai import embed_annotations
-        embed_annotations()
         
 
 
