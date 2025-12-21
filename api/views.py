@@ -597,32 +597,177 @@ Technical Implementation:
 - Using gemini embedding api for speed. Also, Gemini api is already trained w/ Matryoshka (MRL) system in mind, so I can just slice and normalize vectors for faster computation
 - Will store as a 512 dim embedding (decided based on MTEB score google provides)
 
-2. Leverage MRL and slice + normalize unit vectors so that they are now 128 dims (will use for vector projection down to 2d)
-
-3. Create clusters of papers based using HDBScan
+2. Create clusters of papers based using HDBScan
 - 512 dim vector will keep high quality clusters
 - Will take major clusters and pass them through so I can get make sub-clusters as well
+- make sure to keep track of which annot is attached to what cluster    
 
-4. Send clusters off to LLM, ask for a singular major topic + sub-topics 
+3. Send clusters off to LLM, ask for a singular major topic + sub-topics 
 - Keep track of which annotations are in what cluster
+
+4. Leverage MRL and slice + normalize unit vectors so that they are now 128 dims (will use for vector projection down to 2d)
 
 5. Use UMAP to project each vector embedding down to 2D (so that the vector can be represented on a graph)
 
-6. Save everything to the Smart Collections django model.
-- Each instance should have a onetoone rel w/ a annot obj
-- Assign a major topic and subtopic to each instance as well
-- store 2d coords 
+6. Save everything to the django model.
+- save fields to each annot obj
+- get all anot objects and save them to the smart collections obj
 
 7. Send to frontend and render graph
 - note: place topics in geometic center of their related annotations to make it look nice on ui
 """
 
+
+from .ai import cluster_embeddings, get_representative_samples, label_cluster, reduce_dimensions, umap_dim_reduction_to_2d
 # returns all smart collections for display on frontend
 class SmartCollectionsViewSet(viewsets.ModelViewSet): 
     queryset = models.SmartCollections.objects.all()
     serializer_class = serializers.SmartCollectionsSerializer
 
-    # create logic (this is where the notes are implemented)
+    # create logic 
     def create(self, request, *args, **kwargs):
+        cluster_results, ids, vectors = cluster_embeddings()
+        """
+        cluster_results now looks like this: type == dict 
+        annotation model obj pk: {
+            major_cluster : int major_cluster (just value assigned by Hdb scan, no semantic meaning yet),
+            sub_cluster : int sub_cluster (just value assigned by Hdb scan, no semantic meaning yet)
+        }
+
+        ids and vectors will be used later for UMAP dimension reduction to get x,y coordinates.
+        Assigning it here because I don't want to needlessly requery the db for the same thing again.
+        """
+
+        if not cluster_results or not ids or not vectors: 
+            return Response({"error": "no results to cluster. This is likely because you don't have any/enough embedded vectors"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # now I use cluster_results to pass some notes/paper titles to an AI model and it then returns a human-readable label for either the major cluster or sub cluster
         
-        return Response()
+        # getting representative samples to send to model 
+        major_samples, sub_samples = get_representative_samples(cluster_results=cluster_results)
+
+        """
+        major_samples looks like this: type == dict 
+        {
+            0: [1,2,3,4,5],
+        }
+        Where 0 is major cluster zero and 1,2,3, etc. are annotations model obj pks in that major cluster
+
+        sub_samples looks like this: type == dict 
+        {
+            (0, 0): [10,15,20],
+        }
+        Where the first 0 is major cluster zero, the second 0 represents the first sub cluster of major cluster zero and 10,15,20, etc. are annotations model obj pks in that sub cluster
+        NOTE: must access sub_samples with tuple based index keys
+        """
+
+        # sending representative samples to model
+        # getting actual content strings from samples based on model PK
+        # replace non-readable numeric clusters in cluster_results with readable results 
+
+        new_mappings = {}
+
+        # doing major clusters first
+        for cluster, pks in major_samples.items():
+            cluster_label =  label_cluster(pks)
+
+            # saving mapping: 
+            new_mappings[cluster] = cluster_label
+
+        # sub clusters
+        for cluster, pks in sub_samples.items(): # cluster is already of type tuple
+            cluster_label =  label_cluster(pks)
+
+            # saving mapping: 
+            new_mappings[cluster] = cluster_label
+
+        # writing everything bacl
+        for annot_obj_pk in cluster_results.keys(): 
+            major_cluster = cluster_results[annot_obj_pk]["major_cluster"]
+            sub_cluster = cluster_results[annot_obj_pk]["sub_cluster"]
+            sub_cluster_tuple = (major_cluster, sub_cluster)
+
+            # replacing major cluster 
+            major_label = new_mappings[major_cluster]
+            cluster_results[annot_obj_pk]["major_cluster"] = major_label
+
+            # replacing sub cluster 
+            sub_label = new_mappings[sub_cluster_tuple]
+            cluster_results[annot_obj_pk]["sub_cluster"] = sub_label
+
+        """
+        cluster_results now looks like this: type == dict 
+        annotation model obj pk: {
+            major_cluster : human readable label
+            sub_cluster : human readable label
+        }
+
+        Will write everything back to the db after we find the x,y coords for each object to save a round trip
+        """
+
+        # getting x,y coords 
+        # combining ids and vectors into a dict to make it easy to work with 
+
+        annot_vectors = {}
+        if isinstance(ids, list) and isinstance(vectors, list):
+            for idx, id in enumerate(ids): 
+                # idxs of id and vector should match up 
+                annot_vectors[id] = vectors[idx]
+        else: 
+            return Response({"error": "either ids or vectors isnt a list, UMAP mapping will therefore not run"}, status = status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # now levraging Matryoshka representation learning to cut 512 dim vector down to 128 dims for easy and fast UMAP dimension reduction down to 2d
+        annot_vectors = reduce_dimensions(data_dict = annot_vectors, target_dim=128)
+
+        # using umap to get x,y coordinates based on each vector.
+        # UMAP essentially drops the dims down from 128 to a 2d projection
+        annot_coords = umap_dim_reduction_to_2d(data_dict = annot_vectors)
+
+        # combining annot_coords w/ cluster_results
+        for id in cluster_results.keys(): 
+            cluster_results[id]["x_coordinate"] = annot_coords[id][0]
+            cluster_results[id]["y_coordinate"] = annot_coords[id][1]
+
+        # now cluster results has major cluster, sub cluster, x coord and y coord for each id in anntotations.
+
+        # writing everything back to db
+        updates = []
+        
+        for annot_id, data in cluster_results.items():
+            updates.append(
+                models.Annotations(
+                    id=annot_id,
+                    major_cluster=data['major_cluster'],
+                    sub_cluster=data['sub_cluster'],
+                    x_coordinate=data.get('x_coordinate', 0.0), 
+                    y_coordinate=data.get('y_coordinate', 0.0)
+                )
+            )
+
+        models.Annotations.objects.bulk_update(
+            updates, 
+            ['major_cluster', 'sub_cluster', 'x_coordinate', 'y_coordinate'],
+            batch_size=1000
+        )
+        
+        print(f"Successfully updated {len(updates)} annotations.")
+
+        # saving ids to SmartCollections
+        annot_ids = list(cluster_results.keys())
+
+        models.SmartCollections.objects.create(annotation_ids = annot_ids)
+        
+        return Response(
+            {"message": f"Created smart collection."}, 
+            status=status.HTTP_200_OK
+        )
+    
+    # will override retrieve to send frontend all necessary data 
+    # could also change serializer
+    def retrieve(self, request, *args, **kwargs):
+        return super().retrieve(request, *args, **kwargs)
+
+    # will override list to add some data 
+    # could also change serializer
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)

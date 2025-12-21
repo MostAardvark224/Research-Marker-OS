@@ -3,6 +3,7 @@ import numpy as np
 from django.utils import timezone
 import hashlib
 import json
+from django.db import transaction
 
 class Folder(models.Model):
     name = models.CharField(max_length=255, unique=True)
@@ -88,8 +89,7 @@ class ChatLogs(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
 class SmartCollections(models.Model): 
-    name = models.CharField(max_length=255)
     created_at = models.DateField(auto_now_add=True)
-    annotations = models.ManyToManyField(Annotations, blank=True, related_name='collections')
+    annotation_ids = models.JSONField(default=list, blank=True)
     
     
