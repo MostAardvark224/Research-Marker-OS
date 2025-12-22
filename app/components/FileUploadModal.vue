@@ -155,10 +155,14 @@ const displayText = computed(() => {
 
       <div class="text-black text-[12px] text-center px-2">
         <span v-if="!skipOcr">
-          Uploads that include OCR processing may take up to a minute or two.
+          Uploads that include OCR processing may take up to a minute or two. It
+          is recommended to skip OCR for most research papers since their text
+          is already selectable.
         </span>
         <span v-else class="">
-          File will be uploaded without text recognition (faster).
+          File will be uploaded without text recognition (faster). It is
+          recommended to skip OCR for most research papers since their text is
+          already selectable.
         </span>
       </div>
 
@@ -223,7 +227,7 @@ const displayText = computed(() => {
 
 .container {
   position: relative;
-  height: 350px;
+  height: 400px;
   width: 300px;
   border-radius: 10px;
   box-shadow: 4px 4px 30px rgba(0, 0, 0, 0.2);

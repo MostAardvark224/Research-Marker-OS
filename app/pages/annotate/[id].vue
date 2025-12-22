@@ -33,8 +33,8 @@ const isSidebarOpen = ref(true);
 const sidebarWidth = ref(320);
 const currentPage = ref(1);
 const totalPages = ref(0);
-const zoomLevel = ref(100);
-const inputZoomLevel = ref(100);
+const zoomLevel = ref(200);
+const inputZoomLevel = ref(200);
 let zoomDebounce = null;
 const isAnnotationsHidden = ref(false);
 const isColorPickerOpen = ref(false);
@@ -227,6 +227,7 @@ const tagOptions = [
   { label: "Definition", value: "definition", color: "text-blue-400" },
   { label: "Question", value: "question", color: "text-amber-400" },
   { label: "Insight", value: "insight", color: "text-purple-400" },
+  { label: "Data Point", value: "data-point", color: "text-orange-400" },
   { label: "Evidence", value: "evidence", color: "text-emerald-400" },
   { label: "Critique", value: "critique", color: "text-rose-400" },
   { label: "Follow-up", value: "follow-up", color: "text-sky-400" },
@@ -700,16 +701,25 @@ async function renderAllPages() {
   await Promise.all(promises);
 }
 
+const pageSizes = ref([]);
 async function loadPdf(data) {
   try {
     const loadingTask = pdfjsLib.getDocument(data);
     pdfDoc = await loadingTask.promise;
     totalPages.value = pdfDoc.numPages;
 
+    const sizes = [];
+    for (let i = 1; i <= pdfDoc.numPages; i++) {
+      const page = await pdfDoc.getPage(i);
+      const viewport = page.getViewport({ scale: 1 });
+      sizes.push({ width: viewport.width, height: viewport.height });
+    }
+    pageSizes.value = sizes;
+
     await pdfDoc.getDownloadInfo();
 
     await nextTick();
-    await renderAllPages();
+    // await renderAllPages();
     setupIntersectionObserver();
     extractAllText();
   } catch (err) {
@@ -719,25 +729,30 @@ async function loadPdf(data) {
 }
 
 let observer = null;
+const visiblePages = ref(new Set());
 
 function setupIntersectionObserver() {
   if (observer) observer.disconnect();
 
   const options = {
     root: mainScrollContainer.value,
-    rootMargin: "-20% 0px -60% 0px",
+    rootMargin: "50% 0px 50% 0px", // Increased margin so pages render slightly before they come into view
     threshold: 0,
   };
 
   observer = new IntersectionObserver((entries) => {
-    if (isManualScrolling.value) return;
-
     entries.forEach((entry) => {
+      const pageIndex = pageContainerRefs.value.indexOf(entry.target);
+
+      if (pageIndex === -1) return;
+
+      const pageNum = pageIndex + 1;
+
       if (entry.isIntersecting) {
-        const index = pageContainerRefs.value.indexOf(entry.target);
-        if (index !== -1) {
-          currentPage.value = index + 1;
-        }
+        visiblePages.value.add(pageNum);
+        renderPage(pageNum);
+      } else {
+        visiblePages.value.delete(pageNum);
       }
     });
   }, options);
@@ -772,14 +787,31 @@ async function fetchPaper() {
   }
 }
 
-watch(zoomLevel, async () => {
+watch(zoomLevel, async (newZoom, oldZoom) => {
   if (zoomDebounce) clearTimeout(zoomDebounce);
 
-  // 150 ms debounce
-  zoomDebounce = setTimeout(async () => {
+  const scaleFactor = newZoom / oldZoom;
+  const container = mainScrollContainer.value;
+
+  if (container) {
+    const viewportWidth = container.clientWidth;
+    const viewportHeight = container.clientHeight;
+
+    const centerX = container.scrollLeft + viewportWidth / 2;
+    const centerY = container.scrollTop + viewportHeight / 2;
+
     await nextTick();
-    await renderAllPages();
-  }, 50);
+
+    container.scrollLeft = centerX * scaleFactor - viewportWidth / 2;
+    container.scrollTop = centerY * scaleFactor - viewportHeight / 2;
+  }
+
+  zoomDebounce = setTimeout(async () => {
+    const promises = Array.from(visiblePages.value).map((pageNum) =>
+      renderPage(pageNum)
+    );
+    await Promise.all(promises);
+  }, 150);
 });
 
 onMounted(async () => {
@@ -843,7 +875,9 @@ function performSearch() {
   currentMatchIndex.value = -1;
 
   if (!query) {
-    renderAllPages();
+    // renderAllPages();
+    const promises = Array.from(visiblePages.value).map((p) => renderPage(p));
+    Promise.all(promises);
     return;
   }
 
@@ -909,6 +943,16 @@ watch(searchQuery, () => {
       class="relative flex h-16 shrink-0 items-center justify-between border-b border-slate-800 bg-slate-900 px-4 shadow-sm z-20"
     >
       <div class="flex items-center gap-4">
+        <NuxtLink
+          to="/dashboard"
+          class="flex items-center justify-center rounded-md p-2 text-slate-400 transition-colors hover:bg-slate-800 hover:text-white"
+          title="Back to Dashboard"
+        >
+          <Icon name="ph:arrow-left" class="h-5 w-5" />
+        </NuxtLink>
+
+        <div class="h-5 w-px bg-slate-700/50"></div>
+
         <div class="hidden md:flex items-center gap-2" title="Search Document">
           <SearchBar v-model:search-query="searchQuery" />
 
@@ -1134,8 +1178,9 @@ watch(searchQuery, () => {
     <div class="flex flex-1 overflow-hidden relative">
       <main
         ref="mainScrollContainer"
-        class="flex-1 overflow-auto bg-slate-950 p-8 flex flex-col items-start gap-4"
+        class="flex-1 overflow-auto bg-slate-950 p-8 flex flex-col items-center gap-4"
         :class="{ 'hide-annotations': isAnnotationsHidden }"
+        style="overflow-anchor: none; scroll-behavior: auto"
       >
         <div
           v-if="loading"
@@ -1162,10 +1207,22 @@ watch(searchQuery, () => {
             <div
               :ref="(el) => (pageContainerRefs[page - 1] = el)"
               class="relative shadow-2xl border border-slate-800 bg-white"
+              :style="
+                pageSizes[page - 1]
+                  ? {
+                      width: `${
+                        pageSizes[page - 1].width * (zoomLevel / 100)
+                      }px`,
+                      height: `${
+                        pageSizes[page - 1].height * (zoomLevel / 100)
+                      }px`,
+                    }
+                  : {}
+              "
             >
               <canvas
                 :ref="(el) => (canvasRefs[page - 1] = el)"
-                class="block"
+                class="block w-full h-full"
               ></canvas>
               <div
                 :ref="(el) => (textLayerRefs[page - 1] = el)"
@@ -1301,6 +1358,7 @@ watch(searchQuery, () => {
 
             <textarea
               v-model="note.content"
+              @click.stop
               class="w-full bg-slate-900/50 text-slate-300 text-sm p-2 rounded border border-slate-700/50 focus:outline-none focus:border-indigo-500/50 resize-none h-20 custom-scrollbar"
               placeholder="Type note..."
             ></textarea>
@@ -1322,6 +1380,7 @@ watch(searchQuery, () => {
 </template>
 
 <style scoped>
+/*
 canvas {
   transition: width 0.25s ease-out, height 0.25s ease-out;
 }
@@ -1329,6 +1388,7 @@ canvas {
 .textLayer {
   transition: width 0.25 ease-out, height 0.25s ease-out;
 }
+  */
 
 .icon-btn {
   border-radius: 0.25rem;
