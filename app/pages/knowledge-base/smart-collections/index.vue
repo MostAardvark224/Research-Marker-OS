@@ -73,16 +73,9 @@
             </span>
           </h1>
 
-          <p class="text-lg text-slate-400 mb-10 leading-relaxed">
-            This isn't just a folder. It is a
-            <span class="text-slate-200">living, breathing graph</span> of your
-            ideas and connections. We analyze your inputs to weave a semantic
-            web, allowing you to traverse your research dynamically.
-          </p>
-
           <div class="flex flex-col items-center w-full max-w-md">
             <button
-              @click="initializeCollection"
+              @click="RunSmartCollection()"
               :disabled="isInitializing"
               class="group relative w-full overflow-hidden rounded-xl bg-white text-black font-semibold py-4 px-8 transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-70 disabled:pointer-events-none mb-6"
             >
@@ -140,6 +133,24 @@
                   complete.
                 </div>
               </div>
+
+              <div
+                class="flex items-start gap-3 p-4 rounded-lg bg-green-500/5 border border-green-500/10 text-left"
+              >
+                <Icon
+                  name="mdi:cog-play"
+                  class="text-green-500/60 text-xl shrink-0 mt-0.5"
+                />
+                <div class="text-xs text-slate-400">
+                  <strong class="text-slate-300 block mb-0.5"
+                    >Runs In The Background</strong
+                  >
+                  The creation process will
+                  <span class="text-green-500/80">run in the background</span>,
+                  so feel free to navigate away from this page. However, don't
+                  close the application.
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -149,15 +160,111 @@
 </template>
 
 <script setup>
+const {
+  public: { apiBaseURL },
+} = useRuntimeConfig();
+
+/*
+Getting data logic (ONLY FOR INIT SMART COLLECTION BUTTON, Logic for when a user requests an update after graph is built is a different topic):
+- this runs when component is mounted
+
+Send a request to the polling endpoint.
+- if response == suceeded: hit data endpoint and render
+- if response == queued: means that job is underway. Keep hitting this endpoint every 10 secs and eventually it will return suceeded and render.
+- if response == not initialized: send post request to endpoint and then continuously poll.
+
+General - separate each call into a func so that its easy to manage from one command center
+*/
+
 const data = ref(null);
 const isInitializing = ref(false);
 
 // Computed property to check if the collection exists
+// once this is true run rendering log
 const hasData = computed(() => {
   return data.value && Object.keys(data.value).length > 0;
 });
 
-async function initializeCollection() {}
+const poll_state = ref("");
+// Helper to pause execution
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function pollBackend() {
+  try {
+    const res = await $fetch(`${apiBaseURL}/poll-smart-collection/`);
+    poll_state.value = res.state;
+  } catch (err) {
+    alert("Failed to poll backend:", err);
+    return;
+  }
+}
+
+const POLL_INTERVAL = 10000; // 10 seconds
+const MAX_DURATION = 10 * 60 * 1000; // 10 minutes in ms
+
+// polling backend every 10s until we get poll_state.value == suceeded
+// 10 min timeout
+async function continuouslyPollBackend() {
+  const startTime = Date.now();
+
+  while (poll_state.value !== "success") {
+    if (Date.now() - startTime > MAX_DURATION) {
+      alert("The operation timed out after 10 minutes.");
+      return;
+    }
+
+    await sleep(POLL_INTERVAL);
+    await pollBackend();
+  }
+
+  // get data now, because assumed that polling has succeeded
+  if ((poll_state.value = "success")) {
+    await getData();
+  }
+}
+
+async function RunSmartCollection() {
+  isInitializing.value = true;
+  try {
+    await $fetch(`${apiBaseURL}/smart-collection/`, {
+      method: "POST",
+    });
+  } catch (err) {
+    isInitializing.value = false;
+    alert("Failed to start collection:", err);
+    return;
+  }
+
+  await continuouslyPollBackend();
+  isInitializing.value = false;
+}
+
+async function getData() {
+  try {
+    const res = await $fetch(`${apiBaseURL}/smart-collection/`);
+    data.value = res;
+  } catch (err) {
+    alert("Failed to fetch data:", err);
+    return;
+  }
+}
+
+// runs logic from notes at beginning of script
+async function initDataLogic() {
+  await pollBackend();
+  if (poll_state.value == "success") {
+    await getData();
+  } else if (poll_state.value == "queued") {
+    await continuouslyPollBackend();
+  } else if (poll_state.value != "not initialized") {
+    console.log(`poll state value when error: ${poll_state.value}`);
+    alert("issue with data logic in onMounted component.");
+  }
+}
+
+onMounted(() => {
+  initDataLogic();
+});
 </script>
 
 <style scoped>
