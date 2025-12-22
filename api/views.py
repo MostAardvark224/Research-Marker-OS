@@ -575,7 +575,8 @@ class ChatLogsViewset(viewsets.ModelViewSet):
 
 
 # Note: entierty of smart collection logic is in ai.py file, here Im just running & polling progress & returning finished data
-class RunCollectionView(APIView):
+class SmartCollectionView(APIView):
+    # Running the smart collection
     def post(self, request):  
         # returns task id immediately, which can then be sent to the frontend for polling
         collection = models.SmartCollections.objects.first()
@@ -598,9 +599,13 @@ class RunCollectionView(APIView):
             "task_id": task_id,
             "collection_id": collection.id # type: ignore
         })
+    
+    # sending smart collection data for frontend rendering
+    def get(self, request): 
+        return Response()
 
 # polling view so that frontend can track status of collection creation
-class TaskStatusView(APIView):
+class PollSmartCollection(APIView):
     def get(self, request):
         # check is_ready on model obj
         collection = models.SmartCollections.objects.first()
@@ -608,11 +613,11 @@ class TaskStatusView(APIView):
         if collection:
             is_ready = collection.is_ready
             if is_ready: 
-                return Response({"status": "success", })
+                return Response({"state": "success"})
             else: 
-                return Response({"status": "queued"})
+                return Response({"state": "queued"})
 
         else:
-            return Response({"error": "Collection object doesn't exist yet."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"state": "not initialized"})
 
     

@@ -18,7 +18,9 @@ urlpatterns = [
     path('fetch-scholar-inbox-papers/', views.FetchScholarInboxPapers.as_view(), name='fetch-scholar-inbox-papers'),
     path('search-notes/', views.SearchNotesView.as_view(), name=
          'search-notes'), 
-    path('ask-ai/', views.AIChatView.as_view(), name='ask-ai')
+    path('ask-ai/', views.AIChatView.as_view(), name='ask-ai'), 
+    path('smart-collection/', views.SmartCollectionView.as_view(), name='smart-collection'),
+    path('poll-smart-collection/', views.PollSmartCollection.as_view(), name='poll-smart-collection'),
 ]
 
 urlpatterns += router.urls
