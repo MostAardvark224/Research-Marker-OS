@@ -32,7 +32,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
-   
+    'django_q',
 
     'djoser',
     'corsheaders',
@@ -135,3 +135,18 @@ STORAGES = {
             "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
         },
     }   
+
+# Django Q config
+Q_CLUSTER = {
+    'name': 'DjangORM',
+    'workers': 4,
+    'recycle': 500,
+    'timeout': 600, 
+    'retry': 720,
+    'compress': True,
+    'save_limit': 250,
+    'queue_limit': 500,
+    'cpu_affinity': 1,
+    'label': 'Django Q',
+    'orm': 'default',  
+}

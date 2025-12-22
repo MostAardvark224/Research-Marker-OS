@@ -91,5 +91,6 @@ class ChatLogs(models.Model):
 class SmartCollections(models.Model): 
     created_at = models.DateField(auto_now_add=True)
     annotation_ids = models.JSONField(default=list, blank=True)
+    is_ready = models.BooleanField(default=False)
     
     
