@@ -37,7 +37,9 @@
         <div
           v-if="hasData"
           class="max-w-7xl mx-auto w-full relative z-10 animate-fade-in"
-        ></div>
+        >
+          {{ data }}
+        </div>
 
         <div
           v-else
@@ -195,6 +197,7 @@ async function pollBackend() {
     poll_state.value = res.state;
   } catch (err) {
     alert("Failed to poll backend:", err);
+    window.location.reload();
     return;
   }
 }
@@ -205,6 +208,7 @@ const MAX_DURATION = 10 * 60 * 1000; // 10 minutes in ms
 // polling backend every 10s until we get poll_state.value == suceeded
 // 10 min timeout
 async function continuouslyPollBackend() {
+  isInitializing.value = true;
   const startTime = Date.now();
 
   while (poll_state.value !== "success") {
@@ -220,6 +224,7 @@ async function continuouslyPollBackend() {
   // get data now, because assumed that polling has succeeded
   if ((poll_state.value = "success")) {
     await getData();
+    isInitializing.value = false;
   }
 }
 
@@ -242,7 +247,7 @@ async function RunSmartCollection() {
 async function getData() {
   try {
     const res = await $fetch(`${apiBaseURL}/smart-collection/`);
-    data.value = res;
+    data.value = res.data;
   } catch (err) {
     alert("Failed to fetch data:", err);
     return;
