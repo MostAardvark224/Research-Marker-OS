@@ -278,8 +278,8 @@ def cluster_embeddings():
     major_cluster_indices = defaultdict(list)
     for index, label in enumerate(major_labels):
         annot_id = ids[index]
-        results_map[annot_id]['major_cluster'] = int(label)
-        results_map[annot_id]['sub_cluster'] = None 
+        results_map[annot_id]['major_topic'] = int(label)
+        results_map[annot_id]['sub_topic'] = None 
         
         # filter out noise (-1) for sub-clustering
         if label != -1:
@@ -317,8 +317,8 @@ def get_representative_samples(cluster_results, max_major=7, max_sub=3):
     random.shuffle(items) 
 
     for annot_id, data in items:
-        m_label = data['major_cluster']
-        s_label = data['sub_cluster']
+        m_label = data['major_topic']
+        s_label = data['sub_topic']
 
         # major cluster
         # Only add if limit hasn't hit yet
@@ -560,8 +560,8 @@ def run_smart_collection(collection_id):
         updates.append(
             models.Annotations(
                 id=annot_id,
-                major_cluster=data['major_cluster'],
-                sub_cluster=data['sub_cluster'],
+                major_topic=data['major_topic'],
+                sub_topic=data['sub_topic'],
                 x_coordinate=data.get('x_coordinate', 0.0), 
                 y_coordinate=data.get('y_coordinate', 0.0)
             )
@@ -569,7 +569,7 @@ def run_smart_collection(collection_id):
 
     models.Annotations.objects.bulk_update(
         updates, 
-        ['major_cluster', 'sub_cluster', 'x_coordinate', 'y_coordinate'],
+        ['major_topic', 'sub_topic', 'x_coordinate', 'y_coordinate'],
         batch_size=1000
     )
     

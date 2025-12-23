@@ -586,7 +586,7 @@ class SmartCollectionView(APIView):
             collection.is_ready = False
             collection.save()
         else:
-            # CREATE new collection
+            # Don't create new collection on init, instead the object should only exist whenever its finished
             collection = models.SmartCollections.objects.create(is_ready=False)
 
         task_id = async_task(
