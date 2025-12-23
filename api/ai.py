@@ -434,7 +434,10 @@ def umap_dim_reduction_to_2d(data_dict):
 
 # Whole big function that creates all of the smart collection stuff
 def run_smart_collection(collection_id):
+    print("clustering embeddings")
     cluster_results, ids, vectors = cluster_embeddings()
+    print("finished clustering embeddings")
+
     """
     cluster_results now looks like this: type == dict 
     annotation model obj pk: {
@@ -453,7 +456,9 @@ def run_smart_collection(collection_id):
     # now I use cluster_results to pass some notes/paper titles to an AI model and it then returns a human-readable label for either the major cluster or sub cluster
     
     # getting representative samples to send to model 
+    print("getting representative samples")
     major_samples, sub_samples = get_representative_samples(cluster_results=cluster_results)
+    print("finished getting representative samples")
 
     """
     major_samples looks like this: type == dict 
@@ -473,6 +478,7 @@ def run_smart_collection(collection_id):
     # sending representative samples to model
     # getting actual content strings from samples based on model PK
     # replace non-readable numeric clusters in cluster_results with readable results 
+    print("sending representative samples to model")
 
     new_mappings = {}
 
@@ -490,9 +496,12 @@ def run_smart_collection(collection_id):
         # saving mapping: 
         new_mappings[cluster] = cluster_label
 
+    print("got cluster labels")
+
     # pyright: ignore[reportOptionalSubscript]
     # pyright: ignore[reportOptionalMemberAccess]
-    # writing everything bacl
+    # writing everything back
+
     for annot_obj_pk in cluster_results.keys():  
         major_cluster = cluster_results[annot_obj_pk]["major_cluster"]   
         sub_cluster = cluster_results[annot_obj_pk]["sub_cluster"]
@@ -533,7 +542,9 @@ def run_smart_collection(collection_id):
 
     # using umap to get x,y coordinates based on each vector.
     # UMAP essentially drops the dims down from 128 to a 2d projection
+    print("performing UMAP reduction")
     annot_coords = umap_dim_reduction_to_2d(data_dict = annot_vectors)
+    print("finished performing UMAP reduction")
 
     # combining annot_coords w/ cluster_results
     for id in cluster_results.keys(): 

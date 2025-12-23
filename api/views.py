@@ -600,9 +600,62 @@ class SmartCollectionView(APIView):
             "collection_id": collection.id # type: ignore
         })
     
-    # sending smart collection data for frontend rendering
+    
+    """
+    sending smart collection data for frontend rendering
+    format in simple way
+    frontend should have to do minimal work to render
+
+    # data will look like this
+    [
+        {
+            id: id, 
+            doc_tite: doc_title, 
+            major_topic: major_topic, 
+            sub_topic: sub_topic, 
+            x_coordinate: x_coordinate,  
+            y_coordinate: y_coordinate, 
+        }
+    ] 
+    - where each dict in the list is the data from the annot obj
+    - won't send actual highlight/sticky/notepad data yet as cross-connection ideas hasn't been implemented yet, will def do this in future
+
+    Frontend will need to calculate geometric mean for each cluster, shouldn't be an intensive computation tho
+    
+    """
     def get(self, request): 
-        return Response()
+        # small check jsut to make sure that the object exists and tell the client if it doesn't
+        smart_collection = models.SmartCollections.objects.first()
+        if smart_collection: 
+            is_ready = smart_collection.is_ready
+            
+            if is_ready: 
+                list_of_annot_objs = json.loads(smart_collection.annotation_ids)
+                annot_objs = models.Annotations.objects.filter(
+                    pk__in = list_of_annot_objs
+                ).select_related("document")
+
+                data = []
+
+                for obj in annot_objs: 
+                    data_dict = dict(
+                        id = obj.pk, 
+                        doc_tite = obj.document.title, 
+                        major_topic = obj.major_topic, 
+                        sub_topic = obj.sub_topic, 
+                        x_coordinate = obj.x_coordinate,
+                        y_coordinate = obj.y_coordinate,
+                    )
+
+                    data.append(data_dict)
+
+                return Response({"data": data}, status=status.HTTP_200_OK)
+
+            else: 
+                return Response({"error": "data is not ready yet."}, status=status.HTTP_400_BAD_REQUEST)
+                
+        else: 
+            return Response({"error": "smart collection doesn't exist."}, status=status.HTTP_400_BAD_REQUEST)
 
 # polling view so that frontend can track status of collection creation
 class PollSmartCollection(APIView):

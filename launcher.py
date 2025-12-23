@@ -1,3 +1,5 @@
+# DO NOT USE THIS ANYMORE. MOVE OVER TO HONCHO/PROCFILE
+
 """
 moved from manage.py runserver to launcher.py for a couple of reasons : 
 1. only way to run embeddings on app startup was thru a diff command, querying db in any other way is considered unsafe
@@ -44,7 +46,7 @@ def start_app():
         t_q.start()
 
     print(f"Starting server (Auto-reload: {use_reload})...")
-    
+
     # This blocks the main thread until the app is closed
     call_command('runserver', '127.0.0.1:8000', use_reloader=use_reload)
 
