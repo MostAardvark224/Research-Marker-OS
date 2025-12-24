@@ -5,8 +5,16 @@ export const useSmartCollectionsStore = defineStore(
   () => {
     const isInitializing = ref(false);
 
+    function setInitializing(value) {
+      isInitializing.value = value;
+    }
+
     return {
       isInitializing,
+      setInitializing,
     };
+  },
+  {
+    persist: true,
   }
 );

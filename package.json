@@ -27,6 +27,7 @@
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^5.4.449",
     "pinia": "^3.0.4",
+    "pinia-plugin-persistedstate": "^4.7.1",
     "tailwindcss": "^4.1.17",
     "typescript": "^5.9.3",
     "ufo": "^1.6.1",
