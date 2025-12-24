@@ -179,7 +179,6 @@ General - separate each call into a func so that its easy to manage from one com
 */
 
 const data = ref(null);
-const isInitializing = ref(false);
 
 // Computed property to check if the collection exists
 // once this is true run rendering log
@@ -270,6 +269,14 @@ async function initDataLogic() {
 onMounted(() => {
   initDataLogic();
 });
+
+// pinia store for initializing state
+import { useSmartCollectionsStore } from "~~/stores/useSmartCollectionsStore";
+import { storeToRefs } from "pinia";
+
+const store = useSmartCollectionsStore();
+
+const { isInitializing } = storeToRefs(store);
 </script>
 
 <style scoped>
