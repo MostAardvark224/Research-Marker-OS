@@ -582,22 +582,20 @@ class SmartCollectionView(APIView):
         collection = models.SmartCollections.objects.first()
 
         if collection:
-            # RESET existing collection
+            # reset existing collection
             collection.is_ready = False
             collection.save()
         else:
-            # Don't create new collection on init, instead the object should only exist whenever its finished
-            collection = models.SmartCollections.objects.create(is_ready=False)
+            # will create the model obj after the view is done running
+            pass
 
         task_id = async_task(
-            'api.ai.run_smart_collection', 
-            collection.id # type: ignore
-        )
+            'api.ai.run_smart_collection'        
+            )
 
         return Response({
             "message": "Initialization started",
             "task_id": task_id,
-            "collection_id": collection.id # type: ignore
         })
     
     
@@ -630,7 +628,7 @@ class SmartCollectionView(APIView):
             is_ready = smart_collection.is_ready
             
             if is_ready: 
-                list_of_annot_objs = json.loads(smart_collection.annotation_ids)
+                list_of_annot_objs = smart_collection.annotation_ids
                 annot_objs = models.Annotations.objects.filter(
                     pk__in = list_of_annot_objs
                 ).select_related("document")

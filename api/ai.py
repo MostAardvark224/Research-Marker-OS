@@ -433,7 +433,7 @@ def umap_dim_reduction_to_2d(data_dict):
     return result_dict
 
 # Whole big function that creates all of the smart collection stuff
-def run_smart_collection(collection_id):
+def run_smart_collection():
     print("clustering embeddings")
     cluster_results, ids, vectors = cluster_embeddings()
     print("finished clustering embeddings")
@@ -578,7 +578,15 @@ def run_smart_collection(collection_id):
     # saving ids to SmartCollections
     annot_ids = list(cluster_results.keys())
 
-    models.SmartCollections.objects.filter(pk=collection_id).update(
-        annotation_ids=annot_ids, 
-        is_ready=True
-    )
+    smart_collection_obj = models.SmartCollections.objects.first()
+
+    if smart_collection_obj: 
+        smart_collection_obj.is_ready = True 
+        smart_collection_obj.annotation_ids = annot_ids
+        smart_collection_obj.save(update_fields=["is_ready", "annotation_ids"])
+
+    else: 
+        models.SmartCollections.objects.create(
+            annotation_ids=annot_ids, 
+            is_ready=True
+        )
