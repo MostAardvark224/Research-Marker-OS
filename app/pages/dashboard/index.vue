@@ -322,7 +322,7 @@
                     v-for="doc in folder.documents"
                     draggable="true"
                     @dragstart="onDragStart($event, doc)"
-                    @dblclick="navigateToAnnotate(doc.id)"
+                    @dblclick="navigateToAnnotate(doc.id, doc.last_page)"
                     :key="doc.id"
                     :class="`flex items-center gap-2 px-2 py-1.5 text-xs ${colorScheme.sidebarText} truncate ${colorScheme.sidebarTextHover} select-none`"
                   >
@@ -405,7 +405,7 @@
                     <tr
                       v-for="(paper, index) in filteredPapers"
                       :key="paper.id"
-                      @dblclick="navigateToAnnotate(paper.id)"
+                      @dblclick="navigateToAnnotate(paper.id, paper.last_page)"
                       :class="[
                         `border-b ${colorScheme.tableRowBorder} ${colorScheme.tableRowHover} transition-colors`,
                         index % 2 === 0
@@ -1091,7 +1091,13 @@ function formatDate(isoString) {
 }
 
 // Annotate Page Navigation
-function navigateToAnnotate(paperId) {
-  navigateTo(`/annotate/${paperId}`);
+// ADD PAGE NUM LOGIC HERE, IT SHOULD BE A QUERY PARAM
+function navigateToAnnotate(paperId, lastPage) {
+  navigateTo({
+    path: `/annotate/${paperId}`,
+    query: {
+      page: lastPage,
+    },
+  });
 }
 </script>

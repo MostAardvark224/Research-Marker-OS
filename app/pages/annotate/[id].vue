@@ -31,7 +31,16 @@ const mainScrollContainer = ref(null);
 
 const isSidebarOpen = ref(true);
 const sidebarWidth = ref(320);
+
 const currentPage = ref(1);
+const lastPage = route.query.page;
+
+onMounted(() => {
+  if (lastPage) {
+    currentPage.value = parseInt(lastPage);
+  }
+});
+
 const totalPages = ref(0);
 const zoomLevel = ref(200);
 const inputZoomLevel = ref(200);
@@ -719,8 +728,15 @@ async function loadPdf(data) {
     await pdfDoc.getDownloadInfo();
 
     await nextTick();
+
+    if (currentPage.value > 1) {
+      scrollToPage(currentPage.value);
+    }
     // await renderAllPages();
     setupIntersectionObserver();
+    setTimeout(() => {
+      setupCurrentPageObserver();
+    }, 500);
     extractAllText();
   } catch (err) {
     console.error("Error loading PDF doc:", err);
@@ -759,6 +775,34 @@ function setupIntersectionObserver() {
 
   pageContainerRefs.value.forEach((el) => {
     if (el) observer.observe(el);
+  });
+}
+
+let pageTrackingObserver = null;
+function setupCurrentPageObserver() {
+  if (pageTrackingObserver) pageTrackingObserver.disconnect();
+
+  const options = {
+    root: mainScrollContainer.value,
+    rootMargin: "-50% 0px -50% 0px",
+    threshold: 0,
+  };
+
+  pageTrackingObserver = new IntersectionObserver((entries) => {
+    entries.forEach((entry) => {
+      // Only update if intersecting and not programmatically scrolling
+      if (entry.isIntersecting && !isManualScrolling.value) {
+        const pageIndex = pageContainerRefs.value.indexOf(entry.target);
+
+        if (pageIndex !== -1) {
+          currentPage.value = pageIndex + 1;
+        }
+      }
+    });
+  }, options);
+
+  pageContainerRefs.value.forEach((el) => {
+    if (el) pageTrackingObserver.observe(el);
   });
 }
 
@@ -842,6 +886,9 @@ onMounted(async () => {
 
 onUnmounted(() => {
   document.removeEventListener("mouseup", handleTextSelection);
+
+  if (observer) observer.disconnect();
+  if (pageTrackingObserver) pageTrackingObserver.disconnect();
 });
 
 // Search Func
@@ -933,6 +980,24 @@ watch(searchQuery, () => {
     console.log("Searching for:", searchQuery.value);
   }, 3000); // 3s debounce to keep load off of backend
 });
+
+// writing most recent page back to backend
+async function postPage() {
+  const res = await $fetch(`/api/documents/${id}/`, {
+    method: "PATCH",
+    body: {
+      last_page: currentPage.value,
+    },
+  });
+}
+
+let pageUpdateDebounce = null;
+watch(currentPage, () => {
+  if (pageUpdateDebounce) clearTimeout(pageUpdateDebounce);
+  pageUpdateDebounce = setTimeout(() => {
+    postPage();
+  }, 5000);
+});
 </script>
 
 <template>
@@ -1022,7 +1087,7 @@ watch(searchQuery, () => {
       </div>
 
       <div
-        class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-30 ml-4"
+        class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-30 ml-18 xl:md-4"
       >
         <div
           class="flex items-center gap-1 rounded-xl border border-slate-700 bg-slate-800/50 p-1 shadow-sm"
