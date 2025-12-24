@@ -441,8 +441,8 @@ def run_smart_collection(collection_id):
     """
     cluster_results now looks like this: type == dict 
     annotation model obj pk: {
-        major_cluster : int major_cluster (just value assigned by Hdb scan, no semantic meaning yet),
-        sub_cluster : int sub_cluster (just value assigned by Hdb scan, no semantic meaning yet)
+        major_topic : int major_cluster (just value assigned by Hdb scan, no semantic meaning yet),
+        sub_topic : int sub_cluster (just value assigned by Hdb scan, no semantic meaning yet)
     }
 
     ids and vectors will be used later for UMAP dimension reduction to get x,y coordinates.
@@ -503,23 +503,23 @@ def run_smart_collection(collection_id):
     # writing everything back
 
     for annot_obj_pk in cluster_results.keys():  
-        major_cluster = cluster_results[annot_obj_pk]["major_cluster"]   
-        sub_cluster = cluster_results[annot_obj_pk]["sub_cluster"]
+        major_cluster = cluster_results[annot_obj_pk]["major_topic"]   
+        sub_cluster = cluster_results[annot_obj_pk]["sub_topic"]
         sub_cluster_tuple = (major_cluster, sub_cluster)
 
         # replacing major cluster 
         major_label = new_mappings[major_cluster]
-        cluster_results[annot_obj_pk]["major_cluster"] = major_label
+        cluster_results[annot_obj_pk]["major_topic"] = major_label
 
         # replacing sub cluster 
         sub_label = new_mappings[sub_cluster_tuple]
-        cluster_results[annot_obj_pk]["sub_cluster"] = sub_label
+        cluster_results[annot_obj_pk]["sub_topic"] = sub_label
 
     """
     cluster_results now looks like this: type == dict 
     annotation model obj pk: {
-        major_cluster : human readable label
-        sub_cluster : human readable label
+        major_topic : human readable label
+        sub_topic : human readable label
     }
 
     Will write everything back to the db after we find the x,y coords for each object to save a round trip

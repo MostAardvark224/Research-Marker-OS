@@ -18,6 +18,7 @@ class Document(models.Model):
     file = models.FileField(upload_to='documents/', max_length=255)
     folder = models.ForeignKey(Folder, related_name='documents', on_delete=models.SET_NULL, null=True)
     searchable = models.BooleanField(default=False)
+    last_page = models.IntegerField(blank=True, null=True)
 
     def __str__(self):
         return self.title
@@ -32,8 +33,8 @@ class Annotations(models.Model):
 
     major_topic = models.CharField(max_length=100, null=True)
     sub_topic = models.CharField(max_length=100, null=True)
-    x_coordinate = models.FloatField(blank=True, db_index=True, null=True),
-    y_coordinate = models.FloatField(blank=True, db_index=True, null=True),
+    x_coordinate = models.FloatField(blank=True, db_index=True, null=True)
+    y_coordinate = models.FloatField(blank=True, db_index=True, null=True)
 
     embedding_binary = models.BinaryField(null=True, blank=True)
     needs_embedding = models.BooleanField(default=False)
