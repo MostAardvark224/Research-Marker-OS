@@ -36,9 +36,146 @@
       >
         <div
           v-if="hasData"
-          class="max-w-7xl mx-auto w-full relative z-10 animate-fade-in"
+          class="fixed inset-0 z-50 flex bg-[#020204] animate-fade-in"
         >
-          {{ data }}
+          <aside
+            class="border-r border-white/10 bg-[#050508] flex flex-col py-6 z-20 shrink-0 transition-all duration-300 ease-in-out relative group/sidebar"
+            :class="[isSidebarOpen ? 'w-[30%]' : 'w-16 items-center']"
+          >
+            <button
+              @click="toggleSidebar"
+              class="absolute -right-3 bottom-8 w-6 h-6 bg-[#1e1e24] border border-white/20 rounded-full flex items-center justify-center text-white/50 hover:text-white hover:border-purple-500 hover:bg-purple-500/20 transition-all z-30"
+              title="Toggle Sidebar"
+            >
+              <Icon
+                name="uil:angle-left"
+                class="transition-transform duration-300"
+                :class="!isSidebarOpen ? 'rotate-180' : ''"
+              />
+            </button>
+
+            <div
+              class="mb-8 flex items-center transition-all overflow-hidden whitespace-nowrap"
+              :class="isSidebarOpen ? 'px-6 gap-3' : 'justify-center'"
+            >
+              <div
+                class="w-8 h-8 bg-gradient-to-tr from-purple-500 to-blue-500 rounded-md shrink-0 shadow-lg shadow-purple-500/20"
+              ></div>
+
+              <div
+                v-show="isSidebarOpen"
+                class="flex flex-col opacity-0 animate-fade-in"
+                style="animation-delay: 100ms; animation-fill-mode: forwards"
+              >
+                <span class="font-bold text-sm tracking-wide"
+                  >Research Marker</span
+                >
+                <span
+                  class="text-[10px] text-slate-500 uppercase tracking-wider"
+                  >Workspace</span
+                >
+              </div>
+            </div>
+
+            <div class="flex flex-col w-full gap-2">
+              <button
+                class="w-full h-12 flex items-center text-white/40 hover:text-white hover:bg-white/5 transition-all relative group overflow-hidden whitespace-nowrap"
+                :class="
+                  isSidebarOpen ? 'px-6 gap-4 justify-start' : 'justify-center'
+                "
+              >
+                <Icon name="uil:comment-alt-lines" class="text-xl shrink-0" />
+                <span v-show="isSidebarOpen" class="text-sm font-medium"
+                  >Research Chat</span
+                >
+
+                <div
+                  class="absolute left-0 top-0 bottom-0 w-0.5 bg-purple-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                ></div>
+              </button>
+
+              <button
+                class="w-full h-12 flex items-center text-white bg-white/5 border-l-2 border-purple-500 transition-all overflow-hidden whitespace-nowrap"
+                :class="
+                  isSidebarOpen ? 'px-6 gap-4 justify-start' : 'justify-center'
+                "
+              >
+                <Icon name="uil:sitemap" class="text-xl shrink-0" />
+                <span v-show="isSidebarOpen" class="text-sm font-medium"
+                  >Graph Explorer</span
+                >
+              </button>
+
+              <button
+                class="w-full h-12 flex items-center text-white/40 hover:text-white hover:bg-white/5 transition-all relative group overflow-hidden whitespace-nowrap"
+                :class="
+                  isSidebarOpen ? 'px-6 gap-4 justify-start' : 'justify-center'
+                "
+              >
+                <Icon name="uil:lightbulb-alt" class="text-xl shrink-0" />
+                <span v-show="isSidebarOpen" class="text-sm font-medium"
+                  >Recommendations</span
+                >
+
+                <div
+                  class="absolute left-0 top-0 bottom-0 w-0.5 bg-purple-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                ></div>
+              </button>
+            </div>
+
+            <div class="mt-auto flex flex-col gap-4 w-full">
+              <NuxtLink
+                to="/dashboard"
+                class="h-10 flex items-center rounded-lg text-white/40 hover:text-white hover:bg-white/5 transition-all overflow-hidden whitespace-nowrap"
+                :class="
+                  isSidebarOpen
+                    ? 'mx-4 px-3 gap-3 justify-start'
+                    : 'mx-auto w-10 justify-center'
+                "
+                title="Back to Dashboard"
+              >
+                <Icon name="uil:arrow-left" class="text-xl shrink-0" />
+                <span
+                  v-show="isSidebarOpen"
+                  class="text-xs font-semibold uppercase tracking-widest"
+                  >Back to Index</span
+                >
+              </NuxtLink>
+            </div>
+          </aside>
+
+          <div
+            class="flex-1 flex flex-col relative overflow-hidden bg-[#020204]"
+          >
+            <header
+              class="h-14 border-b border-white/5 flex items-center justify-between px-6 bg-[#020204]/90 backdrop-blur-sm z-10 absolute top-0 left-0 right-0 pointer-events-none"
+            >
+              <div class="flex items-center gap-3 pointer-events-auto">
+                <h2 class="font-semibold text-sm tracking-wide text-slate-300">
+                  Knowledge Graph
+                </h2>
+                <span
+                  class="px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 text-[10px] font-medium border border-purple-500/20"
+                  >Beta</span
+                >
+              </div>
+            </header>
+
+            <div
+              ref="graphContainer"
+              class="w-full h-full cursor-grab active:cursor-grabbing"
+            ></div>
+
+            <div class="absolute bottom-6 right-6 flex flex-col gap-2 z-10">
+              <button
+                @click="resetZoom"
+                class="w-10 h-10 rounded-lg bg-[#1e1e24] hover:bg-[#2a2a35] text-white flex items-center justify-center border border-white/10 transition-colors shadow-xl"
+                title="Reset View"
+              >
+                <Icon name="uil:focus-target" class="text-lg" />
+              </button>
+            </div>
+          </div>
         </div>
 
         <div
@@ -113,7 +250,9 @@
                   >
                   For the most effective graph generation and clustering, we
                   recommend having at least
-                  <span class="text-blue-300 font-medium">15+ annotations</span>
+                  <span class="text-blue-300 font-medium"
+                    >15-20+ annotations</span
+                  >
                   in your index before initializing.
                 </div>
               </div>
@@ -162,6 +301,7 @@
 </template>
 
 <script setup>
+import * as d3 from "d3";
 const {
   public: { apiBaseURL },
 } = useRuntimeConfig();
@@ -285,6 +425,243 @@ import { storeToRefs } from "pinia";
 const store = useSmartCollectionsStore();
 
 const { isInitializing } = storeToRefs(store);
+
+// HEADER: GRAPH LOGIC
+
+// sidebar logic
+const isSidebarOpen = ref(true);
+
+const toggleSidebar = () => {
+  isSidebarOpen.value = !isSidebarOpen.value;
+};
+
+watch(isSidebarOpen, () => {
+  setTimeout(() => {
+    // Recalculate SVG scales for new width
+    initGraph();
+  }, 320);
+});
+const graphContainer = ref(null);
+let svg, g, zoom; // D3 variables
+
+// calculating geometric centers of major and sub clusters
+const processGraphData = (rawData) => {
+  if (!rawData) return { papers: [], majorClusters: [], subClusters: [] };
+
+  const papers = rawData.map((d) => ({
+    id: d.id,
+    title: d.doc_tite,
+    x: d.x_coordinate,
+    y: d.y_coordinate,
+    major: d.major_topic,
+    sub: d.sub_topic,
+  }));
+
+  // calculating centers for major and sub
+  const majorMap = {};
+  papers.forEach((p) => {
+    if (!majorMap[p.major]) majorMap[p.major] = { xSum: 0, ySum: 0, count: 0 };
+    majorMap[p.major].xSum += p.x;
+    majorMap[p.major].ySum += p.y;
+    majorMap[p.major].count++;
+  });
+
+  const majorClusters = Object.keys(majorMap).map((key) => ({
+    label: key,
+    x: majorMap[key].xSum / majorMap[key].count,
+    y: majorMap[key].ySum / majorMap[key].count,
+  }));
+
+  const subMap = {};
+  papers.forEach((p) => {
+    if (!subMap[p.sub]) subMap[p.sub] = { xSum: 0, ySum: 0, count: 0 };
+    subMap[p.sub].xSum += p.x;
+    subMap[p.sub].ySum += p.y;
+    subMap[p.sub].count++;
+  });
+
+  const subClusters = Object.keys(subMap).map((key) => ({
+    label: key,
+    x: subMap[key].xSum / subMap[key].count,
+    y: subMap[key].ySum / subMap[key].count,
+  }));
+
+  return { papers, majorClusters, subClusters };
+};
+
+const initGraph = () => {
+  if (!graphContainer.value || !data.value) return;
+
+  d3.select(graphContainer.value).selectAll("*").remove();
+
+  const { clientWidth: width, clientHeight: height } = graphContainer.value;
+  const { papers, majorClusters, subClusters } = processGraphData(data.value);
+
+  svg = d3
+    .select(graphContainer.value)
+    .append("svg")
+    .attr("width", "100%")
+    .attr("height", "100%")
+    .attr("viewBox", [0, 0, width, height])
+    .style("background-color", "#020204");
+
+  const xExtent = d3.extent(papers, (d) => d.x);
+  const yExtent = d3.extent(papers, (d) => d.y);
+
+  const xPadding = (xExtent[1] - xExtent[0]) * 0.1;
+  const yPadding = (yExtent[1] - yExtent[0]) * 0.1;
+
+  const xScale = d3
+    .scaleLinear()
+    .domain([xExtent[0] - xPadding, xExtent[1] + xPadding])
+    .range([0, width]);
+
+  const yScale = d3
+    .scaleLinear()
+    .domain([yExtent[0] - yPadding, yExtent[1] + yPadding])
+    .range([height, 0]);
+
+  g = svg.append("g");
+
+  // render layers
+
+  // Layer 1: Papers (Visible at High Zoom)
+  const paperGroup = g
+    .append("g")
+    .attr("class", "layer-papers")
+    .style("opacity", 0);
+
+  // Dots
+  paperGroup
+    .selectAll("circle")
+    .data(papers)
+    .join("circle")
+    .attr("cx", (d) => xScale(d.x))
+    .attr("cy", (d) => yScale(d.y))
+    .attr("r", 3)
+    .attr("fill", "#60a5fa") // Blue-400
+    .attr("opacity", 0.6);
+
+  // Titles
+  paperGroup
+    .selectAll("text")
+    .data(papers)
+    .join("text")
+    .attr("x", (d) => xScale(d.x))
+    .attr("y", (d) => yScale(d.y) - 8)
+    .text((d) => d.title)
+    .attr("text-anchor", "middle")
+    .attr("font-size", "4px")
+    .attr("fill", "#94a3b8");
+
+  // layer 2: sub topics (visible at medium zoom)
+  const subGroup = g.append("g").attr("class", "layer-sub").style("opacity", 0);
+
+  subGroup
+    .selectAll("text")
+    .data(subClusters)
+    .join("text")
+    .attr("x", (d) => xScale(d.x))
+    .attr("y", (d) => yScale(d.y))
+    .text((d) => d.label)
+    .attr("text-anchor", "middle")
+    .attr("font-size", "12px")
+    .attr("font-weight", "600")
+    .attr("fill", "#c084fc")
+    .style("text-shadow", "0 2px 4px rgba(0,0,0,0.8)");
+
+  // layer 3: major topics (visible at low zoom/default)
+  const majorGroup = g
+    .append("g")
+    .attr("class", "layer-major")
+    .style("opacity", 1);
+
+  majorGroup
+    .selectAll("text")
+    .data(majorClusters)
+    .join("text")
+    .attr("x", (d) => xScale(d.x))
+    .attr("y", (d) => yScale(d.y))
+    .text((d) => d.label)
+    .attr("text-anchor", "middle")
+    .attr("font-size", "24px")
+    .attr("font-weight", "bold")
+    .attr("fill", "#e2e8f0")
+    .style("text-shadow", "0 4px 12px rgba(0,0,0,0.9)");
+
+  // zoom logic
+  zoom = d3
+    .zoom()
+    .scaleExtent([0.5, 20]) // Max zoom out / Max zoom in
+    .on("zoom", (event) => {
+      const { transform } = event;
+      g.attr("transform", transform);
+      updateSemanticZoom(transform.k);
+    });
+
+  svg.call(zoom).on("dblclick.zoom", null); // Disable double click zoom
+
+  // Initial Zoom to fit content
+  resetZoom();
+};
+
+// Controls visibility based on zoom level (k)
+const updateSemanticZoom = (k) => {
+  const paperLayer = g.select(".layer-papers");
+  const subLayer = g.select(".layer-sub");
+  const majorLayer = g.select(".layer-major");
+
+  // Transition Logic
+  // Major: visible < 1.5
+  // Sub: visible 1.5 -> 3.5
+  // Papers: visible > 3.5
+
+  // Smooth transitions using opacity
+  majorLayer
+    .transition()
+    .duration(200)
+    .style("opacity", k < 1.8 ? 1 : 0);
+  subLayer
+    .transition()
+    .duration(200)
+    .style("opacity", k >= 1.8 && k < 4.0 ? 1 : 0);
+  paperLayer
+    .transition()
+    .duration(200)
+    .style("opacity", k >= 4.0 ? 1 : 0);
+};
+
+const resetZoom = () => {
+  if (!svg || !zoom || !graphContainer.value) return;
+  // Reset to identity (scale 1) centered
+  // might have calculate exact bounds to fit
+  const { clientWidth: width, clientHeight: height } = graphContainer.value;
+
+  svg
+    .transition()
+    .duration(750)
+    .call(
+      zoom.transform,
+      d3.zoomIdentity
+        .translate(width / 2, height / 2)
+        .scale(1)
+        .translate(-width / 2, -height / 2)
+    );
+
+  // Since domain is mapped to range, scale 1 fits the view exactly
+};
+
+onMounted(() => {
+  if (hasData.value) {
+    nextTick(() => initGraph());
+  }
+});
+
+watch(hasData, (newVal) => {
+  if (newVal) {
+    nextTick(() => initGraph());
+  }
+});
 </script>
 
 <style scoped>
