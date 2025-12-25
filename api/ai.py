@@ -414,7 +414,7 @@ def reduce_dimensions(data_dict, target_dim=128):
         
     return reduced_dict
 
-def umap_dim_reduction_to_2d(data_dict): 
+def umap_dim_reduction_to_2d(data_dict, n_neighbors=15): 
     ids = list(data_dict.keys())
     
     # stack vectors into np matrix (n x dimensions)
@@ -422,7 +422,10 @@ def umap_dim_reduction_to_2d(data_dict):
 
     # n_components - 2 dims
     # cos is good for vector embeddings
-    reducer = umap.UMAP(n_components=2, metric='cosine', min_dist=0.1)
+    reducer = umap.UMAP(n_components=2, 
+                        n_neighbors=n_neighbors,
+                        metric='cosine', 
+                        min_dist=0.1)
     embedding_2d = reducer.fit_transform(matrix)
 
     result_dict = {
@@ -543,7 +546,20 @@ def run_smart_collection():
     # using umap to get x,y coordinates based on each vector.
     # UMAP essentially drops the dims down from 128 to a 2d projection
     print("performing UMAP reduction")
-    annot_coords = umap_dim_reduction_to_2d(data_dict = annot_vectors)
+
+    data_count = len(annot_vectors)
+    
+    safe_n_neighbors = max(2, min(15, data_count - 1))
+
+    if data_count <= 2: # fallback
+        print("Dataset too small for UMAP. Assigning default coordinates.")
+        annot_coords = {k: [0.0, 0.0] for k in annot_vectors}
+    else:
+        annot_coords = umap_dim_reduction_to_2d(
+            data_dict=annot_vectors, 
+            n_neighbors=safe_n_neighbors
+        )
+
     print("finished performing UMAP reduction")
 
     # combining annot_coords w/ cluster_results
