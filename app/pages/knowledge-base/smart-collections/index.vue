@@ -207,11 +207,12 @@ const MAX_DURATION = 10 * 60 * 1000; // 10 minutes in ms
 // polling backend every 10s until we get poll_state.value == suceeded
 // 10 min timeout
 async function continuouslyPollBackend() {
-  isInitializing.value = true;
+  store.setInitializing(true);
   const startTime = Date.now();
 
   while (poll_state.value !== "success") {
     if (Date.now() - startTime > MAX_DURATION) {
+      store.setInitializing(false);
       alert("The operation timed out after 10 minutes.");
       return;
     }
@@ -221,26 +222,26 @@ async function continuouslyPollBackend() {
   }
 
   // get data now, because assumed that polling has succeeded
-  if ((poll_state.value = "success")) {
+  if (poll_state.value == "success") {
     await getData();
-    isInitializing.value = false;
+    store.setInitializing(false);
   }
 }
 
 async function RunSmartCollection() {
-  isInitializing.value = true;
+  store.setInitializing(true);
   try {
     await $fetch(`${apiBaseURL}/smart-collection/`, {
       method: "POST",
     });
   } catch (err) {
-    isInitializing.value = false;
+    store.setInitializing(false);
     alert("Failed to start collection:", err);
     return;
   }
 
   await continuouslyPollBackend();
-  isInitializing.value = false;
+  store.setInitializing(false);
 }
 
 async function getData() {
@@ -250,11 +251,18 @@ async function getData() {
   } catch (err) {
     alert("Failed to fetch data:", err);
     return;
+  } finally {
+    store.setInitializing(false);
   }
 }
 
 // runs logic from notes at beginning of script
 async function initDataLogic() {
+  if (isInitializing.value) {
+    await continuouslyPollBackend();
+    return;
+  }
+
   await pollBackend();
   if (poll_state.value == "success") {
     await getData();
