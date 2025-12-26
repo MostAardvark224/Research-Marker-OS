@@ -39,111 +39,123 @@
           class="fixed inset-0 z-50 flex bg-[#020204] animate-fade-in"
         >
           <aside
-            class="border-r border-white/10 bg-[#050508] flex flex-col py-6 z-20 shrink-0 transition-all duration-300 ease-in-out relative group/sidebar"
-            :class="[isSidebarOpen ? 'w-[30%]' : 'w-16 items-center']"
+            class="relative z-20 flex h-screen shrink-0 flex-col border-r border-white/10 bg-[#050508] transition-all duration-300 ease-in-out group/sidebar"
+            :class="[isSidebarOpen ? 'w-[30%]' : 'w-0 border-r-0']"
           >
             <button
               @click="toggleSidebar"
-              class="absolute -right-3 bottom-8 w-6 h-6 bg-[#1e1e24] border border-white/20 rounded-full flex items-center justify-center text-white/50 hover:text-white hover:border-purple-500 hover:bg-purple-500/20 transition-all z-30"
-              title="Toggle Sidebar"
+              class="absolute -right-3 top-16 z-50 flex h-6 w-6 cursor-pointer items-center justify-center rounded-full border border-white/10 bg-[#050508] text-white/40 shadow-xl backdrop-blur-sm transition-all hover:scale-110 hover:border-purple-500 hover:text-white"
+              :class="{ 'opacity-0 pointer-events-none': !isSidebarOpen }"
+              title="Collapse Sidebar"
             >
-              <Icon
-                name="uil:angle-left"
-                class="transition-transform duration-300"
-                :class="!isSidebarOpen ? 'rotate-180' : ''"
-              />
+              <Icon name="uil:angle-left" class="text-sm" />
+            </button>
+
+            <button
+              v-if="!isSidebarOpen"
+              @click="toggleSidebar"
+              class="absolute -right-8 top-16 z-50 flex h-8 w-8 cursor-pointer items-center justify-center rounded-r-lg border-y border-r border-white/10 bg-[#050508] text-white/40 shadow-xl transition-all hover:w-10 hover:text-purple-400"
+              title="Expand Sidebar"
+            >
+              <Icon name="uil:angle-right" class="text-lg" />
             </button>
 
             <div
-              class="mb-8 flex items-center transition-all overflow-hidden whitespace-nowrap"
-              :class="isSidebarOpen ? 'px-6 gap-3' : 'justify-center'"
+              v-show="isSidebarOpen"
+              class="flex h-full w-full flex-col overflow-hidden"
             >
-              <div
-                class="w-8 h-8 bg-gradient-to-tr from-purple-500 to-blue-500 rounded-md shrink-0 shadow-lg shadow-purple-500/20"
-              ></div>
+              <div class="flex flex-col border-b border-white/5 bg-[#050508]">
+                <div class="flex items-center gap-3 px-6 py-6">
+                  <div
+                    class="h-8 w-8 shrink-0 rounded-md bg-gradient-to-tr from-purple-500 to-blue-500 shadow-lg shadow-purple-500/20"
+                  ></div>
+                  <div class="flex flex-col animate-fade-in">
+                    <span class="text-sm font-bold tracking-wide"
+                      >Research Marker</span
+                    >
+                    <span
+                      class="text-[10px] uppercase tracking-wider text-slate-500"
+                    >
+                      By Amay Babel
+                    </span>
+                  </div>
+                </div>
+
+                <div class="flex items-center px-4 gap-1">
+                  <button
+                    v-for="tab in tabs"
+                    :key="tab.id"
+                    @click="setActiveTab(tab.id)"
+                    class="relative flex flex-1 items-center justify-center gap-2 rounded-md py-2.5 text-xs font-medium transition-all"
+                    :class="[
+                      activeTab === tab.id
+                        ? 'bg-white/5 text-white shadow-sm'
+                        : 'text-slate-500 hover:bg-white/5 hover:text-slate-300',
+                    ]"
+                  >
+                    <Icon :name="tab.icon" class="text-base" />
+                    <!-- {{ tab.label }} -->
+
+                    <div
+                      v-if="activeTab === tab.id"
+                      class="absolute -bottom-[1px] left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-purple-500 to-transparent opacity-50"
+                    ></div>
+                  </button>
+                </div>
+              </div>
 
               <div
-                v-show="isSidebarOpen"
-                class="flex flex-col opacity-0 animate-fade-in"
-                style="animation-delay: 100ms; animation-fill-mode: forwards"
+                class="flex-1 overflow-y-auto overflow-x-hidden px-6 py-6 relative"
               >
-                <span class="font-bold text-sm tracking-wide"
-                  >Research Marker</span
+                <div
+                  v-if="activeTab === 'graph'"
+                  class="animate-fade-in h-full"
                 >
-                <span
-                  class="text-[10px] text-slate-500 uppercase tracking-wider"
-                  >Workspace</span
+                  <h2
+                    class="text-lg font-medium text-purple-400 mb-4 flex items-center gap-2"
+                  >
+                    <Icon name="uil:sitemap" />Graph Explorer
+                  </h2>
+                </div>
+
+                <div
+                  v-else-if="activeTab === 'chat'"
+                  class="animate-fade-in h-full"
                 >
+                  <h2
+                    class="text-lg font-medium text-purple-400 mb-4 flex items-center gap-2"
+                  >
+                    <Icon name="uil:comment-alt-lines" /> Research Chat
+                  </h2>
+                </div>
+
+                <div
+                  v-else-if="activeTab === 'recs'"
+                  class="animate-fade-in h-full"
+                >
+                  <h2
+                    class="text-lg font-medium text-purple-400 mb-4 flex items-center gap-2"
+                  >
+                    <Icon name="uil:lightbulb-alt" /> Recommendations
+                  </h2>
+                </div>
+              </div>
+
+              <div
+                class="mt-auto flex w-full flex-col gap-4 p-6 shrink-0 border-t border-white/5"
+              >
+                <NuxtLink
+                  to="/dashboard"
+                  class="flex h-10 w-full items-center justify-start gap-3 overflow-hidden whitespace-nowrap rounded-lg px-3 text-white/40 transition-all hover:bg-white/5 hover:text-white"
+                >
+                  <Icon name="uil:arrow-left" class="text-xl shrink-0" />
+                  <span class="text-xs font-semibold uppercase tracking-widest">
+                    Back to Index
+                  </span>
+                </NuxtLink>
               </div>
             </div>
-
-            <div class="flex flex-col w-full gap-2">
-              <button
-                class="w-full h-12 flex items-center text-white/40 hover:text-white hover:bg-white/5 transition-all relative group overflow-hidden whitespace-nowrap"
-                :class="
-                  isSidebarOpen ? 'px-6 gap-4 justify-start' : 'justify-center'
-                "
-              >
-                <Icon name="uil:comment-alt-lines" class="text-xl shrink-0" />
-                <span v-show="isSidebarOpen" class="text-sm font-medium"
-                  >Research Chat</span
-                >
-
-                <div
-                  class="absolute left-0 top-0 bottom-0 w-0.5 bg-purple-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                ></div>
-              </button>
-
-              <button
-                class="w-full h-12 flex items-center text-white bg-white/5 border-l-2 border-purple-500 transition-all overflow-hidden whitespace-nowrap"
-                :class="
-                  isSidebarOpen ? 'px-6 gap-4 justify-start' : 'justify-center'
-                "
-              >
-                <Icon name="uil:sitemap" class="text-xl shrink-0" />
-                <span v-show="isSidebarOpen" class="text-sm font-medium"
-                  >Graph Explorer</span
-                >
-              </button>
-
-              <button
-                class="w-full h-12 flex items-center text-white/40 hover:text-white hover:bg-white/5 transition-all relative group overflow-hidden whitespace-nowrap"
-                :class="
-                  isSidebarOpen ? 'px-6 gap-4 justify-start' : 'justify-center'
-                "
-              >
-                <Icon name="uil:lightbulb-alt" class="text-xl shrink-0" />
-                <span v-show="isSidebarOpen" class="text-sm font-medium"
-                  >Recommendations</span
-                >
-
-                <div
-                  class="absolute left-0 top-0 bottom-0 w-0.5 bg-purple-500 opacity-0 group-hover:opacity-100 transition-opacity"
-                ></div>
-              </button>
-            </div>
-
-            <div class="mt-auto flex flex-col gap-4 w-full">
-              <NuxtLink
-                to="/dashboard"
-                class="h-10 flex items-center rounded-lg text-white/40 hover:text-white hover:bg-white/5 transition-all overflow-hidden whitespace-nowrap"
-                :class="
-                  isSidebarOpen
-                    ? 'mx-4 px-3 gap-3 justify-start'
-                    : 'mx-auto w-10 justify-center'
-                "
-                title="Back to Dashboard"
-              >
-                <Icon name="uil:arrow-left" class="text-xl shrink-0" />
-                <span
-                  v-show="isSidebarOpen"
-                  class="text-xs font-semibold uppercase tracking-widest"
-                  >Back to Index</span
-                >
-              </NuxtLink>
-            </div>
           </aside>
-
           <div
             class="flex-1 flex flex-col relative overflow-hidden bg-[#020204]"
           >
@@ -426,8 +438,6 @@ const store = useSmartCollectionsStore();
 
 const { isInitializing } = storeToRefs(store);
 
-// HEADER: GRAPH LOGIC
-
 // sidebar logic
 const isSidebarOpen = ref(true);
 
@@ -441,6 +451,24 @@ watch(isSidebarOpen, () => {
     initGraph();
   }, 320);
 });
+
+const activeTab = ref("graph");
+
+const tabs = [
+  { id: "graph", label: "Graph Explorer", icon: "uil:sitemap" },
+  { id: "chat", label: "Research Chat", icon: "uil:comment-alt-lines" },
+  { id: "recs", label: "Recommendations", icon: "uil:lightbulb-alt" },
+];
+
+const setActiveTab = (id) => {
+  if (!isSidebarOpen.value) {
+    isSidebarOpen.value = true;
+  }
+  activeTab.value = id;
+};
+
+// GRAPH LOGIC
+
 const graphContainer = ref(null);
 let svg, g, zoom; // D3 variables
 
@@ -680,6 +708,21 @@ watch(hasData, (newVal) => {
   background: rgba(255, 255, 255, 0.2);
 }
 
+.animate-fade-in {
+  animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @keyframes gradient {
   0% {
     background-position: 0% 50%;
@@ -695,20 +738,5 @@ watch(hasData, (newVal) => {
 .animate-gradient {
   background-size: 200% auto;
   animation: gradient 8s ease infinite;
-}
-
-.animate-fade-in {
-  animation: fadeIn 0.5s ease-out forwards;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 </style>
