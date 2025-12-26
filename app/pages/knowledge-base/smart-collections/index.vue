@@ -163,14 +163,25 @@
               class="h-14 border-b border-white/5 flex items-center justify-between px-6 bg-[#020204]/90 backdrop-blur-sm z-10 absolute top-0 left-0 right-0 pointer-events-none"
             >
               <div class="flex items-center gap-3 pointer-events-auto">
-                <h2 class="font-semibold text-sm tracking-wide text-slate-300">
+                <h2 class="font-semibold text-sm tracking-wide text-white">
                   Knowledge Graph
                 </h2>
                 <span
-                  class="px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 text-[10px] font-medium border border-purple-500/20"
+                  class="px-2 py-0.5 mt-1 rounded-full bg-purple-500/10 text-purple-400 text-[10px] font-medium border border-purple-500/20"
                   >Beta</span
                 >
               </div>
+              <button
+                @click="updateSmartCollection()"
+                class="pointer-events-auto flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-medium text-slate-300 hover:text-white hover:border-white/20 transition-all group"
+              >
+                <Icon
+                  name="uil:sync"
+                  class="text-sm text-slate-400 group-hover:text-white transition-colors"
+                  :class="{ 'animate-spin': isInitializing }"
+                />
+                Update Collection
+              </button>
             </header>
 
             <div
@@ -362,6 +373,7 @@ async function continuouslyPollBackend() {
   store.setInitializing(true);
   const startTime = Date.now();
 
+  poll_state.value = "queued"; // state resetter
   while (poll_state.value !== "success") {
     if (Date.now() - startTime > MAX_DURATION) {
       store.setInitializing(false);
@@ -429,6 +441,16 @@ async function initDataLogic() {
 onMounted(() => {
   initDataLogic();
 });
+
+// logic for updating smart collection
+async function updateSmartCollection() {
+  if (isInitializing.value) {
+    await continuouslyPollBackend();
+    return;
+  }
+
+  await RunSmartCollection();
+}
 
 // pinia store for initializing state
 import { useSmartCollectionsStore } from "~~/stores/useSmartCollectionsStore";
