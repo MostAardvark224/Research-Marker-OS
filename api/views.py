@@ -608,7 +608,7 @@ class SmartCollectionView(APIView):
     [
         {
             id: id, 
-            doc_tite: doc_title, 
+            doc_title: doc_title, 
             major_topic: major_topic, 
             sub_topic: sub_topic, 
             x_coordinate: x_coordinate,  
@@ -638,7 +638,7 @@ class SmartCollectionView(APIView):
                 for obj in annot_objs: 
                     data_dict = dict(
                         id = obj.pk, 
-                        doc_tite = obj.document.title, 
+                        doc_title = obj.document.title, 
                         major_topic = obj.major_topic, 
                         sub_topic = obj.sub_topic, 
                         x_coordinate = obj.x_coordinate,
