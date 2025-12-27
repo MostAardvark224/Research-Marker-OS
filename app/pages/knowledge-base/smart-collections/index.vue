@@ -109,15 +109,94 @@
               >
                 <div
                   v-if="activeTab === 'graph'"
-                  class="animate-fade-in h-full"
+                  class="animate-fade-in h-full flex flex-col"
                 >
                   <h2
-                    class="text-lg font-medium text-purple-400 mb-4 flex items-center gap-2"
+                    class="text-lg font-medium text-purple-400 mb-4 flex items-center gap-2 shrink-0"
                   >
-                    <Icon name="uil:sitemap" />Graph Explorer
+                    <Icon name="uil:sitemap" /> Graph Explorer
                   </h2>
-                </div>
 
+                  <div
+                    class="flex-1 overflow-y-auto custom-scrollbar -mr-2 pr-2"
+                  >
+                    <div
+                      v-for="(subTopics, majorName) in graphExplorerData"
+                      :key="majorName"
+                      class="mb-4"
+                    >
+                      <button
+                        @click="toggleNode(majorName)"
+                        class="w-full flex items-center gap-2 text-sm font-semibold text-slate-200 hover:text-purple-300 transition-colors text-left group"
+                      >
+                        <Icon
+                          name="uil:angle-right"
+                          class="transition-transform duration-200 text-slate-500 group-hover:text-purple-400"
+                          :class="{ 'rotate-90': expandedNodes[majorName] }"
+                        />
+                        <Icon name="uil:folder" class="text-purple-500/50" />
+                        {{ majorName }}
+                        <span
+                          class="ml-auto text-[10px] text-slate-600 font-mono"
+                        >
+                          {{ Object.keys(subTopics).length }}
+                        </span>
+                      </button>
+
+                      <div
+                        v-show="expandedNodes[majorName]"
+                        class="mt-1 ml-2 pl-3 border-l border-white/5 space-y-1"
+                      >
+                        <div
+                          v-for="(papers, subName) in subTopics"
+                          :key="majorName + subName"
+                        >
+                          <button
+                            @click="toggleNode(majorName + subName)"
+                            class="w-full flex items-center gap-2 py-1 text-xs font-medium text-slate-400 hover:text-white transition-colors text-left group/sub"
+                          >
+                            <Icon
+                              name="uil:angle-right"
+                              class="transition-transform duration-200 text-slate-600 group-hover/sub:text-white"
+                              :class="{
+                                'rotate-90': expandedNodes[majorName + subName],
+                              }"
+                            />
+                            {{ subName }}
+                          </button>
+
+                          <div
+                            v-show="expandedNodes[majorName + subName]"
+                            class="mt-1 ml-2 pl-3 border-l border-white/5 space-y-0.5"
+                          >
+                            <div
+                              v-for="paper in papers"
+                              :key="paper.id"
+                              class="group/paper flex items-start gap-2 py-1 cursor-pointer"
+                            >
+                              <div
+                                class="mt-1.5 w-1 h-1 rounded-full bg-slate-700 group-hover/paper:bg-blue-400 transition-colors shrink-0"
+                              ></div>
+                              <span
+                                class="text-[11px] text-slate-500 leading-snug group-hover/paper:text-slate-300 transition-colors line-clamp-2"
+                              >
+                                {{ paper.title }}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div
+                      v-if="Object.keys(graphExplorerData).length === 0"
+                      class="text-center mt-10 text-slate-600 text-xs italic"
+                    >
+                      No graph data available.
+                      <br />Initialize collection to view structure.
+                    </div>
+                  </div>
+                </div>
                 <div
                   v-else-if="activeTab === 'chat'"
                   class="animate-fade-in h-full"
@@ -489,6 +568,55 @@ const setActiveTab = (id) => {
   activeTab.value = id;
 };
 
+/*
+graph explorer logic
+data object will look like this
+{
+  major : {
+    sub : {
+      paper titles
+    }
+  }
+}
+*/
+
+const expandedNodes = ref({});
+
+const toggleNode = (key) => {
+  expandedNodes.value[key] = !expandedNodes.value[key];
+};
+
+const graphExplorerData = computed(() => {
+  if (!data.value) return {};
+
+  let hierarchy = {};
+
+  if (data.value) {
+    data.value.forEach((paper) => {
+      if (paper.major_topic && paper.sub_topic && paper.doc_title) {
+        if (!hierarchy[paper.major_topic]) {
+          hierarchy[paper.major_topic] = {};
+        }
+
+        if (!hierarchy[paper.major_topic][paper.sub_topic]) {
+          hierarchy[paper.major_topic][paper.sub_topic] = [];
+        }
+
+        hierarchy[paper.major_topic][paper.sub_topic].push({
+          id: paper.id,
+          title: paper.doc_title,
+        });
+      }
+    });
+  }
+
+  return hierarchy;
+});
+
+// research chat
+
+// recommendations
+
 // GRAPH LOGIC
 
 const graphContainer = ref(null);
@@ -500,7 +628,7 @@ const processGraphData = (rawData) => {
 
   const papers = rawData.map((d) => ({
     id: d.id,
-    title: d.doc_tite,
+    title: d.doc_title,
     x: d.x_coordinate,
     y: d.y_coordinate,
     major: d.major_topic,
