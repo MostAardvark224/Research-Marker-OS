@@ -671,4 +671,44 @@ class PollSmartCollection(APIView):
         else:
             return Response({"state": "not initialized"})
 
+from api.ai import generate_reading_recommendations
+class ReadingRecommendationsView(APIView):
+    def get(self, request): 
+        
+        sc_obj = models.SmartCollections.objects.first() 
+        if not sc_obj: 
+            return Response({"error": "failed generating recommendations"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
+            
+        recs = sc_obj.reading_recommendations # already in JSON
+
+        if not recs: 
+            return Response({"error": "failed generating recommendations"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
+        
+        # NOTE to self: format display on frontend
+
+        return Response({"recommendations": recs}, status=status.HTTP_200_OK)
     
+    # regeneration in case user doesn't like or something goes wrong
+    def post(self, request): 
+        sc_obj = models.SmartCollections.objects.first() 
+
+        if not sc_obj: 
+            return Response({"error": "failed generating recommendations"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
+        
+        annot_ids = list(json.loads(sc_obj.annotation_ids))
+
+        if annot_ids: 
+            recs = generate_reading_recommendations(annot_ids)
+
+            if not recs: 
+                return
+
+            sc_obj.reading_recommendations = recs # type: ignore
+            sc_obj.save(
+                update_fields=["reading_recommendations"]
+            )
+
+            return Response(status=status.HTTP_200_OK)
+
+        else: 
+            return Response({"error": "failed generating recommendations"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 

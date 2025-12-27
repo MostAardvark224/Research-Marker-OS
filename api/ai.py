@@ -11,6 +11,8 @@ import hdbscan
 from collections import defaultdict
 import random
 import umap
+import json
+import re
 backup_gemini_key = os.getenv("GEMINI_API_KEY")
 
 # for saving chat logs
@@ -435,6 +437,109 @@ def umap_dim_reduction_to_2d(data_dict, n_neighbors=15):
     
     return result_dict
 
+# generates new user reading recs based on their given context (papers)
+def generate_reading_recommendations(annot_ids): 
+    client = genai.Client(api_key=backup_gemini_key) 
+    model = "gemini-2.5-pro" 
+
+    """
+    NOTE: make sure string is formatted well so its easy for user to read
+        - want json output
+        - ENSURE THAT DICT WONT BREAK WHEN DUMPED TO JSON
+    retrieving context
+    want data in this format to send to model: 
+
+    {
+        major topic: {
+            sub topic : {
+                [paper1, paper2, etc.]
+            }
+        }
+    }
+    """
+
+    if not annot_ids: 
+        return
+
+    annot_objs = models.Annotations.objects.filter(
+        pk__in = annot_ids
+    ).select_related("document")
+
+    data_dict = {}
+    for obj in annot_objs: 
+        maj = obj.major_topic or "Unassigned"
+        sub = obj.sub_topic or "Unassigned Sub Topic"
+
+        if not data_dict[maj]:
+            data_dict[maj] = {}
+
+        if not data_dict[maj][sub]:
+            data_dict[maj][sub] = []
+
+        if len(data_dict[maj][sub]) <= 4: # max docs just to save tokens and not overload model w/ too much context
+            data_dict[maj][sub].append(str(obj.document.title))
+        
+    content = json.dumps(data_dict)
+
+    prompt = f"""### Role
+    You are an expert Academic Research Advisor. Your specialty is analyzing a researcher's current bibliography to identify knowledge gaps, adjacent fields, and logical next steps for investigation.
+
+    ### Task
+    Analyze the provided JSON data, which represents the user's current Knowledge Graph (structured as Major Topic -> Sub Topic -> Paper Titles). 
+    Based on these existing interests, recommend a maximum of **5 NEW research areas/topics** the user should explore next. 
+
+    These recommendations should be:
+    1. **Adjacent:** Related to their current work but distinct enough to expand their horizons.
+    2. **Specific:** Avoid overly generic terms like "Math" or "Science." Focus on sub-fields (e.g., instead of "AI", suggest "Neuromorphic Engineering").
+    3. **Actionable:** Provide specific paper titles that exist in academic literature or sound highly plausible within that domain.
+
+    ### Constraints & Rules
+    1. **Format:** Return ONLY a valid JSON object. Do not include markdown formatting (like ```json), introduction, or conclusion.
+    2. **Novelty:** Do not recommend topics that are already explicitly listed as "Major Topics" in the input data.
+    3. **Structure:** The output must strictly follow the schema below.
+
+    ### Output Schema
+    {{
+    "Name of New Topic": {{
+        "overview": "A brief 1-2 sentence explanation of why this topic is relevant to the user's current research.",
+        "paper1": "Title of a specific foundational or cutting-edge paper in this field",
+        "paper2": "Title of a second complementary paper in this field"
+    }},
+    ... (repeat for up to 5 topics)
+    }}
+
+    ### Input Data
+    {content}
+    """
+
+    response = client.models.generate_content(
+        model=model, 
+        contents=prompt, 
+        config=types.GenerateContentConfig(
+            temperature=0.7, 
+            response_mime_type="application/json"
+            )
+        )
+
+    resp = response.text
+
+    if resp:
+        # cleaning any json markdown model might produce
+        json_clean_pattern = re.compile(r"^```json\s*|\s*```$", flags=re.MULTILINE | re.IGNORECASE)
+
+        clean_json_str = json_clean_pattern.sub("", resp.strip())
+
+        try:
+            recs = json.loads(clean_json_str)
+            return recs
+
+        except json.JSONDecodeError as e:
+            print(f"Failed to parse JSON: {e}")
+            return
+
+    else: 
+        return
+
 # Whole big function that creates all of the smart collection stuff
 def run_smart_collection():
     print("clustering embeddings")
@@ -604,5 +709,22 @@ def run_smart_collection():
     else: 
         models.SmartCollections.objects.create(
             annotation_ids=annot_ids, 
-            is_ready=True
+            is_ready=True, 
+            reading_recommendations = None
         )
+    
+    smart_collection_obj = models.SmartCollections.objects.first()
+    if not smart_collection_obj: 
+        return 
+    
+    recs = generate_reading_recommendations(annot_ids)
+
+    if not recs: 
+        return
+
+    smart_collection_obj.reading_recommendations = recs # type: ignore
+    smart_collection_obj.save(
+        update_fields=["reading_recommendations"]
+    )
+
+
