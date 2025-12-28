@@ -884,10 +884,7 @@ const initGraph = () => {
   // render layers
 
   // Layer 1: Papers (Visible at High Zoom)
-  const paperGroup = g
-    .append("g")
-    .attr("class", "layer-papers")
-    .style("opacity", 0);
+  const paperGroup = g.append("g").attr("class", "layer-papers");
 
   // Dots
   paperGroup
@@ -910,7 +907,8 @@ const initGraph = () => {
     .text((d) => d.title)
     .attr("text-anchor", "middle")
     .attr("font-size", "4px")
-    .attr("fill", "#94a3b8");
+    .attr("fill", "#94a3b8")
+    .style("opacity", 0);
 
   // layer 2: sub topics (visible at medium zoom)
   const subGroup = g.append("g").attr("class", "layer-sub").style("opacity", 0);
@@ -965,9 +963,10 @@ const initGraph = () => {
 
 // Controls visibility based on zoom level (k)
 const updateSemanticZoom = (k) => {
-  const paperLayer = g.select(".layer-papers");
   const subLayer = g.select(".layer-sub");
   const majorLayer = g.select(".layer-major");
+
+  const paperText = g.selectAll(".layer-papers text");
 
   // Transition Logic
   // Major: visible < 1.5
@@ -978,12 +977,12 @@ const updateSemanticZoom = (k) => {
   majorLayer
     .transition()
     .duration(200)
-    .style("opacity", k < 1.8 ? 1 : 0);
+    .style("opacity", k < 3.0 ? 1 : 0.1);
   subLayer
     .transition()
     .duration(200)
-    .style("opacity", k >= 1.8 && k < 4.0 ? 1 : 0);
-  paperLayer
+    .style("opacity", k >= 1.8 ? 1 : 0);
+  paperText
     .transition()
     .duration(200)
     .style("opacity", k >= 4.0 ? 1 : 0);
