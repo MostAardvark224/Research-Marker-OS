@@ -172,6 +172,7 @@
                             <div
                               v-for="paper in papers"
                               :key="paper.id"
+                              @click="focusOnPaper(paper.id)"
                               class="group/paper flex items-start gap-2 py-1 cursor-pointer"
                             >
                               <div
@@ -210,13 +211,96 @@
 
                 <div
                   v-else-if="activeTab === 'recs'"
-                  class="animate-fade-in h-full"
+                  class="animate-fade-in h-full flex flex-col"
                 >
-                  <h2
-                    class="text-lg font-medium text-purple-400 mb-4 flex items-center gap-2"
+                  <div class="flex items-center justify-between mb-4 shrink-0">
+                    <h2
+                      class="text-lg font-medium text-purple-400 flex items-center gap-2"
+                    >
+                      <Icon name="uil:lightbulb-alt" /> Recommendations
+                    </h2>
+
+                    <button
+                      @click="regenerateRecommendations"
+                      :disabled="isRegenerating"
+                      class="p-1.5 rounded-md hover:bg-white/10 text-slate-400 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed group relative"
+                      title="Regenerate Recommendations"
+                    >
+                      <Icon
+                        name="uil:refresh"
+                        class="text-lg transition-transform duration-700"
+                        :class="{ 'animate-spin': isRegenerating }"
+                      />
+                    </button>
+                  </div>
+
+                  <div
+                    class="flex-1 overflow-y-auto custom-scrollbar -mr-2 pr-2"
                   >
-                    <Icon name="uil:lightbulb-alt" /> Recommendations
-                  </h2>
+                    <div
+                      v-if="isRegenerating"
+                      class="h-40 flex flex-col items-center justify-center text-slate-500 gap-3"
+                    >
+                      <Icon name="svg-spinners:3-dots-fade" class="text-2xl" />
+                      <span class="text-xs">Analyzing knowledge graph...</span>
+                    </div>
+
+                    <div
+                      v-else-if="!hasRecs"
+                      class="text-center mt-10 text-slate-600 text-xs italic"
+                    >
+                      No recommendations yet.
+                      <br />Click the refresh button to generate insights.
+                    </div>
+
+                    <div v-else class="space-y-6 pb-6">
+                      <div
+                        v-for="(details, topicName) in readingRecs"
+                        :key="topicName"
+                        class="group relative pl-4 border-l-2 border-white/10 hover:border-purple-500/50 transition-colors"
+                      >
+                        <h3
+                          class="text-sm font-semibold text-slate-200 mb-1 group-hover:text-purple-300 transition-colors"
+                        >
+                          {{ topicName }}
+                        </h3>
+
+                        <p class="text-xs text-slate-400 mb-3 leading-relaxed">
+                          {{ details.overview }}
+                        </p>
+
+                        <div class="space-y-2">
+                          <div
+                            class="flex items-start gap-2 bg-white/5 rounded-md p-2 hover:bg-white/10 transition-colors cursor-default"
+                          >
+                            <Icon
+                              name="uil:file-alt"
+                              class="text-blue-400 mt-0.5 shrink-0 text-xs"
+                            />
+                            <span
+                              class="text-[11px] text-slate-300 font-medium leading-tight"
+                            >
+                              {{ details.paper1 }}
+                            </span>
+                          </div>
+
+                          <div
+                            class="flex items-start gap-2 bg-white/5 rounded-md p-2 hover:bg-white/10 transition-colors cursor-default"
+                          >
+                            <Icon
+                              name="uil:file-alt"
+                              class="text-blue-400 mt-0.5 shrink-0 text-xs"
+                            />
+                            <span
+                              class="text-[11px] text-slate-300 font-medium leading-tight"
+                            >
+                              {{ details.paper2 }}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -353,7 +437,7 @@
                   For the most effective graph generation and clustering, we
                   recommend having at least
                   <span class="text-blue-300 font-medium"
-                    >15-20+ annotations</span
+                    >20-25+ annotations</span
                   >
                   in your index before initializing.
                 </div>
@@ -497,6 +581,10 @@ async function getData() {
   } finally {
     store.setInitializing(false);
   }
+
+  if (data.value) {
+    await getRecommendations();
+  }
 }
 
 // runs logic from notes at beginning of script
@@ -557,7 +645,7 @@ const activeTab = ref("graph");
 
 const tabs = [
   { id: "graph", label: "Graph Explorer", icon: "uil:sitemap" },
-  { id: "chat", label: "Research Chat", icon: "uil:comment-alt-lines" },
+  // { id: "chat", label: "Research Chat", icon: "uil:comment-alt-lines" },
   { id: "recs", label: "Recommendations", icon: "uil:lightbulb-alt" },
 ];
 
@@ -613,9 +701,101 @@ const graphExplorerData = computed(() => {
   return hierarchy;
 });
 
+// when a paper title is clicked in sidebar, this takes user to that point on the screen
+const focusOnPaper = (paperId) => {
+  // safety checks
+  if (!svg || !zoom || !data.value || !graphContainer.value) return;
+
+  const paper = data.value.find((p) => p.id === paperId);
+  if (!paper) return;
+
+  const { clientWidth: width, clientHeight: height } = graphContainer.value;
+
+  // clean data for domain calculation
+  const { papers } = processGraphData(data.value);
+
+  const xExtent = d3.extent(papers, (d) => d.x);
+  const yExtent = d3.extent(papers, (d) => d.y);
+
+  const xPadding = (xExtent[1] - xExtent[0]) * 0.1;
+  const yPadding = (yExtent[1] - yExtent[0]) * 0.1;
+
+  const xScale = d3
+    .scaleLinear()
+    .domain([xExtent[0] - xPadding, xExtent[1] + xPadding])
+    .range([0, width]);
+
+  const yScale = d3
+    .scaleLinear()
+    .domain([yExtent[0] - yPadding, yExtent[1] + yPadding])
+    .range([height, 0]);
+
+  // calculate target coordinates on screen
+  const targetX = xScale(paper.x_coordinate);
+  const targetY = yScale(paper.y_coordinate);
+  const targetScale = 6; // zoom scale
+
+  svg
+    .transition()
+    .duration(1500)
+    .call(
+      zoom.transform,
+      d3.zoomIdentity
+        .translate(width / 2, height / 2)
+        .scale(targetScale) // Zoom level
+        .translate(-targetX, -targetY)
+    );
+};
+
 // research chat
 
-// recommendations
+/* recommendations 
+This section gives the user recommendations on NEW topics that they should into based on current knowledge.
+
+note to self: need to format json obj to look nice to the user
+- also implement the regen button
+*/
+
+// getting recs
+const readingRecs = ref({});
+const isRegenerating = ref(false);
+const hasRecs = computed(() => {
+  return readingRecs.value && Object.keys(readingRecs.value).length > 0;
+});
+
+async function getRecommendations() {
+  try {
+    const res = await $fetch(`${apiBaseURL}/reading-recommendations/`);
+    readingRecs.value =
+      typeof res.recommendations === "string"
+        ? JSON.parse(res.recommendations)
+        : res.recommendations;
+  } catch {
+    console.error("Failed to fetch recs", err);
+  }
+}
+
+// regenerating recs
+async function newRecommendations() {
+  if (isRegenerating.value) return;
+
+  isRegenerating.value = true;
+  try {
+    const res = await $fetch(`${apiBaseURL}/reading-recommendations/`, {
+      method: "POST",
+    });
+    await getRecommendations();
+  } catch {
+    console.error("Failed to generate new recs", err);
+  } finally {
+    isRegenerating.value = false;
+  }
+}
+
+async function regenerateRecommendations() {
+  await newRecommendations();
+  await getRecommendations();
+}
 
 // GRAPH LOGIC
 
