@@ -695,10 +695,9 @@ class ReadingRecommendationsView(APIView):
         if not sc_obj: 
             return Response({"error": "failed generating recommendations"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
         
-        annot_ids = list(json.loads(sc_obj.annotation_ids))
 
-        if annot_ids: 
-            recs = generate_reading_recommendations(annot_ids)
+        if sc_obj.annotation_ids: 
+            recs = generate_reading_recommendations(sc_obj.annotation_ids)
 
             if not recs: 
                 return

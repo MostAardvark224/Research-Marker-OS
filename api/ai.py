@@ -440,7 +440,7 @@ def umap_dim_reduction_to_2d(data_dict, n_neighbors=15):
 # generates new user reading recs based on their given context (papers)
 def generate_reading_recommendations(annot_ids): 
     client = genai.Client(api_key=backup_gemini_key) 
-    model = "gemini-2.5-pro" 
+    model = "gemini-3-flash-preview" 
 
     """
     NOTE: make sure string is formatted well so its easy for user to read
@@ -470,10 +470,10 @@ def generate_reading_recommendations(annot_ids):
         maj = obj.major_topic or "Unassigned"
         sub = obj.sub_topic or "Unassigned Sub Topic"
 
-        if not data_dict[maj]:
+        if not maj in data_dict: 
             data_dict[maj] = {}
 
-        if not data_dict[maj][sub]:
+        if not sub in data_dict[maj]:
             data_dict[maj][sub] = []
 
         if len(data_dict[maj][sub]) <= 4: # max docs just to save tokens and not overload model w/ too much context
