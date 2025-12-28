@@ -906,7 +906,7 @@ const initGraph = () => {
     .attr("y", (d) => yScale(d.y) - 8)
     .text((d) => d.title)
     .attr("text-anchor", "middle")
-    .attr("font-size", "4px")
+    .attr("font-size", "6px")
     .attr("fill", "#94a3b8")
     .style("opacity", 0);
 
@@ -968,16 +968,11 @@ const updateSemanticZoom = (k) => {
 
   const paperText = g.selectAll(".layer-papers text");
 
-  // Transition Logic
-  // Major: visible < 1.5
-  // Sub: visible 1.5 -> 3.5
-  // Papers: visible > 3.5
-
   // Smooth transitions using opacity
   majorLayer
     .transition()
     .duration(200)
-    .style("opacity", k < 3.0 ? 1 : 0.1);
+    .style("opacity", k < 1.8 ? 1 : 0);
   subLayer
     .transition()
     .duration(200)
@@ -985,7 +980,7 @@ const updateSemanticZoom = (k) => {
   paperText
     .transition()
     .duration(200)
-    .style("opacity", k >= 4.0 ? 1 : 0);
+    .style("opacity", k >= 2.5 ? 1 : 0);
 };
 
 const resetZoom = () => {
