@@ -270,8 +270,8 @@ def cluster_embeddings():
     X = np.array(vectors)
     
     n_samples = X.shape[0]
-    min_cluster_size = max(5, int(n_samples / 10))
-    major_clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size, min_samples=5, metric='euclidean')
+    min_cluster_size = max(4, int(n_samples / 10))
+    major_clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size, min_samples=4, metric='euclidean')
     major_labels = major_clusterer.fit_predict(X)
 
     results_map = defaultdict(dict)
@@ -542,6 +542,7 @@ def generate_reading_recommendations(annot_ids):
 
 # Whole big function that creates all of the smart collection stuff
 def run_smart_collection():
+    embed_annotations()
     print("clustering embeddings")
     cluster_results, ids, vectors = cluster_embeddings()
     print("finished clustering embeddings")
