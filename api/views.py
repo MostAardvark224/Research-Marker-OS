@@ -647,7 +647,9 @@ class SmartCollectionView(APIView):
 
                     data.append(data_dict)
 
-                return Response({"data": data}, status=status.HTTP_200_OK)
+                colors = smart_collection.colors
+
+                return Response({"data": data, "colors": colors}, status=status.HTTP_200_OK)
 
             else: 
                 return Response({"error": "data is not ready yet."}, status=status.HTTP_400_BAD_REQUEST)

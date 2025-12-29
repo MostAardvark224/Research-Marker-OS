@@ -94,5 +94,6 @@ class SmartCollections(models.Model):
     is_ready = models.BooleanField(default=False)
     updated_at = models.DateTimeField(auto_now=True)
     reading_recommendations = models.JSONField(blank=True, null=True)
+    colors = models.JSONField(blank=True, null=True)
     
     

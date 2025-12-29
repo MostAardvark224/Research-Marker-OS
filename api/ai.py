@@ -13,6 +13,7 @@ import random
 import umap
 import json
 import re
+import colorsys
 backup_gemini_key = os.getenv("GEMINI_API_KEY")
 
 # for saving chat logs
@@ -294,7 +295,7 @@ def cluster_embeddings():
         # Extract vectors belonging to this specific major cluster, given by indices
         sub_X = X[indices]
         
-        sub_clusterer = hdbscan.HDBSCAN(min_cluster_size=5, min_samples=2)
+        sub_clusterer = hdbscan.HDBSCAN(min_cluster_size=2, min_samples=2)
         sub_labels = sub_clusterer.fit_predict(sub_X)
         
         for i, sub_label in enumerate(sub_labels): # iterating thru sublabels
@@ -540,6 +541,46 @@ def generate_reading_recommendations(annot_ids):
     else: 
         return
 
+
+"""
+Generates color palette for each cluster to be displayed in the frontend 
+{
+    <major_topic>: {
+        major: "some hex",
+        sub: "some hex",
+        paper: "some hex",
+    }
+}
+
+"""
+def generate_colors(topics): 
+    n = len(topics)
+    colors = {}
+
+    # even spacing along the color wheel
+    for i, topic in enumerate(topics):
+        hue = i / n 
+        
+        # Level 1: major topic (bold, darker)
+        r, g, b = colorsys.hsv_to_rgb(hue, 0.8, 0.8)
+        major_hex = '#%02x%02x%02x' % (int(r*255), int(g*255), int(b*255))
+        
+        # Level 2: sub topic (medium)
+        r, g, b = colorsys.hsv_to_rgb(hue, 0.6, 0.9)
+        sub_hex = '#%02x%02x%02x' % (int(r*255), int(g*255), int(b*255))
+        
+        # level 3: paper/annotation (light)
+        r, g, b = colorsys.hsv_to_rgb(hue, 0.3, 0.95)
+        paper_hex = '#%02x%02x%02x' % (int(r*255), int(g*255), int(b*255))
+        
+        colors[topic] = {
+            "major": major_hex,
+            "sub": sub_hex,
+            "paper": paper_hex
+        }
+        
+    return colors
+
 # Whole big function that creates all of the smart collection stuff
 def run_smart_collection():
     embed_annotations()
@@ -634,6 +675,17 @@ def run_smart_collection():
     Will write everything back to the db after we find the x,y coords for each object to save a round trip
     """
 
+    # getting list of all major cluster names for color assignment
+    unique_major_clusters = list(set([maj["major_topic"] for maj in cluster_results.values()]))
+
+    # getting colors: 
+    colors = generate_colors(unique_major_clusters)
+
+    try: 
+        colors = json.dumps(colors)
+    except Exception as e: 
+        print("failed to dump colors to json")
+
     # getting x,y coords 
     # combining ids and vectors into a dict to make it easy to work with 
 
@@ -697,35 +749,34 @@ def run_smart_collection():
     
     print(f"Successfully updated {len(updates)} annotations.")
 
-    # saving ids to SmartCollections
     annot_ids = list(cluster_results.keys())
 
+    recs = None
+    # generating reading recommendations
+    try:
+        recs = generate_reading_recommendations(annot_ids)
+    except Exception as e: 
+        print(f"failed to generate recs: {e}")
+
+    # saving to SmartCollections
     smart_collection_obj = models.SmartCollections.objects.first()
 
     if smart_collection_obj: 
         smart_collection_obj.is_ready = True 
         smart_collection_obj.annotation_ids = annot_ids
-        smart_collection_obj.save(update_fields=["is_ready", "annotation_ids"])
+        smart_collection_obj.colors = colors # type: ignore
+        smart_collection_obj.reading_recommendations = recs 
+
+        smart_collection_obj.save(update_fields=["is_ready", "annotation_ids", "colors", "reading_recommendations"])
 
     else: 
         models.SmartCollections.objects.create(
             annotation_ids=annot_ids, 
             is_ready=True, 
-            reading_recommendations = None
+            reading_recommendations = recs,
+            colors = colors
         )
     
-    smart_collection_obj = models.SmartCollections.objects.first()
-    if not smart_collection_obj: 
-        return 
     
-    recs = generate_reading_recommendations(annot_ids)
-
-    if not recs: 
-        return
-
-    smart_collection_obj.reading_recommendations = recs # type: ignore
-    smart_collection_obj.save(
-        update_fields=["reading_recommendations"]
-    )
 
 
