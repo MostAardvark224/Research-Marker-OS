@@ -505,6 +505,7 @@ General - separate each call into a func so that its easy to manage from one com
 */
 
 const data = ref(null);
+const graphColors = ref(null);
 
 // Computed property to check if the collection exists
 // once this is true run rendering log
@@ -574,6 +575,9 @@ async function RunSmartCollection() {
 async function getData() {
   try {
     const res = await $fetch(`${apiBaseURL}/smart-collection/`);
+    graphColors.value =
+      typeof res.colors === "string" ? JSON.parse(res.colors) : res.colors;
+
     data.value = res.data;
   } catch (err) {
     alert("Failed to fetch data:", err);
@@ -749,7 +753,7 @@ const focusOnPaper = (paperId) => {
 
 // research chat
 
-/* recommendations 
+/* recommendations
 This section gives the user recommendations on NEW topics that they should into based on current knowledge.
 
 note to self: need to format json obj to look nice to the user
@@ -799,6 +803,18 @@ async function regenerateRecommendations() {
 
 // GRAPH LOGIC
 
+const getTopicColor = (majorTopic, level) => {
+  // level options: major, sub, paper
+  if (graphColors.value && graphColors.value[majorTopic]) {
+    return graphColors.value[majorTopic][level];
+  }
+
+  // Fallback
+  if (level === "major") return "#e2e8f0";
+  if (level === "sub") return "#c084fc";
+  return "#60a5fa";
+};
+
 const graphContainer = ref(null);
 let svg, g, zoom; // D3 variables
 
@@ -832,14 +848,23 @@ const processGraphData = (rawData) => {
 
   const subMap = {};
   papers.forEach((p) => {
-    if (!subMap[p.sub]) subMap[p.sub] = { xSum: 0, ySum: 0, count: 0 };
+    if (!subMap[p.sub])
+      subMap[p.sub] = {
+        xSum: 0,
+        ySum: 0,
+        count: 0,
+        major: p.major,
+        label: p.sub,
+      };
+
     subMap[p.sub].xSum += p.x;
     subMap[p.sub].ySum += p.y;
     subMap[p.sub].count++;
   });
 
   const subClusters = Object.keys(subMap).map((key) => ({
-    label: key,
+    label: subMap[key].label,
+    major: subMap[key].major,
     x: subMap[key].xSum / subMap[key].count,
     y: subMap[key].ySum / subMap[key].count,
   }));
@@ -894,8 +919,12 @@ const initGraph = () => {
     .attr("cx", (d) => xScale(d.x))
     .attr("cy", (d) => yScale(d.y))
     .attr("r", 3)
-    .attr("fill", "#60a5fa") // Blue-400
-    .attr("opacity", 0.6);
+    .attr("opacity", 0.6)
+    .attr("fill", (d) => getTopicColor(d.major, "paper"))
+    .style(
+      "filter",
+      (d) => `drop-shadow(0 0 2px ${getTopicColor(d.major, "paper")})`
+    ); //glow
 
   // Titles
   paperGroup
@@ -923,7 +952,7 @@ const initGraph = () => {
     .attr("text-anchor", "middle")
     .attr("font-size", "12px")
     .attr("font-weight", "600")
-    .attr("fill", "#c084fc")
+    .attr("fill", (d) => getTopicColor(d.major, "sub"))
     .style("text-shadow", "0 2px 4px rgba(0,0,0,0.8)");
 
   // layer 3: major topics (visible at low zoom/default)
@@ -942,7 +971,7 @@ const initGraph = () => {
     .attr("text-anchor", "middle")
     .attr("font-size", "24px")
     .attr("font-weight", "bold")
-    .attr("fill", "#e2e8f0")
+    .attr("fill", (d) => getTopicColor(d.label, "major"))
     .style("text-shadow", "0 4px 12px rgba(0,0,0,0.9)");
 
   // zoom logic
@@ -1009,8 +1038,14 @@ onMounted(() => {
   }
 });
 
-watch(hasData, (newVal) => {
-  if (newVal) {
+watch([data, graphColors], ([newData, newColors]) => {
+  if (
+    newData &&
+    Object.keys(newData).length > 0 &&
+    newColors &&
+    Object.keys(newColors).length > 0
+  ) {
+    console.log("Initializing Graph");
     nextTick(() => initGraph());
   }
 });
