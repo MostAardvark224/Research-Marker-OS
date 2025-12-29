@@ -553,33 +553,60 @@ Generates color palette for each cluster to be displayed in the frontend
 }
 
 """
-def generate_colors(topics): 
-    n = len(topics)
-    colors = {}
 
-    # even spacing along the color wheel
+# converts hsv to hex string
+def _hsv_to_hex(h, s, v):
+    r, g, b = colorsys.hsv_to_rgb(h, s, v)
+    return '#%02x%02x%02x' % (int(r*255), int(g*255), int(b*255))
+
+
+"""
+    Assigns colors to topics. 
+    1. Uses a curated palette for the first 12 topics.
+    2. Uses a Golden Ratio algorithm to generate unique, legible colors 
+       for any topics beyond the palette size.
+"""
+
+def generate_colors(topics):
+    
+    fixed_palette = [
+        {"major": "#4338ca", "sub": "#818cf8", "paper": "#eef2ff"}, # Indigo
+        {"major": "#059669", "sub": "#34d399", "paper": "#ecfdf5"}, # Emerald
+        {"major": "#e11d48", "sub": "#fb7185", "paper": "#fff1f2"}, # Rose
+        {"major": "#7c3aed", "sub": "#a78bfa", "paper": "#f5f3ff"}, # Violet
+        {"major": "#d97706", "sub": "#fbbf24", "paper": "#fffbeb"}, # Amber
+        {"major": "#0891b2", "sub": "#22d3ee", "paper": "#ecfeff"}, # Cyan
+        {"major": "#475569", "sub": "#94a3b8", "paper": "#f8fafc"}, # Slate
+        {"major": "#db2777", "sub": "#f472b6", "paper": "#fdf2f8"}, # Pink
+        {"major": "#ea580c", "sub": "#fb923c", "paper": "#fff7ed"}, # Orange
+        {"major": "#0d9488", "sub": "#5eead4", "paper": "#f0fdfa"}, # Teal
+        {"major": "#dc2626", "sub": "#f87171", "paper": "#fef2f2"}, # Red
+        {"major": "#2563eb", "sub": "#60a5fa", "paper": "#eff6ff"}, # Blue
+    ]
+    
+    colors = {}
+    num_fixed = len(fixed_palette)
+    
+    # Golden ratio conjugate ensures distinct hues for the dynamic part
+    golden_ratio_conjugate = 0.618033988749895 
+    
     for i, topic in enumerate(topics):
-        hue = i / n 
         
-        # Level 1: major topic (bold, darker)
-        r, g, b = colorsys.hsv_to_rgb(hue, 0.8, 0.8)
-        major_hex = '#%02x%02x%02x' % (int(r*255), int(g*255), int(b*255))
-        
-        # Level 2: sub topic (medium)
-        r, g, b = colorsys.hsv_to_rgb(hue, 0.6, 0.9)
-        sub_hex = '#%02x%02x%02x' % (int(r*255), int(g*255), int(b*255))
-        
-        # level 3: paper/annotation (light)
-        r, g, b = colorsys.hsv_to_rgb(hue, 0.3, 0.95)
-        paper_hex = '#%02x%02x%02x' % (int(r*255), int(g*255), int(b*255))
-        
-        colors[topic] = {
-            "major": major_hex,
-            "sub": sub_hex,
-            "paper": paper_hex
-        }
-        
+        if i < num_fixed:
+            colors[topic] = fixed_palette[i]
+            
+        else:
+            hue = (i * golden_ratio_conjugate) % 1.0
+            
+            colors[topic] = {
+                "major": _hsv_to_hex(hue, 0.75, 0.60), 
+                "sub":   _hsv_to_hex(hue, 0.55, 0.90), 
+                "paper": _hsv_to_hex(hue, 0.10, 0.98)  
+            }
+            
     return colors
+
+
 
 # Whole big function that creates all of the smart collection stuff
 def run_smart_collection():
