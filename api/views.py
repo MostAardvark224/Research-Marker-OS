@@ -643,6 +643,7 @@ class SmartCollectionView(APIView):
                         sub_topic = obj.sub_topic, 
                         x_coordinate = obj.x_coordinate,
                         y_coordinate = obj.y_coordinate,
+                        similar_papers = obj.similar_papers
                     )
 
                     data.append(data_dict)

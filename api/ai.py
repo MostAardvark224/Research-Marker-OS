@@ -606,6 +606,90 @@ def generate_colors(topics):
             
     return colors
 
+# finds good baseline for cos similarity between embeddings 
+# not running constantly, only running for testing
+def test_cos_sim():
+    # If your dataset is small (<5k), you can use the whole matrix.
+    data = models.Annotations.objects.filter(
+        embedding_binary__isnull=False
+    ).values_list('id', 'embedding_binary')
+
+    # ids will be a tuple of all ids
+    # binaries will be a tuple of all byte strings
+    ids, binaries = zip(*data)
+
+    flat_array = np.frombuffer(b''.join(binaries), dtype=np.float32)
+
+    dimensions = len(flat_array) // len(ids) # should be 512 but doing this instead of hardcoding
+    matrix = flat_array.reshape(len(ids), dimensions)
+    norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+    matrix = matrix / (norms + 1e-5)
+
+    sims = np.dot(matrix, matrix.T) 
+
+    flat_scores = sims.flatten()
+    flat_scores = flat_scores[flat_scores < 0.99] # Remove self-identity matches
+
+    print(f"Average Similarity: {np.mean(flat_scores):.4f}")
+    print(f"90th Percentile:    {np.percentile(flat_scores, 90):.4f}")
+    print(f"95th Percentile:    {np.percentile(flat_scores, 95):.4f}")
+    print(f"97th Percentile:    {np.percentile(flat_scores, 97):.4f}")
+
+# cos similarity to find similar papers
+def find_similar_papers(): 
+    data = models.Annotations.objects.filter(
+        embedding_binary__isnull=False
+    ).values_list('id', 'embedding_binary')
+
+    if data:
+        # ids will be a tuple of all ids
+        # binaries will be a tuple of all byte strings
+        ids, binaries = zip(*data)
+
+        flat_array = np.frombuffer(b''.join(binaries), dtype=np.float32)
+
+        dimensions = len(flat_array) // len(ids) # should be 512 but doing this instead of hardcoding
+        matrix = flat_array.reshape(len(ids), dimensions)
+        norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+        matrix = matrix / (norms + 1e-5) # Prevent divide by zero
+
+        similarity_matrix = np.dot(matrix, matrix.T)
+        # thresh is 0.6 based on testing, but this can change as my dataset grows
+        thresh = 0.6
+        updates = []
+        
+        similar_papers = {}
+        for i, row_scores in enumerate(similarity_matrix):
+            current_id = ids[i]
+
+            valid_indices = np.where(row_scores >= thresh)[0] # type: ignore
+
+            # Sort these specific valid indices by score (descending)
+            valid_scores = row_scores[valid_indices]
+            
+            sorted_relative_indices = np.argsort(valid_scores)[::-1]
+            
+            # Map back to the original matrix indices
+            final_indices = valid_indices[sorted_relative_indices]
+
+            top_ids = []
+            for idx in final_indices:
+                neighbor_id = ids[idx]
+                if neighbor_id != current_id: # Remove self-match
+                    top_ids.append(neighbor_id)
+
+            updates.append(
+                models.Annotations(
+                    id=current_id, 
+                    similar_papers=top_ids  
+                )
+            )
+
+        models.Annotations.objects.bulk_update(
+            updates, 
+            ['similar_papers'],
+            batch_size=1000
+        )
 
 
 # Whole big function that creates all of the smart collection stuff
@@ -773,6 +857,8 @@ def run_smart_collection():
         ['major_topic', 'sub_topic', 'x_coordinate', 'y_coordinate'],
         batch_size=1000
     )
+
+    find_similar_papers()
     
     print(f"Successfully updated {len(updates)} annotations.")
 

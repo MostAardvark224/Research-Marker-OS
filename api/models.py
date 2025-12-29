@@ -41,6 +41,9 @@ class Annotations(models.Model):
 
     content_hash = models.CharField(max_length=64, blank=True, default="")
 
+    similar_papers = models.JSONField(default=list, blank=True)
+     
+
     def generate_content_hash(self):
         # hashing fields that contribute to embedding
         # NOTE: will include doc title in embedding just don't want to hash it to prevent N+1 Query
