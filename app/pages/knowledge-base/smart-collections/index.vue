@@ -829,7 +829,30 @@ const processGraphData = (rawData) => {
     y: d.y_coordinate,
     major: d.major_topic,
     sub: d.sub_topic,
+    similar:
+      typeof d.similar_papers === "string"
+        ? JSON.parse(d.similar_papers || "[]")
+        : d.similar_papers || [],
   }));
+
+  const paperMap = new Map(papers.map((p) => [p.id, p]));
+  const links = [];
+
+  papers.forEach((source) => {
+    if (source.similar && source.similar.length > 0) {
+      source.similar.forEach((targetId) => {
+        const target = paperMap.get(targetId);
+        // Only draw if target exists in current dataset
+        if (target) {
+          links.push({
+            source: source,
+            target: target,
+            id: `${source.id}-${target.id}`,
+          });
+        }
+      });
+    }
+  });
 
   // calculating centers for major and sub
   const majorMap = {};
@@ -869,7 +892,7 @@ const processGraphData = (rawData) => {
     y: subMap[key].ySum / subMap[key].count,
   }));
 
-  return { papers, majorClusters, subClusters };
+  return { papers, majorClusters, subClusters, links };
 };
 
 const initGraph = () => {
@@ -878,7 +901,9 @@ const initGraph = () => {
   d3.select(graphContainer.value).selectAll("*").remove();
 
   const { clientWidth: width, clientHeight: height } = graphContainer.value;
-  const { papers, majorClusters, subClusters } = processGraphData(data.value);
+  const { papers, majorClusters, subClusters, links } = processGraphData(
+    data.value
+  );
 
   svg = d3
     .select(graphContainer.value)
@@ -905,6 +930,24 @@ const initGraph = () => {
     .range([height, 0]);
 
   g = svg.append("g");
+
+  // lines between similar papers
+  const linkGroup = g
+    .append("g")
+    .attr("class", "layer-links")
+    .style("opacity", 1);
+
+  linkGroup
+    .selectAll("line")
+    .data(links)
+    .join("line")
+    .attr("x1", (d) => xScale(d.source.x))
+    .attr("y1", (d) => yScale(d.source.y))
+    .attr("x2", (d) => xScale(d.target.x))
+    .attr("y2", (d) => yScale(d.target.y))
+    .attr("stroke", "#ffffff")
+    .attr("stroke-width", 0.5)
+    .attr("stroke-opacity", 0.15);
 
   // render layers
 
@@ -996,6 +1039,7 @@ const updateSemanticZoom = (k) => {
   const majorLayer = g.select(".layer-major");
 
   const paperText = g.selectAll(".layer-papers text");
+  const linkLayer = g.select(".layer-links");
 
   // Smooth transitions using opacity
   majorLayer
@@ -1009,7 +1053,11 @@ const updateSemanticZoom = (k) => {
   paperText
     .transition()
     .duration(200)
-    .style("opacity", k >= 2.5 ? 1 : 0);
+    .style("opacity", k >= 1.8 ? 1 : 0);
+  linkLayer
+    .transition()
+    .duration(200)
+    .style("opacity", k >= 1.8 ? 1 : 0);
 };
 
 const resetZoom = () => {
@@ -1045,7 +1093,6 @@ watch([data, graphColors], ([newData, newColors]) => {
     newColors &&
     Object.keys(newColors).length > 0
   ) {
-    console.log("Initializing Graph");
     nextTick(() => initGraph());
   }
 });
