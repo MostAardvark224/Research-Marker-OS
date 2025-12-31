@@ -85,7 +85,6 @@ class DocumentsViewSet(viewsets.ModelViewSet):
                 self.perform_create(serializer)
 
                 if not skip_ocr: 
-                    
                     start_time = time.time()
                     # Performing OCR, overwriting input file to not cause storage bloat
                     input_path = serializer.instance.file.path
@@ -532,7 +531,10 @@ class AIChatView(APIView):
             # func takes original prompt, spits out context-injected prompt     
             context = rag_context_injection(prompt)  
 
-            context_block = context_template.format(annot_data=context)
+            context_block = ""
+            if context: 
+                context_block = context_template.format(annot_data=context)
+                
             new_prompt = prompt + "\n\n" + context_block  
 
             model_response = send_prompt(

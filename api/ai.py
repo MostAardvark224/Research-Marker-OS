@@ -14,6 +14,8 @@ import umap
 import json
 import re
 import colorsys
+import math
+from django.db.models import Avg
 backup_gemini_key = os.getenv("GEMINI_API_KEY")
 
 # for saving chat logs
@@ -97,6 +99,7 @@ output will look like this:
     highlights 
 }
 """
+
 def format_annotation_for_readability(ids): 
     objs = models.Annotations.objects.filter(pk__in = ids).select_related("document")
     if objs:
@@ -195,23 +198,108 @@ def embedding_search_rankings(query, annot_objs):
         valid_scores = similarities[valid_indices]
 
         # can zip because idx of ids and matrix match up
-        # list of tuples
-        # (id, ranking (np float 32))
         emb_rankings = sorted(zip(valid_ids, valid_scores), key=lambda x: x[1], reverse=True)
+        emb_rankings = [t[0] for t in emb_rankings] # list of ranked ids
         return emb_rankings
     
 # function that does BM25 rankings 
-"""
-Bm25 notes: 
-- everything in the formula will be based on user annotations, not the actual pdfs
-- i.e. avg doc length is the avg len of annot objs
-- 
-
-"""
 def bm25_search_rankings(query, annot_objs): 
-    return
+    tokens = re.findall(r"\b\w+(?:['\-]\w+)*\b", query.lower())
+     
+    hits = models.AnnotationIndex.objects.filter(
+        term__word__in=tokens, 
+        annotation__in = annot_objs
+    ).select_related('term').values(
+        'annotation_id', 
+        'frequency', 
+        'term__idf', 
+    )
+    
+    scores = {}
+    # industry standard, will finetune later
+    k1 = 1.5
+    b = 0.75
+
+    # avg doc length
+    avgdl = models.Annotations.objects.aggregate(Avg("token_count"))['token_count__avg']
+    if not avgdl:
+        return []
+
+    # calculating doc len for each id
+    annot_ids = [hit['annotation_id'] for hit in hits]
+    doc_len_map = dict(
+        models.Annotations.objects.filter(id__in=annot_ids).values_list('id', 'token_count')
+    )
+    
+    for hit in hits:
+        annot_id = hit['annotation_id']
+        tf = hit['frequency']
+        idf = hit['term__idf'] 
+
+        doc_len = doc_len_map.get(annot_id, avgdl)
+        
+        # bm25 form
+        numerator = tf * (k1 + 1)
+        # NOTE: fix to fetch actual doc length
+        denominator = tf + k1 * (1 - b + b * (doc_len / avgdl)) # type: ignore
+        
+        score = idf * (numerator / denominator)
+        
+        # summing scores for each annot_id
+        scores[annot_id] = scores.get(annot_id, 0.0) + score
+    
+    bm25_rankings = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    bm25_rankings = [t[0] for t in bm25_rankings] # list of ranked ids
+    return bm25_rankings
+
+def calculate_idf(docs_containing_term): 
+    total_docs_count = models.Annotations.objects.filter(
+        content_hash__isnull=False
+    ).exclude(
+        content_hash=""
+    ).count()
+
+    n = docs_containing_term # just to stay in terms of formula
+
+    numerator = total_docs_count - n + 0.5
+    denominator = n + 0.5
+    total = math.log((numerator / denominator) + 1)
+    return total
 
 # takes both sets of rankings and produces one final ranking
+# both are ordered tuples, where 0 idx is id and 1 idx is score
+# scores have been normalized between -1 and 1
+def rerank_rag(emb_ranks, bm_ranks):
+    if not emb_ranks:
+        return bm_ranks if bm_ranks else []
+    if not bm_ranks:
+        return emb_ranks
+    
+    emb_rank_map = {doc_id: i for i, doc_id in enumerate(emb_ranks)}
+    bm_rank_map = {doc_id: i for i, doc_id in enumerate(bm_ranks)}
+    
+    all_ids = set(emb_rank_map.keys()) | set(bm_rank_map.keys())
+    
+    scores = {}
+    k = 60 # standard for k constant
+    
+    for doc_id in all_ids:
+        if doc_id in emb_rank_map:
+            # +1 because index is 0 based but rank is 1 based
+            emb_score = 1 / (k + emb_rank_map[doc_id] + 1)
+        else:
+            emb_score = 0.0
+            
+        if doc_id in bm_rank_map:
+            bm_score = 1 / (k + bm_rank_map[doc_id] + 1)
+        else:
+            bm_score = 0.0
+        
+        scores[doc_id] = emb_score + bm_score
+    
+    top_ids = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    top_id_list =  [x[0] for x in top_ids]
+    return top_id_list[:50]
 
 def rag_context_injection(original_prompt): 
     annot_objs = models.Annotations.objects.filter(
@@ -226,12 +314,16 @@ def rag_context_injection(original_prompt):
 
         # RRF to get finalized list of annots
         # should be able to handle one of the rankings failing/returning nothing
+        final_ranking = rerank_rag(emb_rankings, bm25_rankings) # list of annot obj, highest scoring first
 
         # formatting annots for model readability             
-    
-        # keeping objects until I hit the token limit
 
-        # retuning final context
+
+        # keeping objects until I hit the token limit
+        # not going to use gemini token api to save http round trip time, will just cap at 1500 words
+        word_limit = 1500
+
+        # retuning final context as json string
 
 
 # main function that sends prompt and context to model and returns a response

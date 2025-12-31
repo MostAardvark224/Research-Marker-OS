@@ -4,6 +4,7 @@ from django.utils import timezone
 import hashlib
 import json
 from django.db import transaction
+import re
 
 class Folder(models.Model):
     name = models.CharField(max_length=255, unique=True)
@@ -42,7 +43,8 @@ class Annotations(models.Model):
     content_hash = models.CharField(max_length=64, blank=True, default="")
 
     similar_papers = models.JSONField(default=list, blank=True)
-     
+
+    token_count = models.IntegerField(default=0) # for bm25 calcs
 
     def generate_content_hash(self):
         # hashing fields that contribute to embedding
@@ -84,8 +86,51 @@ class Annotations(models.Model):
             return None
         return np.frombuffer(self.embedding_binary, dtype=np.float32) # type: ignore
 
+    """
+    most useful for bm25 
+    unformatted string of text 
+    includes doc title, major_topic, sub_topic, highlight_data, sticky_note_data, notepad
+    """
+    def get_meaningful_text_unformatted(self): 
+        title = self.document.title
+        major_topic = self.major_topic
+        sub_topic = self.sub_topic
+        highlight_data = self.highlight_data
+        sticky_note_data = self.sticky_note_data
+        notepad = self.notepad
+
+        formatted_highlights = " ".join(h["text"] for h in highlight_data) if highlight_data else "" # type: ignore
+        
+        formatted_sticky = " ".join(f"{s.get('tag', '')} {s.get('content', '')}" for s in sticky_note_data) if sticky_note_data else "" # type: ignore
+
+        fields = [title, major_topic, sub_topic, formatted_highlights, formatted_sticky, notepad]
+
+        output = " ".join(fields)
+
+        # rough tokenization that finds each word
+        tokens = re.findall(r"\b\w+(?:['\-]\w+)*\b", output)
+        tokens = [t.lower() for t in tokens]
+        return tokens
+
     def __str__(self):
         return f"Annotation for {self.document.title} at {self.created_at}"
+    
+# for bm25
+class SearchTerm(models.Model): 
+    word = models.CharField(max_length=255)
+    idf = models.FloatField(default=0.0)
+    docs_containing = models.IntegerField(default=0)
+
+# one for each term and annotation
+class AnnotationIndex(models.Model): 
+    term = models.ForeignKey(SearchTerm, on_delete=models.CASCADE)
+    annotation = models.ForeignKey(Annotations, on_delete=models.CASCADE, related_name="bm25_entries")
+    frequency = models.IntegerField() 
+    field_boost = models.FloatField(default=1.0) # Bonus for matches in major_topic
+
+    class Meta:
+        unique_together = ('term', 'annotation')
+        indexes = [models.Index(fields=['term', 'annotation'])]
 
 class ChatLogs(models.Model): 
     name = models.CharField(max_length=255)

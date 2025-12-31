@@ -30,7 +30,7 @@ def create_searchable_pdf(input_path, output_path):
         doc = fitz.open(input_path)
         output_doc = fitz.open()
 
-        for page_num, page in enumerate(doc):
+        for page_num, page in enumerate(doc): # type: ignore
             pix = page.get_pixmap(matrix=fitz.Matrix(3, 3))
             img_bytes = pix.tobytes("png")
             
