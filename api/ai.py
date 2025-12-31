@@ -100,40 +100,39 @@ output will look like this:
 }
 """
 
-def format_annotation_for_readability(ids): 
-    objs = models.Annotations.objects.filter(pk__in = ids).select_related("document")
-    if objs:
-        formatted_content = {}
-        for obj in objs: 
-            sticky = obj.sticky_note_data
-            notepad = obj.notepad
-            highlights = obj.highlight_data
+def format_annotation_for_readability(obj): 
+    formatted_content = defaultdict(dict)
+    sticky = obj.sticky_note_data
+    notepad = obj.notepad
+    highlights = obj.highlight_data
 
-            # formatting sticky 
-            # care abt content, possibly page, and tag
-            formatted_sticky = []
-            if sticky and type(sticky) == dict:
-                for key, note in sticky.items():  # type: ignore
-                    d = dict(
-                        content = note["content"] if note["content"] else None, 
-                        tag = note["tag"] if note["tag"] else None, 
-                      )
-                    if any(d.values()): 
-                        formatted_sticky.append(d)
-                    
-            # formatting highlights
+    # formatting sticky 
+    # care abt content, possibly page, and tag
+    formatted_sticky = []
+    if sticky and type(sticky) == dict:
+        for key, note in sticky.items():  # type: ignore
+            d = dict(
+                content = note["content"] if note["content"] else None, 
+                tag = note["tag"] if note["tag"] else None, 
+                )
+            if any(d.values()): 
+                formatted_sticky.append(d)
             
-            final = dict(
-                title = obj.document.title,
-                major_topic = obj.major_topic, 
-                sub_topic = obj.sub_topic,
-                sticky_notes = formatted_sticky, 
-                notepad = obj.notepad, 
-            )
+    # formatting highlights
+    formatted_highlights = [h["text"] for h in highlights if h["text"]]
+    
+    final = dict(
+        title = obj.document.title,
+        major_topic = obj.major_topic, 
+        sub_topic = obj.sub_topic,
+        sticky_notes = formatted_sticky, 
+        notepad = obj.notepad, 
+        formatted_highlights = formatted_highlights
+    )
 
-            formatted_content[obj.pk] = final 
+    formatted_content[obj.pk] = final 
 
-        return formatted_content
+    return formatted_content
     
 """
 Handles RAG context injection to prompt 
@@ -299,7 +298,7 @@ def rerank_rag(emb_ranks, bm_ranks):
     
     top_ids = sorted(scores.items(), key=lambda x: x[1], reverse=True)
     top_id_list =  [x[0] for x in top_ids]
-    return top_id_list[:50]
+    return top_id_list[:20]
 
 def rag_context_injection(original_prompt): 
     annot_objs = models.Annotations.objects.filter(
@@ -314,17 +313,48 @@ def rag_context_injection(original_prompt):
 
         # RRF to get finalized list of annots
         # should be able to handle one of the rankings failing/returning nothing
-        final_ranking = rerank_rag(emb_rankings, bm25_rankings) # list of annot obj, highest scoring first
+        ids = rerank_rag(emb_rankings, bm25_rankings) # list of annot obj, highest scoring first
 
         # formatting annots for model readability             
-
-
+        objs = models.Annotations.objects.filter(pk__in = ids).prefetch_related("document") # unordered
+        obj_map = {obj.pk: obj for obj in objs}
+        ordered_objs = [obj_map[id] for id in ids if id in obj_map] # ordered list of objs
+        
         # keeping objects until I hit the token limit
-        # not going to use gemini token api to save http round trip time, will just cap at 1500 words
+        # not going to use gemini token counter api to save http round trip time, will just cap at 1500 words
         word_limit = 1500
+        current_count = 0 
+        context = []
+        for obj in ordered_objs: 
+            try: 
+                annotation = format_annotation_for_readability(obj) # dict
+
+                json_annotation = json.dumps(annotation) # str to count words
+                wcount = len(re.findall(r"\b\w+(?:['\-]\w+)*\b", json_annotation))
+                current_count += wcount
+
+                if current_count <= word_limit: 
+                     context.append(annotation)
+                else: 
+                    if (len(context) == 0): 
+                        continue # skip to next to try to get some context
+                    else: 
+                        break # reached limit
+
+            except Exception as e: 
+                print(f"failed dumping annotation {e}")
+                continue
 
         # retuning final context as json string
-
+        if not context: 
+            return
+        
+        try: 
+            fin = json.dumps(context)
+            return fin
+        except Exception as e: 
+            print(f"failed final dump {e}")
+            return
 
 # main function that sends prompt and context to model and returns a response
 def send_prompt(gemini_key, model, prompt, pdf_count=0, pdf_paths=[], chat_id=None):
