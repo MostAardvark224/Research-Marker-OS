@@ -326,7 +326,7 @@ note to self: implement Latex and markdown
 Button where user can pick whether they want to use RAG or not.
 Rag will get top 2-3 embeddings with n cos similarity and append them to the prompt as context.
 """
-from .ai import add_message_to_chat ,send_prompt, name_chat
+from .ai import add_message_to_chat ,send_prompt, name_chat, rag_context_injection
 class AIChatView(APIView):
     def post(self, request, format=None):
         gemini_key = os.getenv("GEMINI_API_KEY")
@@ -529,11 +529,13 @@ class AIChatView(APIView):
 
         # running rag if enabled
         elif rag_enabled:
-            # REPLACE THIS FOR ACTUAL RAG SETUP ONCE SMART COLLECTIONS ARE COMPLETE
+            # func takes original prompt, spits out context-injected prompt     
+            context_injected_prompt = rag_context_injection(prompt)  
+
             model_response = send_prompt(
                     gemini_key = gemini_key, 
                     model = gemini_model, 
-                    prompt = prompt, 
+                    prompt = context_injected_prompt, 
                     chat_id = chat_id
                     )
             

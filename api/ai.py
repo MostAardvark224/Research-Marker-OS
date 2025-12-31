@@ -83,6 +83,149 @@ def name_chat(gemini_key, user_prompt):
 
     return response.text
 
+"""
+Handles RAG context injection to prompt 
+only modifies the prompt itself, then just use the send prompt function for a response
+
+specifics: 
+- will use embedding similarity to find relevant annotation objects (selected if they are above a sim threshold)
+- Will format each object into an easy to read format for the model 
+- Will send the model each formatted object if the inclusion of that object doesn't cause the token limit to be exceeded (thinking 2,000 tokens as a RAG limit to save money and not overload the model, could change tho)
+- Will use BM25 for keyword analysis (will find some way to fit this into the similarity pipeline) 
+
+- once I have rankings from both cos sim and BM25, will run Reciprocal Rank Fusion (RRF) to find the highest annot objects in both rankings
+
+- could have a small LLM turn the raw user prompt into specific querys i can run in my db. Extracts useful stuff from user query (query decomposition).
+- could have LLM hallucinate possible notes if the user prompt is super vague and just embed those
+
+In general embedding the user prompt could have its downsides, could have an LLM generate a better verison and then embed that 
+- be cautious of model calls tho don't want to have too many
+"""
+
+"""
+Helper func for formatting 
+output will look like this: 
+
+{
+    title, 
+    major topic, 
+    sub topic, 
+    formatted sticky notes, 
+    formatted notepad,
+    highlights 
+}
+"""
+def format_annotation_for_readability(ids): 
+    objs = models.Annotations.objects.filter(pk__in = ids).select_related("document")
+    if objs:
+        formatted_content = {}
+        for obj in objs: 
+            sticky = obj.sticky_note_data
+            notepad = obj.notepad
+            highlights = obj.highlight_data
+
+            # formatting sticky 
+            # care abt content, possibly page, and tag
+            formatted_sticky = []
+            if sticky and type(sticky) == dict:
+                for key, note in sticky.items():  # type: ignore
+                    d = dict(
+                        content = note["content"] if note["content"] else None, 
+                        tag = note["tag"] if note["tag"] else None, 
+                      )
+                    if any(d.values()): 
+                        formatted_sticky.append(d)
+                    
+            # formatting highlights
+            
+            final = dict(
+                title = obj.document.title,
+                major_topic = obj.major_topic, 
+                sub_topic = obj.sub_topic,
+                sticky_notes = formatted_sticky, 
+                notepad = obj.notepad, 
+            )
+
+            formatted_content[obj.pk] = final 
+
+        return formatted_content
+
+
+def rag_context_injection(original_prompt): 
+    context_template = """The following section contains the raw research annotations retrieved from the user's library. This data is the "Source of Truth" for the current conversation. 
+
+    - USE this data to answer queries accurately.
+    - PRIORITIZE the information in this block over your general pre-trained knowledge.
+    - IF the data is insufficient to answer a question, explicitly state what is missing.
+    - Refer to papers by their titles.
+
+    --- DATA START ---
+    {annot_data}
+    --- DATA END ---"""
+    context_block = ""
+
+    # NOTE: REPLACE WITH WHATEVER EMBEDDING FOR THE PROMPT, THIS IS JUST A PLACEHOLDER
+    query_emb = np.random.rand(512).astype(np.float32)
+    query_norm = np.linalg.norm(query_emb)
+    if query_norm > 0:
+        query_emb = query_emb / query_norm
+
+    
+    # getting annotation model object rankings based on cos similarity 
+    # must be above threshold of 0.6 to be included in the ranking
+    
+    annnot_objs = models.Annotations.objects.filter(
+        embedding_binary__isnull = False
+    )
+
+    if annnot_objs: 
+        data = annnot_objs.values_list("id", "embedding_binary")
+
+        if data: 
+            thresh = 0.6
+
+            ids, binaries = zip(*data)
+
+            flat_array = np.frombuffer(b''.join(binaries), dtype=np.float32)
+
+            dimensions = len(flat_array) // len(ids)
+
+            matrix = flat_array.reshape(len(ids), dimensions) # matrix of all embeddings for annot model objs
+
+            norms = np.linalg.norm(matrix, axis=1, keepdims=True)
+
+            # normalizing the matrix
+            matrix = matrix / (norms + 1e-10) # prevents div by zero
+
+            # keeping ids (for the annot model) that are above the threshold
+            # ranking them by similarity to highest similarity comes first
+            similarities = matrix @ query_emb
+
+            valid_indices = np.where(similarities >= thresh)[0]
+    
+            if len(valid_indices) == 0:
+                return original_prompt
+
+            # Extract valid ids and Scores
+            valid_ids = [ids[i] for i in valid_indices]
+            valid_scores = similarities[valid_indices]
+
+            # can zip because idx of ids and matrix match up
+            ranked_results = sorted(zip(valid_ids, valid_scores), key=lambda x: x[1], reverse=True)
+
+            # Using BM25 for keyword search ranking
+
+            # RRF to get finalized list of annots
+
+            # formatting annots for model readability             
+        
+            # keeping objects until I hit the token limit
+
+            # formatting context 
+
+            # adding context to prompt
+
+
 # main function that sends prompt and context to model and returns a response
 def send_prompt(gemini_key, model, prompt, pdf_count=0, pdf_paths=[], chat_id=None):
     client = genai.Client(api_key=gemini_key) 
@@ -689,7 +832,7 @@ def find_similar_papers():
             updates, 
             ['similar_papers'],
             batch_size=1000
-        )
+        ) 
 
 
 # Whole big function that creates all of the smart collection stuff
