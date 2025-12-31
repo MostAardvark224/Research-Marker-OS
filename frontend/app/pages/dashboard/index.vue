@@ -50,10 +50,16 @@
               name="material-symbols:settings"
               :class="`ml-3 text-2xl ${colorScheme.headerText} cursor-pointer hover:text-blue-400 transition-colors`"
             />
-            <Icon
-              name="uil:github"
-              :class="`ml-3 text-2xl ${colorScheme.headerText}`"
-            />
+            <NuxtLink
+              to="https://github.com/MostAardvark224/Research-Marker-OS"
+              target="_blank"
+              class="flex items-center"
+            >
+              <Icon
+                name="uil:github"
+                :class="`ml-3 text-2xl ${colorScheme.headerText} hover:text-gray-400 transition-colors`"
+              />
+            </NuxtLink>
 
             <div class="flex items-center gap-2">
               <button
