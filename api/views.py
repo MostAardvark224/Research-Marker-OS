@@ -530,14 +530,17 @@ class AIChatView(APIView):
         # running rag if enabled
         elif rag_enabled:
             # func takes original prompt, spits out context-injected prompt     
-            context_injected_prompt = rag_context_injection(prompt)  
+            context = rag_context_injection(prompt)  
+
+            context_block = context_template.format(annot_data=context)
+            new_prompt = prompt + "\n\n" + context_block  
 
             model_response = send_prompt(
                     gemini_key = gemini_key, 
                     model = gemini_model, 
-                    prompt = context_injected_prompt, 
+                    prompt = new_prompt, 
                     chat_id = chat_id
-                    )
+                )
             
             # saving prompt to chatlogs (only original user question)
             add_message_to_chat(chat_id, "user", prompt)
@@ -557,7 +560,7 @@ class AIChatView(APIView):
                     model = gemini_model, 
                     prompt = prompt, 
                     chat_id = chat_id
-                    )
+                )
             
             # saving prompt to chatlogs (only original user question)
             add_message_to_chat(chat_id, "user", prompt)
