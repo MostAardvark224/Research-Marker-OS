@@ -1,11 +1,8 @@
 <div align="center">
 
 <div align="center">
-  <br />
   <img src="frontend/public/logo.svg" alt="Research Marker" width="80" />
-  <br />
   <h1>Research Marker</h1>
-  <p>by <strong>Amay Babel</strong></p>
   <br />
 </div>
   <p>
@@ -27,7 +24,7 @@
 
   <br />
   <h3>
-    🚧 Full documentation and downloads for all Windows, Mac, and Linux are coming very soon! 🚧
+    🚧 Full documentation and downloads for Windows, Mac, and Linux are coming very soon! 🚧
   </h3>
   <br />
 
