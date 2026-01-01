@@ -1,0 +1,16 @@
+<svg width="200" height="200" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="grad1" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="100%" stop-color="#64748b" />
+    </linearGradient>
+    <filter id="shadow">
+      <feDropShadow dx="2" dy="2" stdDeviation="2" flood-color="#000000" flood-opacity="0.2"/>
+    </filter>
+  </defs>
+  
+  <rect x="30" y="30" width="40" height="40" rx="2" 
+        fill="url(#grad1)" 
+        transform="rotate(45 50 50)" 
+        filter="url(#shadow)" />
+</svg>

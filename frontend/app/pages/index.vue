@@ -77,8 +77,8 @@
             class="text-[16px] text-slate-400 leading-relaxed mb-8 max-w-lg mx-auto lg:mx-0"
           >
             Streamline your research workflow. Keep your papers and annotations
-            fully private with a local-only workspace designed for serious
-            research and deeper comprehension.
+            private with a local workspace designed for serious research and
+            deeper comprehension.
           </p>
 
           <div class="flex flex-col items-center lg:items-start gap-6 w-full">
@@ -139,9 +139,33 @@
                 <h3 class="font-medium text-white text-lg mb-1">
                   Semantic Linking
                 </h3>
-                <p class="text-sm text-slate-500 leading-relaxed">
-                  Connect ideas automatically. My engine finds relationships
+                <p class="text-sm text-slate-300 leading-relaxed">
+                  Connect ideas automatically. Our engine finds relationships
                   between your papers as you read.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div
+            class="group relative rounded-xl border border-white/10 bg-white/[0.02] hover:bg-white/[0.04] p-5 transition-all duration-300 hover:-translate-y-1"
+          >
+            <div class="flex items-start gap-4">
+              <div
+                class="p-3 rounded-lg bg-purple-500/10 text-purple-400 group-hover:text-purple-300 transition-colors shrink-0"
+              >
+                <Icon
+                  name="material-symbols:smart-toy-outline"
+                  class="text-2xl"
+                />
+              </div>
+              <div>
+                <h3 class="font-medium text-white text-lg mb-1">
+                  Intelligent Search & AI Analysis
+                </h3>
+                <p class="text-sm text-slate-300 leading-relaxed">
+                  Leverage high-quality search features and context-aware AI to
+                  query your library in natural language.
                 </p>
               </div>
             </div>
@@ -161,11 +185,12 @@
               </div>
               <div>
                 <h3 class="font-medium text-white text-lg mb-1">
-                  Local-First Security
+                  Offline Capabilities
                 </h3>
-                <p class="text-sm text-slate-500 leading-relaxed">
-                  Your data lives on your device. Zero cloud dependency ensures
-                  absolute privacy.
+                <p class="text-sm text-slate-300 leading-relaxed">
+                  Experience freedom with an offline architecture that allows
+                  you to access, read, and annotate your entire library
+                  anywhere.
                 </p>
               </div>
             </div>
@@ -184,7 +209,7 @@
                 <h3 class="font-medium text-white text-lg mb-1">
                   Notetaking Your Way
                 </h3>
-                <p class="text-sm text-slate-500 leading-relaxed">
+                <p class="text-sm text-slate-300 leading-relaxed">
                   Fork the repository and adapt the interface to match your
                   specific research methodology.
                 </p>
