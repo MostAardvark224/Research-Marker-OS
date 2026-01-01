@@ -1,17 +1,13 @@
 <div align="center">
 
-<table align="center" style="border: none;">
-  <tr>
-    <td align="center" style="border: none;">
-      <img src="frontend/public/logo.svg" alt="Research Marker Logo" width="120" />
-    </td>
-    <td align="left" style="border: none;">
-      <h1>Research Marker</h1>
-      <p>By Amay Babel</p>
-    </td>
-  </tr>
-</table>
-
+<div align="center">
+  <br />
+  <img src="frontend/public/logo.svg" alt="Research Marker" width="80" />
+  <br />
+  <h1>Research Marker</h1>
+  <p>by <strong>Amay Babel</strong></p>
+  <br />
+</div>
   <p>
     <strong>Consolidate your knowledge base in one central, queryable location.</strong>
   </p>
