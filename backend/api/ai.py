@@ -155,9 +155,20 @@ In general embedding the user prompt could have its downsides, could have an LLM
 
 # function that executes embedding search
 def embedding_search_rankings(query, annot_objs): 
+    client = genai.Client(api_key=backup_gemini_key) 
+    query_emb_full = client.models.embed_content(
+        model="text-embedding-004", 
+        contents=query,
+        config=types.EmbedContentConfig(
+            output_dimensionality=512
+        )
+    )
+    query_emb = query_emb_full.embeddings
 
-    # NOTE: REPLACE WITH WHATEVER EMBEDDING FOR THE PROMPT, THIS IS JUST A PLACEHOLDER
-    query_emb = np.random.rand(512).astype(np.float32)
+    if not query_emb: 
+        print("failed embedding query")
+        return
+
     query_norm = np.linalg.norm(query_emb)
     if query_norm > 0:
         query_emb = query_emb / query_norm
