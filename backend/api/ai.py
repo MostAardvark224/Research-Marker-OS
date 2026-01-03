@@ -163,9 +163,10 @@ def embedding_search_rankings(query, annot_objs):
             output_dimensionality=512
         )
     )
-    query_emb = query_emb_full.embeddings
+    raw_embedding = query_emb_full.embeddings[0].values
+    query_emb = np.array(raw_embedding, dtype=np.float32)
 
-    if not query_emb: 
+    if query_emb.size == 0: 
         print("failed embedding query")
         return
 
