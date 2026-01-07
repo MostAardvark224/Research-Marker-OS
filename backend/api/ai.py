@@ -581,14 +581,16 @@ def cluster_embeddings():
         # Extract vectors belonging to this specific major cluster, given by indices
         sub_X = X[indices]
         
-        sub_clusterer = hdbscan.HDBSCAN(min_cluster_size=2, min_samples=2)
+        n_samples = sub_X.shape[0]
+        min_cluster_size = max(2, int(n_samples / 10))
+        sub_clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size, min_samples=min_cluster_size)
         sub_labels = sub_clusterer.fit_predict(sub_X)
         
         for i, sub_label in enumerate(sub_labels): # iterating thru sublabels
             original_index = indices[i]
             annot_id = ids[original_index]
             
-            results_map[annot_id]['sub_cluster'] = int(sub_label)
+            results_map[annot_id]['sub_topic'] = int(sub_label)
 
     return results_map, ids, vectors # returning ids and vectors as well because I use it later in the view for the UMAP dimension reduction
 
@@ -615,7 +617,7 @@ def get_representative_samples(cluster_results, max_major=7, max_sub=3):
             major_samples[m_label].append(annot_id)
 
         # sub cluster sampling
-        if s_label != -1: # ignores noise
+        if s_label != -1 and s_label: # ignores noise
             # use a tuple key to keep scopes separate
             if len(sub_samples[(m_label, s_label)]) < max_sub:
                 sub_samples[(m_label, s_label)].append(annot_id)
@@ -1045,8 +1047,6 @@ def run_smart_collection():
 
     print("got cluster labels")
 
-    # pyright: ignore[reportOptionalSubscript]
-    # pyright: ignore[reportOptionalMemberAccess]
     # writing everything back
 
     for annot_obj_pk in cluster_results.keys():  
@@ -1055,12 +1055,17 @@ def run_smart_collection():
         sub_cluster_tuple = (major_cluster, sub_cluster)
 
         # replacing major cluster 
-        major_label = new_mappings[major_cluster]
-        cluster_results[annot_obj_pk]["major_topic"] = major_label
+        if major_cluster == -1:
+             cluster_results[annot_obj_pk]["major_topic"] = "Uncategorized"
+        else:
+            cluster_results[annot_obj_pk]["major_topic"] = new_mappings.get(major_cluster, "Unknown Topic")
 
         # replacing sub cluster 
-        sub_label = new_mappings[sub_cluster_tuple]
-        cluster_results[annot_obj_pk]["sub_topic"] = sub_label
+        try: 
+            sub_label = new_mappings[sub_cluster_tuple]
+            cluster_results[annot_obj_pk]["sub_topic"] = sub_label
+        except Exception as e: # handles key errors
+            cluster_results[annot_obj_pk]["sub_topic"] = None
 
     """
     cluster_results now looks like this: type == dict 

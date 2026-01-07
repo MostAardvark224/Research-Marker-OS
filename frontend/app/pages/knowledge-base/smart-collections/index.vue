@@ -529,10 +529,10 @@ async function pollBackend() {
 }
 
 const POLL_INTERVAL = 10000; // 10 seconds
-const MAX_DURATION = 10 * 60 * 1000; // 10 minutes in ms
+const MAX_DURATION = 10 * 60 * 800; // 10 minutes in ms
 
 // polling backend every 10s until we get poll_state.value == suceeded
-// 10 min timeout
+// 8 min timeout
 async function continuouslyPollBackend() {
   store.setInitializing(true);
   const startTime = Date.now();
