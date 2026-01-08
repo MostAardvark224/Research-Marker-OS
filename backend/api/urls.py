@@ -20,7 +20,7 @@ urlpatterns = [
          'search-notes'), 
     path('ask-ai/', views.AIChatView.as_view(), name='ask-ai'), 
     path('smart-collection/', views.SmartCollectionView.as_view(), name='smart-collection'),
-    path('poll-smart-collection/', views.PollSmartCollection.as_view(), name='poll-smart-collection'),
+    path('poll-smart-collection/<str:task_id>/', views.PollSmartCollection.as_view(), name='poll-smart-collection'),
     path('reading-recommendations/', views.ReadingRecommendationsView.as_view(), name='reading-recommendations'),
 ]
 

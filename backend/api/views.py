@@ -667,19 +667,23 @@ class SmartCollectionView(APIView):
 
 # polling view so that frontend can track status of collection creation
 class PollSmartCollection(APIView):
-    def get(self, request):
-        # check is_ready on model obj
-        collection = models.SmartCollections.objects.first()
+    def get(self, request, task_id):
 
-        if collection:
-            is_ready = collection.is_ready
-            if is_ready: 
+        if task_id == "null" or not task_id: 
+            return Response({"state": "no task"})
+
+
+        task = fetch(task_id)  
+
+        if task:
+            if task.success: 
                 return Response({"state": "success"})
             else: 
-                return Response({"state": "queued"})
+                return Response({"state": "failed"})
 
         else:
-            return Response({"state": "not initialized"})
+            return Response({"state": "queued"})
+
 
 from api.ai import generate_reading_recommendations
 class ReadingRecommendationsView(APIView):

@@ -151,40 +151,65 @@
                           v-for="(papers, subName) in subTopics"
                           :key="majorName + subName"
                         >
-                          <button
-                            @click="toggleNode(majorName + subName)"
-                            class="w-full flex items-center gap-2 py-1 text-xs font-medium text-slate-400 hover:text-white transition-colors text-left group/sub"
-                          >
-                            <Icon
-                              name="uil:angle-right"
-                              class="transition-transform duration-200 text-slate-600 group-hover/sub:text-white"
-                              :class="{
-                                'rotate-90': expandedNodes[majorName + subName],
-                              }"
-                            />
-                            {{ subName }}
-                          </button>
+                          <template v-if="subName !== '__direct__'">
+                            <button
+                              @click="toggleNode(majorName + subName)"
+                              class="w-full flex items-center gap-2 py-1 text-xs font-medium text-slate-400 hover:text-white transition-colors text-left group/sub"
+                            >
+                              <Icon
+                                name="uil:angle-right"
+                                class="transition-transform duration-200 text-slate-600 group-hover/sub:text-white"
+                                :class="{
+                                  'rotate-90':
+                                    expandedNodes[majorName + subName],
+                                }"
+                              />
+                              {{ subName }}
+                            </button>
 
-                          <div
-                            v-show="expandedNodes[majorName + subName]"
-                            class="mt-1 ml-2 pl-3 border-l border-white/5 space-y-0.5"
-                          >
                             <div
-                              v-for="paper in papers"
-                              :key="paper.id"
-                              @click="focusOnPaper(paper.id)"
-                              class="group/paper flex items-start gap-2 py-1 cursor-pointer"
+                              v-show="expandedNodes[majorName + subName]"
+                              class="mt-1 ml-2 pl-3 border-l border-white/5 space-y-0.5"
                             >
                               <div
-                                class="mt-1.5 w-1 h-1 rounded-full bg-slate-700 group-hover/paper:bg-blue-400 transition-colors shrink-0"
-                              ></div>
-                              <span
-                                class="text-[11px] text-slate-500 leading-snug group-hover/paper:text-slate-300 transition-colors line-clamp-2"
+                                v-for="paper in papers"
+                                :key="paper.id"
+                                @click="focusOnPaper(paper.id)"
+                                class="group/paper flex items-start gap-2 py-1 cursor-pointer"
                               >
-                                {{ paper.title }}
-                              </span>
+                                <div
+                                  class="mt-1.5 w-1 h-1 rounded-full bg-slate-700 group-hover/paper:bg-blue-400 transition-colors shrink-0"
+                                ></div>
+                                <span
+                                  class="text-[11px] text-slate-500 leading-snug group-hover/paper:text-slate-300 transition-colors line-clamp-2"
+                                >
+                                  {{ paper.title }}
+                                </span>
+                              </div>
                             </div>
-                          </div>
+                          </template>
+
+                          <template v-else>
+                            <div
+                              class="mt-1 ml-2 pl-3 border-l border-white/5 space-y-0.5 mb-2"
+                            >
+                              <div
+                                v-for="paper in papers"
+                                :key="paper.id"
+                                @click="focusOnPaper(paper.id)"
+                                class="group/paper flex items-start gap-2 py-1 cursor-pointer"
+                              >
+                                <div
+                                  class="mt-1.5 w-1 h-1 rounded-full bg-purple-500/50 group-hover/paper:bg-purple-400 transition-colors shrink-0"
+                                ></div>
+                                <span
+                                  class="text-[11px] text-slate-400 leading-snug group-hover/paper:text-white transition-colors line-clamp-2"
+                                >
+                                  {{ paper.title }}
+                                </span>
+                              </div>
+                            </div>
+                          </template>
                         </div>
                       </div>
                     </div>
@@ -336,6 +361,7 @@
               </div>
               <button
                 @click="updateSmartCollection()"
+                :disabled="isInitializing"
                 class="pointer-events-auto flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-medium text-slate-300 hover:text-white hover:border-white/20 transition-all group"
               >
                 <Icon
@@ -492,18 +518,6 @@ const {
   public: { apiBaseURL },
 } = useRuntimeConfig();
 
-/*
-Getting data logic (ONLY FOR INIT SMART COLLECTION BUTTON, Logic for when a user requests an update after graph is built is a different topic):
-- this runs when component is mounted
-
-Send a request to the polling endpoint.
-- if response == suceeded: hit data endpoint and render
-- if response == queued: means that job is underway. Keep hitting this endpoint every 10 secs and eventually it will return suceeded and render.
-- if response == not initialized: send post request to endpoint and then continuously poll.
-
-General - separate each call into a func so that its easy to manage from one command center
-*/
-
 const data = ref(null);
 const graphColors = ref(null);
 
@@ -519,7 +533,9 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function pollBackend() {
   try {
-    const res = await $fetch(`${apiBaseURL}/poll-smart-collection/`);
+    const res = await $fetch(
+      `${apiBaseURL}/poll-smart-collection/${taskId.value}`
+    );
     poll_state.value = res.state;
   } catch (err) {
     alert("Failed to poll backend:", err);
@@ -538,9 +554,10 @@ async function continuouslyPollBackend() {
   const startTime = Date.now();
 
   poll_state.value = "queued"; // state resetter
-  while (poll_state.value !== "success") {
+  while (poll_state.value !== "success" && poll_state.value !== "failed") {
     if (Date.now() - startTime > MAX_DURATION) {
       store.setInitializing(false);
+      store.setTaskId(null);
       alert("The operation timed out after 10 minutes.");
       return;
     }
@@ -549,27 +566,38 @@ async function continuouslyPollBackend() {
     await pollBackend();
   }
 
+  if (poll_state.value == "failed") {
+    store.setInitializing(false);
+    store.setTaskId(null);
+
+    // will add a component banner here to display error later
+  }
+
   // get data now, because assumed that polling has succeeded
   if (poll_state.value == "success") {
     await getData();
     store.setInitializing(false);
+    store.setTaskId(null);
   }
 }
 
 async function RunSmartCollection() {
   store.setInitializing(true);
   try {
-    await $fetch(`${apiBaseURL}/smart-collection/`, {
+    const res = await $fetch(`${apiBaseURL}/smart-collection/`, {
       method: "POST",
     });
+    store.setTaskId(res.task_id);
   } catch (err) {
     store.setInitializing(false);
+    store.setTaskId(null);
     alert("Failed to start collection:", err);
     return;
   }
 
   await continuouslyPollBackend();
   store.setInitializing(false);
+  store.setTaskId(null);
 }
 
 async function getData() {
@@ -582,12 +610,12 @@ async function getData() {
   } catch (err) {
     alert("Failed to fetch data:", err);
     return;
-  } finally {
-    store.setInitializing(false);
   }
 
   if (data.value) {
     await getRecommendations();
+    store.setInitializing(false);
+    store.setTaskId(null);
   }
 }
 
@@ -599,13 +627,10 @@ async function initDataLogic() {
   }
 
   await pollBackend();
-  if (poll_state.value == "success") {
+  if (poll_state.value == "success" || poll_state.value == "no task") {
     await getData();
   } else if (poll_state.value == "queued") {
     await continuouslyPollBackend();
-  } else if (poll_state.value != "not initialized") {
-    console.log(`poll state value when error: ${poll_state.value}`);
-    alert("issue with data logic in onMounted component.");
   }
 }
 
@@ -629,7 +654,7 @@ import { storeToRefs } from "pinia";
 
 const store = useSmartCollectionsStore();
 
-const { isInitializing } = storeToRefs(store);
+const { isInitializing, taskId } = storeToRefs(store);
 
 // sidebar logic
 const isSidebarOpen = ref(true);
@@ -679,22 +704,27 @@ const toggleNode = (key) => {
 };
 
 const graphExplorerData = computed(() => {
-  if (!data.value) return {};
+  if (!data.value) {
+    console.log("no graph explorer data");
+    return {};
+  }
 
   let hierarchy = {};
 
   if (data.value) {
     data.value.forEach((paper) => {
-      if (paper.major_topic && paper.sub_topic && paper.doc_title) {
+      const subKey = paper.sub_topic ? paper.sub_topic : "__direct__";
+
+      if (paper.major_topic && paper.doc_title) {
         if (!hierarchy[paper.major_topic]) {
           hierarchy[paper.major_topic] = {};
         }
 
-        if (!hierarchy[paper.major_topic][paper.sub_topic]) {
-          hierarchy[paper.major_topic][paper.sub_topic] = [];
+        if (!hierarchy[paper.major_topic][subKey]) {
+          hierarchy[paper.major_topic][subKey] = [];
         }
 
-        hierarchy[paper.major_topic][paper.sub_topic].push({
+        hierarchy[paper.major_topic][subKey].push({
           id: paper.id,
           title: paper.doc_title,
         });
