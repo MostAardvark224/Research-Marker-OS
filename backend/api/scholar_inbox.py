@@ -4,6 +4,9 @@
 
 # DEBUGGING: If scraping isn't working, first suspect is the CSS selectors used to find elements. Do control-F in this file and search for "NOTE TO USER" comments for places where selectors may need to be updated.
 
+# DEBUGGING: If your getting playwright errors, check and make sure that you have browser binaries installed. if not, just run "playwright install" in your terminal, or download one of google chrome, edge, opera, or brave
+# SAFARI ALONE WONT WORK WITH PLAYWRIGHT. 
+
 import asyncio
 from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup, Tag
@@ -13,13 +16,130 @@ import aiohttp
 import re
 import urllib.request
 import feedparser
+import sys
+import os
+import subprocess
+import shutil
+
+if sys.platform == "win32":
+    import winreg
+
+# gets the browser path for the users machine
+# I have to do this for js scraping scholar inbox
+def get_browser_path():
+    if sys.platform == "win32":
+        return _find_windows_browser()
+    elif sys.platform == "darwin":
+        return _find_mac_browser()
+    elif sys.platform == "linux":
+        return _find_linux_browser()
+    return None
+
+"""
+Looks for any of the following browsers (windows)
+
+"Microsoft Edge", 
+"Google Chrome", 
+"Brave", 
+"OperaStable"  
+"""
+def _find_windows_browser():
+    reg_path = r"SOFTWARE\Clients\StartMenuInternet"
+    
+    browser_keys = [
+        "Microsoft Edge", 
+        "Google Chrome", 
+        "Brave", 
+        "OperaStable"  
+    ]
+
+    if sys.platform == "win32":
+        for browser in browser_keys:
+            try:
+                # Look in HKEY_LOCAL_MACHINE
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f"{reg_path}\\{browser}\\shell\\open\\command") as key:
+                    cmd, _ = winreg.QueryValueEx(key, "")
+                    return cmd.strip('"')
+            except OSError:
+                # If system-wide fails, try HKEY_CURRENT_USER 
+                try:
+                    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, f"{reg_path}\\{browser}\\shell\\open\\command") as key:
+                        cmd, _ = winreg.QueryValueEx(key, "")
+                        return cmd.strip('"')
+                except OSError:
+                    continue
+
+    return None
+
+"""
+Looks for any of the following browsers (mac)
+
+"Microsoft Edge", 
+"Google Chrome", 
+"Brave", 
+"OperaStable"  
+"""
+def _find_mac_browser():
+    bundle_ids = {
+        "com.google.Chrome": "/Contents/MacOS/Google Chrome",
+        "com.microsoft.edgemac": "/Contents/MacOS/Microsoft Edge",
+        "com.brave.Browser": "/Contents/MacOS/Brave Browser",
+        "com.operasoftware.Opera": "/Contents/MacOS/Opera"  
+    }
+
+    for bundle_id, inner_path in bundle_ids.items():
+        try:
+            output = subprocess.check_output(
+                ["mdfind", f"kMDItemCFBundleIdentifier == '{bundle_id}'"],
+                encoding="utf-8"
+            ).strip()
+
+            if output:
+                app_path = output.split('\n')[0]
+                full_path = app_path + inner_path
+                if os.path.exists(full_path):
+                    return full_path
+        except subprocess.CalledProcessError:
+            continue
+
+    return None
+
+"""
+Looks for any of the following browsers (linux)
+
+"Microsoft Edge", 
+"Google Chrome", 
+"Brave", 
+"OperaStable", 
+"Chromium
+"""
+def _find_linux_browser():
+    commands = [
+        "google-chrome", 
+        "microsoft-edge", 
+        "chromium", 
+        "brave-browser",
+        "opera",         
+        "opera-stable"   
+    ]
+    
+    for cmd in commands:
+        path = shutil.which(cmd)
+        if path:
+            return path
+    return None
 
 async def fetch_scholar_inbox_papers(login_url, amount_of_papers):
     async with async_playwright() as p:
         base_url = login_url
+        browser_path = get_browser_path()
 
-        browser = await p.chromium.launch(headless=True)
-        page = await browser.new_page()
+        if not browser_path:
+            # Handle the error gracefully for the user
+            raise FileNotFoundError("No supported browser (Chrome, Edge, Opera, or Brave) found on this system.")
+
+        browser = await p.chromium.launch(executable_path=browser_path, headless=True)
+        page = await browser.new_page() 
         
         await page.goto(base_url)
 
@@ -30,7 +150,7 @@ async def fetch_scholar_inbox_papers(login_url, amount_of_papers):
             await page.wait_for_selector("main", timeout=25000)
         except Exception:
             print("Timeout waiting for content to load.")
-            await browser.close()
+            await browser.close() 
             return None
 
         time.sleep(5)  # Extra wait to ensure content is fully loaded   
@@ -96,7 +216,7 @@ async def fetch_scholar_inbox_papers(login_url, amount_of_papers):
         # async session to download PDFs
         async with aiohttp.ClientSession() as session:
             for entry in feed.entries:
-                arxiv_id = entry.id.split('/abs/')[-1]
+                arxiv_id = entry.id.split('/abs/')[-1] # type: ignore
                 
                 pdf_url = None
                 for link in entry.links:
@@ -110,7 +230,7 @@ async def fetch_scholar_inbox_papers(login_url, amount_of_papers):
                         
                         if pdf_url:
                             try:
-                                async with session.get(pdf_url) as resp:
+                                async with session.get(pdf_url) as resp: # type: ignore
                                     if resp.status == 200:
                                         paper['pdf_content'] = await resp.read()
                                     else:
