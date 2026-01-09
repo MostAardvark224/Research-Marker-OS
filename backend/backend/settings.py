@@ -1,7 +1,17 @@
 from pathlib import Path
 from dotenv import load_dotenv 
 import os
-load_dotenv()
+import sys
+
+# for dotenv loading
+def get_app_path():
+    if getattr(sys, 'frozen', False):
+        return Path(sys.executable).parent # desktop app 
+    else:
+        return Path(__file__).resolve().parent.parent # dev
+
+load_dotenv(get_app_path() / ".env")
+
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -11,7 +21,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY")
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", 'django-insecure-desktop-app-fallback-key')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -34,7 +44,6 @@ INSTALLED_APPS = [
     'rest_framework',
     'django_q',
 
-    'djoser',
     'corsheaders',
     'storages',
     'social_django',
@@ -124,8 +133,27 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 SESSION_COOKIE_SAMESITE = "Lax"
 
+def get_media_root():
+    if getattr(sys, 'frozen', False):
+        app_name = "ResearchMarker"
+        
+        if sys.platform == "win32":
+            base_path = Path(os.environ["APPDATA"]) / app_name
+        elif sys.platform == "darwin":
+            base_path = Path.home() / "Library" / "Application Support" / app_name
+        else:
+            base_path = Path.home() / ".local" / "share" / app_name
+            
+        media_path = base_path / "media"
+        media_path.mkdir(parents=True, exist_ok=True)
+        return media_path
+    
+    else:
+        return BASE_DIR / "media"
+
+MEDIA_ROOT = get_media_root()
 MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
 
 STORAGES = {
         "default": {

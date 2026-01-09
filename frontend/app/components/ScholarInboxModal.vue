@@ -145,12 +145,16 @@ const emit = defineEmits(["close"]);
 const isLoading = ref(false);
 const paperCount = ref(5);
 
+const {
+  public: { apiBaseURL },
+} = useRuntimeConfig();
+
 const fetchDigest = async () => {
   if (isLoading.value) return;
   isLoading.value = true;
 
   try {
-    const res = await $fetch("/api/fetch-scholar-inbox-papers/", {
+    const res = await $fetch(`${apiBaseURL}/fetch-scholar-inbox-papers/`, {
       method: "POST",
       body: { amount_to_import: paperCount.value },
     });

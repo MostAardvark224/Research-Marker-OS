@@ -2,6 +2,9 @@ from django.urls import path
 import api.views as views  
 from rest_framework.routers import DefaultRouter
 from .views import DocumentsViewSet
+from django.conf import settings
+from django.views.static import serve
+from django.urls import re_path
 
 router = DefaultRouter()
 
@@ -22,6 +25,13 @@ urlpatterns = [
     path('smart-collection/', views.SmartCollectionView.as_view(), name='smart-collection'),
     path('poll-smart-collection/<str:task_id>/', views.PollSmartCollection.as_view(), name='poll-smart-collection'),
     path('reading-recommendations/', views.ReadingRecommendationsView.as_view(), name='reading-recommendations'),
+]
+
+# serves files
+urlpatterns += [
+    re_path(r'^media/(?P<path>.*)$', serve, {
+        'document_root': settings.MEDIA_ROOT, 
+    }),
 ]
 
 urlpatterns += router.urls

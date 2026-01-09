@@ -2,6 +2,10 @@
 import { select } from "#build/ui";
 import "pdfjs-dist/web/pdf_viewer.css";
 
+const {
+  public: { apiBaseURL },
+} = useRuntimeConfig();
+
 // General States
 const route = useRoute();
 const id = route.params.id;
@@ -403,7 +407,7 @@ const performRedo = async () => {
 // general function to update annotations to backend
 async function saveAnnotationsToBackend() {
   try {
-    await $fetch("/api/annotations/", {
+    await $fetch(`${apiBaseURL}/annotations/`, {
       method: "POST",
       body: {
         document: id,
@@ -420,7 +424,9 @@ async function saveAnnotationsToBackend() {
 // Gets annotations from backend and loads into state vars
 async function fetchAnnotations() {
   try {
-    const data = await $fetch(`/api/annotations/${id}/`, { method: "GET" });
+    const data = await $fetch(`${apiBaseURL}/annotations/${id}/`, {
+      method: "GET",
+    });
     if (data) {
       if (data.highlight_data) savedHighlights.value = data.highlight_data;
       if (data.notepad) notepadData.value = data.notepad;
@@ -810,7 +816,9 @@ async function fetchPaper() {
   loading.value = true;
   error.value = null;
   try {
-    const res = await fetch(`/api/get-paper/${id}/`, { method: "GET" });
+    const res = await fetch(`${apiBaseURL}/get-paper/${id}/`, {
+      method: "GET",
+    });
     if (!res.ok) throw new Error("Failed to fetch PDF from server");
 
     const blob = await res.blob();
@@ -983,7 +991,7 @@ watch(searchQuery, () => {
 
 // writing most recent page back to backend
 async function postPage() {
-  const res = await $fetch(`/api/documents/${id}/`, {
+  const res = await $fetch(`${apiBaseURL}/documents/${id}/`, {
     method: "PATCH",
     body: {
       last_page: currentPage.value,

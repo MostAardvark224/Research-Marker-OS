@@ -186,9 +186,13 @@ const autoImportEnabled = ref(false);
 const paperLimitValue = ref(0);
 const last_import_date = ref(null);
 
+const {
+  public: { apiBaseURL },
+} = useRuntimeConfig();
+
 async function loadUserPreferences() {
   try {
-    const res = await $fetch("/api/user-preferences/");
+    const res = await $fetch(`${apiBaseURL}/user-preferences/`);
     console.log(res);
     const scholarPrefs = res.user_preferences.scholar_inbox;
 
@@ -245,7 +249,7 @@ async function saveSettings() {
   };
 
   try {
-    await $fetch("/api/user-preferences/", {
+    await $fetch(`${apiBaseURL}/user-preferences/`, {
       method: "PUT",
       body: {
         preferences: payload,

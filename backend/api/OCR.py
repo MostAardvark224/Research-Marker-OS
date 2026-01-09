@@ -3,11 +3,17 @@ import shutil
 import fitz  
 from rapidocr_onnxruntime import RapidOCR
 from django.conf import settings
+import sys
+from pathlib import Path
 
 _OCR_ENGINE = None
 
 def get_model_path(filename):
-    return os.path.join(settings.BASE_DIR, 'ocr_models', filename)
+    if getattr(sys, 'frozen', False):
+        bundle_dir = Path(getattr(sys, '_MEIPASS', '.'))
+        return os.path.join(bundle_dir, 'ocr_models', filename)
+    else:
+        return os.path.join(settings.BASE_DIR, 'ocr_models', filename)
 
 def get_ocr_engine():
     global _OCR_ENGINE

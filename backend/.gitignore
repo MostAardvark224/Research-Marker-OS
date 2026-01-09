@@ -7,6 +7,8 @@ pycache/
 media/documents/*
 !media/documents/.gitkeep
 shell.py
+build/
+dist/
 
 # Local env files
 .env

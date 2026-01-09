@@ -1,11 +1,17 @@
 {
-  "name": "frontend",
+  "name": "research-marker",
+  "version": "1.0.0",
+  "description": "A local research workflow tool",
+  "author": "Amay Babel",
   "type": "module",
   "private": true,
+  "main": "electron/main.js",
   "scripts": {
-    "build": "nuxt build --dotenv .env.prod",
-    "dev": "nuxt dev --dotenv .env.dev",
-    "generate": "nuxt generate",
+    "dev:nuxt": "nuxt dev --dotenv .env.dev",
+    "dev:electron": "wait-on http://localhost:3000 && cross-env NODE_ENV=development electron .",
+    "dev": "concurrently \"pnpm run dev:nuxt\" \"pnpm run dev:electron\"",
+    "generate": "nuxt generate --dotenv .env.prod",
+    "build": "pnpm run generate && electron-builder",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare"
   },
@@ -37,6 +43,37 @@
   },
   "devDependencies": {
     "@iconify-json/uil": "^1.2.3",
-    "@tailwindcss/postcss": "^4.1.17"
+    "@tailwindcss/postcss": "^4.1.17",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
+    "electron": "^39.2.7",
+    "electron-builder": "^26.4.0",
+    "wait-on": "^9.0.3"
+  },
+  "build": {
+    "appId": "com.researchmarker.os",
+    "productName": "Research Marker",
+    "directories": {
+      "output": "dist_electron"
+    },
+    "files": [
+      "electron/**/*",
+      ".output/public/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../backend/dist/api",
+        "to": "backend"
+      }
+    ],
+    "linux": {
+      "target": "AppImage"
+    },
+    "mac": {
+      "target": "dmg"
+    },
+    "win": {
+      "target": "nsis"
+    }
   }
 }
