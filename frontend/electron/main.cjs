@@ -12,7 +12,7 @@ const isDev = process.env.NODE_ENV === "development";
 // In Dev: Look for the binary in your local backend-dist folder
 // In Prod: Look inside the installed app's resources folder
 const scriptPath = isDev
-  ? path.join(__dirname, "../backend-dist/api") // Adjust 'api' to 'api.exe' on Windows if not handled automatically
+  ? path.join(__dirname, "../../backend/dist/api/api")
   : path.join(process.resourcesPath, "backend", "api");
 
 function createPythonProcess() {
@@ -46,7 +46,7 @@ function createWindow() {
     width: 1200,
     height: 800,
     webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
+      preload: path.join(__dirname, "preload.cjs"),
       nodeIntegration: false,
       contextIsolation: true,
     },

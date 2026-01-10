@@ -5,7 +5,7 @@
   "author": "Amay Babel",
   "type": "module",
   "private": true,
-  "main": "electron/main.js",
+  "main": "electron/main.cjs",
   "scripts": {
     "dev:nuxt": "nuxt dev --dotenv .env.dev",
     "dev:electron": "wait-on http://localhost:3000 && cross-env NODE_ENV=development electron .",
