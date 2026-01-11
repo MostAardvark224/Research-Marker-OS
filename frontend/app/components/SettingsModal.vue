@@ -77,8 +77,68 @@
         </header>
 
         <div class="flex-1 overflow-y-auto p-6 custom-scrollbar">
-          <div v-if="activeTab === 'general'" class="space-y-6 max-w-xl">
-            <div class="space-y-3">No General Settings available yet.</div>
+          <div v-if="activeTab === 'general'" class="space-y-6 max-w-2xl">
+            <div
+              class="p-3 rounded-lg border border-indigo-500/20 bg-indigo-500/5 mb-4"
+            >
+              <div class="flex gap-3">
+                <Icon
+                  name="material-symbols:info-outline"
+                  class="text-indigo-400 text-lg flex-shrink-0"
+                />
+                <p class="text-xs text-indigo-200/80 leading-relaxed">
+                  These settings are stored locally on your machine in a .env
+                  file and are never synced to the cloud.
+                </p>
+              </div>
+            </div>
+
+            <div class="space-y-4">
+              <div
+                v-for="env in computedEnvList"
+                :key="env.key"
+                class="p-4 rounded-xl border border-white/10 bg-white/[0.02] hover:bg-white/[0.04] transition-colors"
+              >
+                <div class="space-y-3">
+                  <div>
+                    <label
+                      class="block font-mono text-xs text-indigo-300 mb-1 tracking-wide"
+                    >
+                      {{ env.key }}
+                    </label>
+                    <p
+                      v-if="env.description"
+                      class="text-xs text-slate-500 leading-relaxed"
+                    >
+                      {{ env.description }}
+                    </p>
+                  </div>
+
+                  <div class="relative group">
+                    <input
+                      v-model="envFormValues[env.key]"
+                      :type="env.type"
+                      :placeholder="`Enter ${env.key}...`"
+                      class="w-full bg-[#0A0A0C] border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white placeholder-slate-700 focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 focus:bg-white/[0.03] outline-none transition-all font-mono"
+                      spellcheck="false"
+                    />
+
+                    <div
+                      class="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                    >
+                      <div
+                        v-if="envFormValues[env.key]"
+                        class="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]"
+                      ></div>
+                      <div
+                        v-else
+                        class="w-1.5 h-1.5 rounded-full bg-slate-700"
+                      ></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div v-else-if="activeTab === 'scholar'" class="space-y-6 max-w-xl">
@@ -92,8 +152,8 @@
                 />
                 <p class="text-xs text-indigo-200/80 leading-relaxed">
                   Configure sources for your automated research feed. Make sure
-                  to set your scholar inbox login environment variable. See
-                  documentation on GitHub for more details.
+                  to set your scholar inbox login environment variable in the
+                  General tab.
                 </p>
               </div>
             </div>
@@ -172,7 +232,7 @@
             @click="saveSettings()"
             class="px-5 py-2 rounded-lg text-sm font-medium bg-white text-black hover:bg-slate-200 transition-colors"
           >
-            Save
+            Save Changes
           </button>
         </footer>
       </main>
@@ -181,44 +241,76 @@
 </template>
 
 <script setup>
-// State
-const autoImportEnabled = ref(false);
-const paperLimitValue = ref(0);
-const last_import_date = ref(null);
-
 const {
   public: { apiBaseURL },
 } = useRuntimeConfig();
+const emit = defineEmits(["close"]);
 
-async function loadUserPreferences() {
+const activeTab = ref("general");
+const tabs = [
+  { id: "general", label: "General", icon: "uil:setting" },
+  { id: "scholar", label: "Scholar Inbox", icon: "uil:envelope-alt" },
+  { id: "ai", label: "AI Preferences", icon: "uil:robot" },
+];
+
+const activeTabLabel = computed(
+  () => tabs.find((t) => t.id === activeTab.value)?.label
+);
+const activeTabDescription = computed(() => {
+  switch (activeTab.value) {
+    case "general":
+      return "Customize interface & environment variables.";
+    case "scholar":
+      return "Manage feeds & keywords.";
+    case "ai":
+      return "Manage AI-related settings.";
+    default:
+      return "";
+  }
+});
+
+const envPotentialList = ref([]);
+const envFormValues = ref({});
+
+const envMetadata = {};
+
+const computedEnvList = computed(() => {
+  return envPotentialList.value.map((key) => {
+    const meta = envMetadata[key] || {};
+    return {
+      key: key,
+      description: meta.description || "",
+      type: meta.type || "text",
+    };
+  });
+});
+
+// loading previous env vars state
+async function loadEnvVars() {
   try {
-    const res = await $fetch(`${apiBaseURL}/user-preferences/`);
-    console.log(res);
-    const scholarPrefs = res.user_preferences.scholar_inbox;
+    const res = await $fetch(`${apiBaseURL}/env-vars/`);
+    envPotentialList.value = res.potential_list || [];
+    console.log(res.variables);
+    console.log(envPotentialList.value);
 
-    if (scholarPrefs) {
-      autoImportEnabled.value = scholarPrefs.auto_import;
+    envPotentialList.value.forEach((key) => {
+      console.log(key);
+      console.log(res.variables[key]);
 
-      last_import_date.value = scholarPrefs.last_import_date;
-
-      if (scholarPrefs.amount_to_import === 5) {
-        paperLimitValue.value = 1;
-      } else if (scholarPrefs.amount_to_import === "All") {
-        paperLimitValue.value = 2;
-      } else {
-        paperLimitValue.value = 0;
+      if (res.variables && res.variables[key]) {
+        envFormValues.value[key] = res.variables[key];
+      } else if (!envFormValues.value[key]) {
+        envFormValues.value[key] = "";
       }
-    }
-
-    console.log(autoImportEnabled.value, paperLimitValue.value);
+    });
   } catch (error) {
-    console.error("Failed to load user preferences:", error);
+    console.error("Failed to load env vars:", error);
   }
 }
 
-onMounted(() => {
-  loadUserPreferences();
-});
+const autoImportEnabled = ref(false);
+const paperLimitValue = ref(0);
+const last_import_date = ref(null);
 
 const paperLimitDisplay = computed(() => {
   if (paperLimitValue.value == 0) return "1 Papers";
@@ -235,58 +327,66 @@ const amount_to_import = computed(() => {
   return 0;
 });
 
-async function saveSettings() {
-  const payload = {
-    user_preferences: {
-      general: {},
-      scholar_inbox: {
-        auto_import: autoImportEnabled.value,
-        last_import_date: last_import_date.value,
-        amount_to_import: amount_to_import.value,
-      },
-      ai: {},
-    },
-  };
-
+async function loadUserPreferences() {
   try {
-    await $fetch(`${apiBaseURL}/user-preferences/`, {
+    const res = await $fetch(`${apiBaseURL}/user-preferences/`);
+    const scholarPrefs = res.user_preferences?.scholar_inbox;
+
+    if (scholarPrefs) {
+      autoImportEnabled.value = scholarPrefs.auto_import;
+      last_import_date.value = scholarPrefs.last_import_date;
+
+      if (scholarPrefs.amount_to_import === 5) {
+        paperLimitValue.value = 1;
+      } else if (scholarPrefs.amount_to_import === "All") {
+        paperLimitValue.value = 2;
+      } else {
+        paperLimitValue.value = 0;
+      }
+    }
+  } catch (error) {
+    console.error("Failed to load user preferences:", error);
+  }
+}
+
+onMounted(() => {
+  loadEnvVars();
+  loadUserPreferences();
+});
+
+async function saveSettings() {
+  try {
+    const prefsPayload = {
+      user_preferences: {
+        general: {},
+        scholar_inbox: {
+          auto_import: autoImportEnabled.value,
+          last_import_date: last_import_date.value,
+          amount_to_import: amount_to_import.value,
+        },
+        ai: {},
+      },
+    };
+
+    const prefsReq = $fetch(`${apiBaseURL}/user-preferences/`, {
+      method: "PUT",
+      body: { preferences: prefsPayload },
+    });
+
+    const envReq = $fetch(`${apiBaseURL}/env-vars/`, {
       method: "PUT",
       body: {
-        preferences: payload,
+        variables: envFormValues.value,
       },
     });
+
+    await Promise.all([prefsReq, envReq]);
+
     emit("close");
   } catch (error) {
     console.error("Failed to save settings:", error);
   }
 }
-
-// Static data
-const emit = defineEmits(["close"]);
-const activeTab = ref("general");
-
-const tabs = [
-  { id: "general", label: "General", icon: "uil:setting" },
-  { id: "scholar", label: "Scholar Inbox", icon: "uil:envelope-alt" },
-  { id: "ai", label: "AI Preferences", icon: "uil:robot" },
-];
-
-const activeTabLabel = computed(() => {
-  return tabs.find((t) => t.id === activeTab.value)?.label;
-});
-
-const activeTabDescription = computed(() => {
-  switch (activeTab.value) {
-    case "general":
-      return "Customize interface & storage.";
-    case "scholar":
-      return "Manage feeds & keywords.";
-    case "ai":
-      return "Manage AI-related settings.";
-    default:
-      return "";
-  }
-});
 </script>
 
 <style scoped>

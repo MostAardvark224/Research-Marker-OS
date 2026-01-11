@@ -1,13 +1,11 @@
 {
-  "user_preferences": {
-    "general": {},
-    "scholar_inbox": {
-      "auto_import": false,
-      "last_import_date": "null",
-      "amount_to_import": 0
-    },
-    "ai": {
-      "GEMINI_MODEL": "gemini-3-flash-preview"
+    "user_preferences": {
+        "general": {},
+        "scholar_inbox": {
+            "auto_import": false,
+            "last_import_date": "null",
+            "amount_to_import": 0
+        },
+        "ai": {}
     }
-  }
 }
