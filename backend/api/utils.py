@@ -14,13 +14,27 @@ def get_base_dir():
     else:
         return Path(__file__).resolve().parent.parent # dev
 
+# ENV VARS STUFF 
+
+# list of env vars that the user can set. Used for display in settings and views.
+# not a list of all env vars, but just those that the user can set
+# will likely change in future as app features inc
+def get_env_vars_potential_list(): 
+    potential_list = [
+        "GEMINI_API_KEY", 
+        "SCHOLAR_INBOX_PERSONAL_LOGIN", 
+    ]
+
+    return potential_list
+
+
 # separate function to init necessary env vars
 # for code readability and dev
 def intitial_env_vars_data(): 
     new_django_key = generate_new_django_key()
     init_data = dict(
                 DJANGO_SECRET_KEY = new_django_key, 
-                GEMINI_MODEL = "gemini-3-flash-preview" # default
+                exists = False
             )
     return init_data if init_data else {}
 
@@ -41,7 +55,6 @@ def load_env_vars():
             json.dump(initial_data, f, indent=4)
         return initial_data
 
-        
 # Write new env vars to local json file
 # vars should just be a python dictionary
 def write_env_vars(vars):
@@ -50,7 +63,7 @@ def write_env_vars(vars):
     original_vars = load_env_vars()
 
     cleaned_vars = vars
-    if isinstance(vars, str): 
+    if isinstance(cleaned_vars, str): 
         try: 
             cleaned_vars = json.loads(vars)
         except Exception as e: 
@@ -65,3 +78,5 @@ def write_env_vars(vars):
     
     with open(file, 'w') as f:
         json.dump(original_vars, f, indent=4)
+
+    

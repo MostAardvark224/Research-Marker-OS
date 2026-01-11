@@ -17,7 +17,7 @@ from rest_framework import viewsets, status
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.response import Response
 from . import models, serializers
-from .user_preferences import load_user_preferences, write_user_preferences
+from .user_preferences import load_user_preferences, write_user_preferences, deep_get
 from django.db.models import Q
 import asyncio
 import aiohttp
@@ -27,8 +27,10 @@ import io
 from django_q.tasks import async_task, fetch
 from django_q.models import Task
 from api.utils import load_env_vars
+from .user_preferences import load_user_preferences
 
 env_vars = load_env_vars()
+prefs = load_user_preferences()
 
 # to bool helper method for flag parsing
 def to_bool(value):
@@ -176,6 +178,7 @@ class AnnotationsViewSet(viewsets.ModelViewSet):
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK
         )
     
+# get/set user prefs
 class UserPreferencesView(APIView): 
     def get(self, request): 
         preferences = load_user_preferences()
@@ -183,9 +186,28 @@ class UserPreferencesView(APIView):
 
     def put(self, request): 
         preferences = request.data.get('preferences', {})
-        print(preferences)
         write_user_preferences(preferences)
         return Response({'message': 'Preferences updated successfully.'}, status=status.HTTP_200_OK)
+    
+# get/set env vars
+from .utils import load_env_vars, write_env_vars, intitial_env_vars_data, get_env_vars_potential_list
+class EnvironmentVariablesView(APIView): 
+    def get(self, request): 
+        env_vars = load_env_vars()
+        init_data = intitial_env_vars_data()
+
+        # lets the frontend know if it should display the env var setting screen
+        exists = any(key not in init_data for key in env_vars) and bool(env_vars.get("exists")) 
+
+        potential_list = get_env_vars_potential_list()
+      
+        return Response({"exists": exists, "variables": env_vars, "potential_list": potential_list}, status=status.HTTP_200_OK)
+
+    def put(self, request): 
+        vars = request.data.get('variables', {})
+        write_env_vars(vars)
+        return Response({'message': 'Variables updated successfully.'}, status=status.HTTP_200_OK)
+
 
 # Runs fetch from scholar inbox and uplaods papers to "Scholar Inbox" folder
 from .scholar_inbox import fetch_scholar_inbox_papers
@@ -335,7 +357,7 @@ class AIChatView(APIView):
         if not gemini_key: 
             return Response({"error": "Gemini API key not set. See docs."}, status=status.HTTP_400_BAD_REQUEST)
         
-        gemini_model = env_vars.get("GEMINI_MODEL")
+        gemini_model = deep_get(prefs, "GEMINI_MODEL", default="gemini-3-flash-preview")
         if not gemini_model: 
             return Response({"error": "Gemini model not set. See docs."}, status=status.HTTP_400_BAD_REQUEST)
         

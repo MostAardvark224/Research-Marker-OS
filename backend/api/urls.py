@@ -18,6 +18,7 @@ urlpatterns = [
     path('complete-fetch/', views.CompleteFetch.as_view(), name='complete-fetch'),
     path('get-paper/<int:pk>/', views.getPaper.as_view(), name='get-paper'),
     path('user-preferences/', views.UserPreferencesView.as_view(), name='user-preferences'),
+    path('env-vars/', views.EnvironmentVariablesView.as_view(), name='environment-variables'),
     path('fetch-scholar-inbox-papers/', views.FetchScholarInboxPapers.as_view(), name='fetch-scholar-inbox-papers'),
     path('search-notes/', views.SearchNotesView.as_view(), name=
          'search-notes'), 

@@ -6,6 +6,8 @@
       "last_import_date": "null",
       "amount_to_import": 0
     },
-    "ai": {}
+    "ai": {
+      "GEMINI_MODEL": "gemini-3-flash-preview"
+    }
   }
 }
