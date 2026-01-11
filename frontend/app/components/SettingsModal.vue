@@ -290,13 +290,8 @@ async function loadEnvVars() {
   try {
     const res = await $fetch(`${apiBaseURL}/env-vars/`);
     envPotentialList.value = res.potential_list || [];
-    console.log(res.variables);
-    console.log(envPotentialList.value);
 
     envPotentialList.value.forEach((key) => {
-      console.log(key);
-      console.log(res.variables[key]);
-
       if (res.variables && res.variables[key]) {
         envFormValues.value[key] = res.variables[key];
       } else if (!envFormValues.value[key]) {

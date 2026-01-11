@@ -13,7 +13,8 @@
     "generate": "nuxt generate --dotenv .env.prod",
     "build": "pnpm run generate && electron-builder",
     "preview": "nuxt preview",
-    "postinstall": "nuxt prepare"
+    "postinstall": "nuxt prepare",
+    "build-icons": "electron-icon-builder --input=./public/logo.png --output=app/assets --flatten"
   },
   "dependencies": {
     "@nuxt/hints": "1.0.0-alpha.1",
@@ -48,6 +49,7 @@
     "cross-env": "^10.1.0",
     "electron": "^39.2.7",
     "electron-builder": "^26.4.0",
+    "electron-icon-builder": "^2.0.1",
     "wait-on": "^9.0.3"
   },
   "build": {
@@ -67,13 +69,16 @@
       }
     ],
     "linux": {
-      "target": "AppImage"
+      "target": "AppImage",
+      "icon": "app/assets/icons"
     },
     "mac": {
-      "target": "dmg"
+      "target": "dmg",
+      "icon": "app/assets/icons/icon.icns"
     },
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "app/assets/icons/icon.ico"
     }
   }
 }

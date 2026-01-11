@@ -1,10 +1,11 @@
 from pathlib import Path
-from api.utils import generate_new_django_key, get_base_dir, load_env_vars, write_env_vars
+from api.utils import generate_new_django_key, get_app_data_dir, load_env_vars, write_env_vars
 import os
 import sys
 
 # for dotenv loading
-BASE_DIR = get_base_dir()
+DATA_DIR = get_app_data_dir()
+
 env_vars = load_env_vars()
 
 # Quick-start development settings - unsuitable for production
@@ -85,7 +86,7 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'NAME': DATA_DIR / 'db.sqlite3',
     }
 }
 
@@ -141,7 +142,7 @@ def get_media_root():
         return media_path
     
     else:
-        return BASE_DIR / "media"
+        return DATA_DIR / "media"
 
 MEDIA_ROOT = get_media_root()
 MEDIA_URL = '/media/'

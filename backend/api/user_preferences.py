@@ -1,7 +1,7 @@
 import os 
 import json
 from pathlib import Path
-from .utils import get_base_dir # WILL HAVE TO CHANGE THIS TO APP DATA DIR. Make sure to change all base dir usages as well 
+from .utils import get_app_data_dir 
 
 
 def intitial_user_prefs(): 
@@ -23,8 +23,8 @@ def intitial_user_prefs():
 
 # Load user preferences from local json file
 def load_user_preferences():
-    BASE_DIR = get_base_dir() 
-    file = os.path.join(BASE_DIR, 'user_preferences.json')
+    DATA_DIR = get_app_data_dir() 
+    file = os.path.join(DATA_DIR, 'user_preferences.json')
     if os.path.isfile(file):
         with open(file, 'r') as f:
             return json.load(f)
@@ -67,8 +67,8 @@ def deep_get(data, target_key, default=None):
 # Write new preferences to local json file
 # Preferences should be a json object
 def write_user_preferences(preferences):
-    BASE_DIR = get_base_dir() 
-    file = os.path.join(BASE_DIR, 'user_preferences.json')
+    DATA_DIR = get_app_data_dir() 
+    file = os.path.join(DATA_DIR, 'user_preferences.json')
 
     original_prefs = load_user_preferences()
 

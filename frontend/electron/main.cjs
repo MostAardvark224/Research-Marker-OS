@@ -15,9 +15,17 @@ const scriptPath = isDev
   : path.join(process.resourcesPath, "backend", "api");
 
 function createPythonProcess() {
-  console.log(`Launching Python from: ${scriptPath}`);
+  const userDataPath = app.getPath("userData");
 
-  pythonProcess = spawn(scriptPath);
+  console.log(`Launching Python from: ${scriptPath}`);
+  console.log(`Passing User Data Dir: ${userDataPath}`);
+
+  pythonProcess = spawn(scriptPath, [], {
+    env: {
+      ...process.env,
+      USER_DATA_DIR: userDataPath,
+    },
+  });
 
   const handleLog = (data) => {
     const output = data.toString();
@@ -27,10 +35,9 @@ function createPythonProcess() {
     const match = output.match(/http:\/\/127\.0\.0\.1:(\d+)/);
 
     if (match) {
-      apiPort = match[1]; // SAVE THIS so the Nuxt plugin can fetch it
+      apiPort = match[1]; // nuxt plugin will fetch this
       console.log(`Python backend ready on port ${apiPort}`);
 
-      // 4. Only open the window if it hasn't opened yet
       if (!mainWindow) {
         createWindow();
       }
@@ -54,6 +61,7 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
     },
+    icon: path.join(__dirname, "../app/assets/icons/icon.png"),
   });
 
   if (isDev) {

@@ -8,9 +8,15 @@ def generate_new_django_key():
     new_key = get_random_secret_key()
     return new_key
 
-def get_base_dir():
+def get_app_data_dir():
     if getattr(sys, 'frozen', False):
-        return Path(sys.executable).parent # desktop app 
+        user_data_dir = os.environ.get('USER_DATA_DIR')
+        
+        if user_data_dir:
+            return Path(user_data_dir)
+        else: 
+            print("falling back to default dir, couldn't get exact one from env var")
+            return Path(sys.executable).parent
     else:
         return Path(__file__).resolve().parent.parent # dev
 
@@ -40,8 +46,8 @@ def intitial_env_vars_data():
 
 # Load env vars from local json file
 def load_env_vars():
-    BASE_DIR = get_base_dir()
-    file = os.path.join(BASE_DIR, 'env.json')
+    DATA_DIR = get_app_data_dir()
+    file = os.path.join(DATA_DIR, 'env.json')
     if os.path.isfile(file):
         with open(file, 'r') as f:
             return json.load(f)
@@ -58,8 +64,8 @@ def load_env_vars():
 # Write new env vars to local json file
 # vars should just be a python dictionary
 def write_env_vars(vars):
-    BASE_DIR = get_base_dir()
-    file = os.path.join(BASE_DIR, 'env.json')
+    DATA_DIR = get_app_data_dir()
+    file = os.path.join(DATA_DIR, 'env.json')
     original_vars = load_env_vars()
 
     cleaned_vars = vars
