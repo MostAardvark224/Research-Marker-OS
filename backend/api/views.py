@@ -26,6 +26,9 @@ from django.core.files.uploadedfile import InMemoryUploadedFile
 import io
 from django_q.tasks import async_task, fetch
 from django_q.models import Task
+from api.utils import load_env_vars
+
+env_vars = load_env_vars()
 
 # to bool helper method for flag parsing
 def to_bool(value):
@@ -189,7 +192,7 @@ from .scholar_inbox import fetch_scholar_inbox_papers
 class FetchScholarInboxPapers(APIView):
     def post(self, request):
         # Running fetch, logic can be altered in scholar_inbox.py
-        login_url = os.getenv("SCHOLAR_INBOX_PERSONAL_LOGIN", "")
+        login_url = env_vars.get("SCHOLAR_INBOX_PERSONAL_LOGIN", "")
         amount_to_import = request.data.get('amount_to_import', 'all')
 
         if (login_url == ""):
@@ -328,11 +331,11 @@ Rag will get top 2-3 embeddings with n cos similarity and append them to the pro
 from .ai import add_message_to_chat ,send_prompt, name_chat, rag_context_injection
 class AIChatView(APIView):
     def post(self, request, format=None):
-        gemini_key = os.getenv("GEMINI_API_KEY")
+        gemini_key = env_vars.get("GEMINI_API_KEY", "")
         if not gemini_key: 
             return Response({"error": "Gemini API key not set. See docs."}, status=status.HTTP_400_BAD_REQUEST)
         
-        gemini_model = os.getenv("GEMINI_MODEL")
+        gemini_model = env_vars.get("GEMINI_MODEL")
         if not gemini_model: 
             return Response({"error": "Gemini model not set. See docs."}, status=status.HTTP_400_BAD_REQUEST)
         

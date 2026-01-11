@@ -1,0 +1,6 @@
+{
+  "DJANGO_SECRET_KEY": "your-secret-key-here",
+  "SCHOLAR_INBOX_PERSONAL_LOGIN": "Go to scholar inbox settings and paste your login link here",
+  "GEMINI_API_KEY": "YOUR_GEMINI_API_KEY_HERE",
+  "GEMINI_MODEL": "gemini-3-flash-preview"
+}

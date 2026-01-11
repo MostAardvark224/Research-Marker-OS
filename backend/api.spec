@@ -12,9 +12,22 @@ django.setup()
 
 import sys
 sys.setrecursionlimit(5000)
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_submodules, collect_all
 
 hidden_imports = []
+tmp_ret = []
+all_datas = []
+all_binaries = []
+
+def force_load(package_name):
+    global hidden_imports, all_datas, all_binaries
+    d, b, h = collect_all(package_name)
+    all_datas += d
+    all_binaries += b
+    hidden_imports += h
+
+force_load('rapidocr_onnxruntime')
+
 hidden_imports += collect_submodules('api')                      
 hidden_imports += collect_submodules('rest_framework')           
 hidden_imports += collect_submodules('django_q')                 
@@ -36,8 +49,8 @@ hidden_imports += [
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=[],
-    datas=[
+    binaries=all_binaries,
+    datas=all_datas + [   
         ('ocr_models', 'ocr_models'), 
     ],
     hiddenimports=hidden_imports, 

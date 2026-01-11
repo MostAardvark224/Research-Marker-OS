@@ -66,5 +66,9 @@ Currently, students and researchers have to juggle PDFs in local folders, citati
 - **🎓 Scholar Inbox Integration:** Automatically import your daily digest from Scholar Inbox, ready for you to annotate today's cutting-edge work.
 
 Build commands:
-Backend (cd into the backend dir and activate the venv): pyinstaller api.spec --noconfirm --clean
-Frontend (cd into the frontend dir): pnpm run build
+Backend (cd into the backend dir and activate the venv):
+rm -rf dist build
+pyinstaller api.spec --noconfirm --clean
+
+Frontend (cd into the frontend dir):
+pnpm run build

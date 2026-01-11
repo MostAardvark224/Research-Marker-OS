@@ -16,7 +16,11 @@ import re
 import colorsys
 import math
 from django.db.models import Avg
-backup_gemini_key = os.getenv("GEMINI_API_KEY")
+from api.utils import load_env_vars
+
+env_vars = load_env_vars()
+
+backup_gemini_key = env_vars.get("GEMINI_API_KEY", "")
 
 # for saving chat logs
 # this only saves the user prompt and doesn't include added context so that it looks normal in the chat history

@@ -1,37 +1,29 @@
 from pathlib import Path
-from dotenv import load_dotenv 
+from api.utils import generate_new_django_key, get_base_dir, load_env_vars, write_env_vars
 import os
 import sys
 
 # for dotenv loading
-def get_app_path():
-    if getattr(sys, 'frozen', False):
-        return Path(sys.executable).parent # desktop app 
-    else:
-        return Path(__file__).resolve().parent.parent # dev
-
-load_dotenv(get_app_path() / ".env")
-
-
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
-BASE_DIR = Path(__file__).resolve().parent.parent
-
+BASE_DIR = get_base_dir()
+env_vars = load_env_vars()
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", 'django-insecure-desktop-app-fallback-key')
+# will create secret key if it doesn't exist alr
+if not env_vars.get("DJANGO_SECRET_KEY", ""): 
+    new_key = generate_new_django_key()
+    d = dict(DJANGO_SECRET_KEY = new_key)
+    write_env_vars(d)
 
-# SECURITY WARNING: don't run with debug turned on in production!
+SECRET_KEY = env_vars.get("DJANGO_SECRET_KEY", "django-insecure-desktop-app-fallback-key")
+
 DEBUG = True
 
 ALLOWED_HOSTS = []
 
-
 # Application definition
-
-
 INSTALLED_APPS = [
     'api.apps.ApiConfig',
 
