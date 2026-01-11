@@ -197,7 +197,7 @@ class EnvironmentVariablesView(APIView):
         init_data = intitial_env_vars_data()
 
         # lets the frontend know if it should display the env var setting screen
-        exists = any(key not in init_data for key in env_vars) and bool(env_vars.get("exists")) 
+        exists = any(key not in init_data for key in env_vars) or bool(env_vars.get("exists")) 
 
         potential_list = get_env_vars_potential_list()
       
