@@ -5,6 +5,7 @@ const { spawn } = require("child_process");
 app.disableHardwareAcceleration();
 
 let mainWindow;
+let splashWindow;
 let pythonProcess;
 let apiPort = null;
 
@@ -13,6 +14,23 @@ const isDev = process.env.NODE_ENV === "development";
 const scriptPath = isDev
   ? path.join(__dirname, "../../backend/dist/api/api")
   : path.join(process.resourcesPath, "backend", "api");
+
+// creates loading screen before app startup.
+function createSplashWindow() {
+  splashWindow = new BrowserWindow({
+    width: 400,
+    height: 300,
+    transparent: false,
+    frame: false,
+    alwaysOnTop: true,
+    webPreferences: {
+      nodeIntegration: false,
+    },
+  });
+
+  // Load html file
+  splashWindow.loadFile(path.join(__dirname, "../app/assets/splash.html"));
+}
 
 function createPythonProcess() {
   const userDataPath = app.getPath("userData");
@@ -56,6 +74,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
+    show: false,
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       nodeIntegration: false,
@@ -70,13 +89,23 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, "../.output/public/index.html"));
   }
+
+  // changing from loading to app
+  mainWindow.once("ready-to-show", () => {
+    splashWindow.destroy();
+    mainWindow.show();
+    mainWindow.focus();
+  });
 }
 
 ipcMain.handle("get-api-port", () => {
   return apiPort;
 });
 
-app.whenReady().then(createPythonProcess);
+app.whenReady().then(() => {
+  createSplashWindow();
+  createPythonProcess();
+});
 
 app.on("will-quit", () => {
   if (pythonProcess) {
