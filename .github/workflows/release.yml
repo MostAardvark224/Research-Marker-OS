@@ -49,11 +49,14 @@ jobs:
         with:
           node-version: 20
           cache: "pnpm"
+          cache-dependency-path: frontend/pnpm-lock.yaml
 
       - name: Install Frontend Deps
+        working-directory: ./frontend
         run: pnpm install --frozen-lockfile
 
       - name: Build Electron App
+        working-directory: ./frontend
         run: pnpm run build
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
