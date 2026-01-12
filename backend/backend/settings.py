@@ -3,8 +3,17 @@ from api.utils import generate_new_django_key, get_app_data_dir, load_env_vars, 
 import os
 import sys
 
+# for loading OCR models saved within the app code file
+def get_app_base_dir():
+    if getattr(sys, 'frozen', False):
+        return Path(sys.executable).parent # desktop app 
+    else:
+        return Path(__file__).resolve().parent.parent # dev
+BASE_DIR = get_app_base_dir()
+
 # for dotenv loading
 DATA_DIR = get_app_data_dir()
+
 
 env_vars = load_env_vars()
 
