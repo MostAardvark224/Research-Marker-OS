@@ -34,8 +34,9 @@ jobs:
           pip install pyinstaller
 
       - name: Build Backend (PyInstaller)
+        working-directory: ./backend
         run: |
-          pyinstaller backend/api.spec --noconfirm --clean
+          pyinstaller api.spec --noconfirm --clean
 
       # setting up node and building frontend
       - name: Setup pnpm
