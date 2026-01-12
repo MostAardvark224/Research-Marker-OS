@@ -20,9 +20,11 @@ if not env_vars.get("DJANGO_SECRET_KEY", ""):
 
 SECRET_KEY = env_vars.get("DJANGO_SECRET_KEY", "django-insecure-desktop-app-fallback-key")
 
-DEBUG = True
+# debug logic
+IS_FROZEN = getattr(sys, 'frozen', False)
+DEBUG = not IS_FROZEN 
+ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
 
-ALLOWED_HOSTS = []
 
 # Application definition
 INSTALLED_APPS = [
@@ -126,25 +128,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 SESSION_COOKIE_SAMESITE = "Lax"
 
-def get_media_root():
-    if getattr(sys, 'frozen', False):
-        app_name = "ResearchMarker"
-        
-        if sys.platform == "win32":
-            base_path = Path(os.environ["APPDATA"]) / app_name
-        elif sys.platform == "darwin":
-            base_path = Path.home() / "Library" / "Application Support" / app_name
-        else:
-            base_path = Path.home() / ".local" / "share" / app_name
-            
-        media_path = base_path / "media"
-        media_path.mkdir(parents=True, exist_ok=True)
-        return media_path
-    
-    else:
-        return DATA_DIR / "media"
-
-MEDIA_ROOT = get_media_root()
+MEDIA_ROOT = DATA_DIR / "media"
 MEDIA_URL = '/media/'
 
 
