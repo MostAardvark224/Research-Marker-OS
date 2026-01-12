@@ -1,10 +1,13 @@
 {
   "name": "research-marker",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "description": "A local research workflow tool",
   "author": "Amay Babel",
   "type": "module",
-  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MostAardvark224/Research-Marker-OS.git"
+  },
   "main": "electron/main.cjs",
   "scripts": {
     "dev:nuxt": "nuxt dev --dotenv .env.dev",
