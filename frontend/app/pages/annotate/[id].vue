@@ -1017,7 +1017,7 @@ watch(currentPage, () => {
     >
       <div class="flex items-center gap-4">
         <NuxtLink
-          to="/dashboard"
+          to="/"
           class="flex items-center justify-center rounded-md p-2 text-slate-400 transition-colors hover:bg-slate-800 hover:text-white"
           title="Back to Dashboard"
         >

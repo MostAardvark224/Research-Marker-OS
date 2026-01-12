@@ -14,7 +14,7 @@
         </div>
 
         <NuxtLink
-          to="/dashboard"
+          to="/"
           class="text-xs font-semibold uppercase tracking-widest text-slate-500 hover:text-white transition-colors flex items-center gap-2"
         >
           <Icon name="uil:arrow-left" />
@@ -333,7 +333,7 @@
                 class="mt-auto flex w-full flex-col gap-4 p-6 shrink-0 border-t border-white/5"
               >
                 <NuxtLink
-                  to="/dashboard"
+                  to="/"
                   class="flex h-10 w-full items-center justify-start gap-3 overflow-hidden whitespace-nowrap rounded-lg px-3 text-white/40 transition-all hover:bg-white/5 hover:text-white"
                 >
                   <Icon name="uil:arrow-left" class="text-xl shrink-0" />

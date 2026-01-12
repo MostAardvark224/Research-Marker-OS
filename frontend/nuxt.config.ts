@@ -45,4 +45,12 @@ export default defineNuxtConfig({
   vite: {
     plugins: [tailwindcss()],
   },
+
+  $development: {
+    devtools: { enabled: true },
+  },
+
+  $production: {
+    devtools: { enabled: false },
+  },
 });

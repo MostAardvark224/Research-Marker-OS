@@ -175,7 +175,7 @@ const handleSave = async () => {
     console.log(`error saving ${error}`);
   } finally {
     envStateStore.setExists(true);
-    await navigateTo("/dashboard");
+    await navigateTo("/");
   }
 };
 
@@ -192,7 +192,7 @@ const handleSkip = async () => {
     console.log(`error saving ${error}`);
   } finally {
     envStateStore.setExists(true);
-    await navigateTo("/dashboard");
+    await navigateTo("/");
   }
 };
 </script>
