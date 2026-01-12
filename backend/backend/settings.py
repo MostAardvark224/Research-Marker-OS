@@ -63,8 +63,6 @@ INSTALLED_APPS = [
 
     'corsheaders',
     'storages',
-    'social_django',
-    'rest_framework_simplejwt.token_blacklist'
 ]
 
 SITE_ID = 1
@@ -79,7 +77,6 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'social_django.middleware.SocialAuthExceptionMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
