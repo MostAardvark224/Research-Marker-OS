@@ -11,7 +11,7 @@
     "dev:electron": "wait-on http://localhost:3000 && cross-env NODE_ENV=development electron .",
     "dev": "concurrently \"pnpm run dev:nuxt\" \"pnpm run dev:electron\"",
     "generate": "nuxt generate --dotenv .env.prod",
-    "build": "pnpm run generate && electron-builder",
+    "build": "pnpm run generate && electron-builder --publish always",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
     "build-icons": "electron-icon-builder --input=./public/logo.png --output=app/assets --flatten"

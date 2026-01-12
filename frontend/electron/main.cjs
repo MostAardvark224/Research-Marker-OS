@@ -42,6 +42,7 @@ function createPythonProcess() {
     env: {
       ...process.env,
       USER_DATA_DIR: userDataPath,
+      APP_DEBUG: isDev ? "true" : "false",
     },
   });
 

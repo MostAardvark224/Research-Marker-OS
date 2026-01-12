@@ -24,17 +24,6 @@ import shutil
 if sys.platform == "win32":
     import winreg
 
-# gets the browser path for the users machine
-# I have to do this for js scraping scholar inbox
-def get_browser_path():
-    if sys.platform == "win32":
-        return _find_windows_browser()
-    elif sys.platform == "darwin":
-        return _find_mac_browser()
-    elif sys.platform == "linux":
-        return _find_linux_browser()
-    return None
-
 """
 Looks for any of the following browsers (windows)
 
@@ -129,18 +118,32 @@ def _find_linux_browser():
             return path
     return None
 
+# gets the browser path for the users machine
+# I have to do this for js scraping scholar inbox
+def get_browser_path():
+    if sys.platform == "win32":
+        return _find_windows_browser()
+    elif sys.platform == "darwin":
+        return _find_mac_browser()
+    elif sys.platform == "linux":
+        return _find_linux_browser()
+    return None
+
 async def fetch_scholar_inbox_papers(login_url, amount_of_papers):
     async with async_playwright() as p:
         base_url = login_url
+
+        if not base_url.startswith("http"):
+            base_url = f"https://{base_url}"
+
         browser_path = get_browser_path()
 
         if not browser_path:
-            # Handle the error gracefully for the user
             raise FileNotFoundError("No supported browser (Chrome, Edge, Opera, or Brave) found on this system.")
 
         browser = await p.chromium.launch(executable_path=browser_path, headless=True)
         page = await browser.new_page() 
-        
+
         await page.goto(base_url)
 
         await page.wait_for_url('https://scholar-inbox.com', timeout=25000)
@@ -158,7 +161,6 @@ async def fetch_scholar_inbox_papers(login_url, amount_of_papers):
         rendered_html = await page.content()
         await browser.close()
         soup = BeautifulSoup(rendered_html, 'html.parser')
-
 
         # Get all parent containers. Parent container has title, link, and relevance info
         paper_containers = soup.select('div.MuiBox-root.css-vfiehx') # NOTE TO USER: selector is too general, but it seems to work for now. If scraping isn't working this is def a line to look at. 

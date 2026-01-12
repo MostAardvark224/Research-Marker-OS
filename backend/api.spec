@@ -27,6 +27,7 @@ def force_load(package_name):
     hidden_imports += h
 
 force_load('rapidocr_onnxruntime')
+force_load('playwright')
 
 hidden_imports += collect_submodules('api')                      
 hidden_imports += collect_submodules('rest_framework')           

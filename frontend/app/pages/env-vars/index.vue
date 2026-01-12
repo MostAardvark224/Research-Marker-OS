@@ -46,6 +46,9 @@
             You don't have to set these now. You can configure them in your
             settings at any time.
           </span>
+          <span class="text-slate-300 block mt-2">
+            You may have to restart the application for changes to take effect.
+          </span>
         </p>
       </div>
 

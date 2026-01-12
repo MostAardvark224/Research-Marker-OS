@@ -17,7 +17,15 @@
             by Amay Babel
           </span>
         </div>
-        <div class="flex items-center gap-4"></div>
+        <NuxtLink
+          to="/"
+          class="flex h-10 items-center justify-start gap-3 overflow-hidden whitespace-nowrap rounded-lg px-3 text-white/40 transition-all hover:bg-white/5 hover:text-white"
+        >
+          <Icon name="uil:arrow-left" class="text-xl shrink-0" />
+          <span class="text-xs font-semibold uppercase tracking-widest">
+            Back to Index
+          </span>
+        </NuxtLink>
       </div>
     </nav>
 

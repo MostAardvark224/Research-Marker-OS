@@ -29,9 +29,22 @@ if not env_vars.get("DJANGO_SECRET_KEY", ""):
 
 SECRET_KEY = env_vars.get("DJANGO_SECRET_KEY", "django-insecure-desktop-app-fallback-key")
 
-# debug logic
 IS_FROZEN = getattr(sys, 'frozen', False)
-DEBUG = not IS_FROZEN 
+
+if IS_FROZEN: 
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "0"
+
+
+def get_debug_mode():
+    env_debug = os.getenv('APP_DEBUG')
+    if env_debug is not None:
+        return env_debug.lower() == 'true'
+
+    is_frozen = getattr(sys, 'frozen', False) # fallback
+    return not is_frozen
+
+DEBUG = get_debug_mode()
+
 ALLOWED_HOSTS = ["localhost", "127.0.0.1"]
 
 
