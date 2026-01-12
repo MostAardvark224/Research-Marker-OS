@@ -130,6 +130,7 @@ SESSION_COOKIE_SAMESITE = "Lax"
 
 MEDIA_ROOT = DATA_DIR / "media"
 MEDIA_URL = '/media/'
+MEDIA_ROOT.mkdir(parents=True, exist_ok=True)
 
 
 STORAGES = {
@@ -144,7 +145,8 @@ STORAGES = {
 # Django Q config
 Q_CLUSTER = {
     'name': 'DjangORM',
-    'workers': 4,
+    'workers': 4 if not IS_FROZEN else 1, # conservative in prod
+    'sync': False,
     'recycle': 500,
     'timeout': 600, 
     'retry': 720,
