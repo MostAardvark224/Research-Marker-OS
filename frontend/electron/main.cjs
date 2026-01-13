@@ -31,7 +31,7 @@ function createSplashWindow() {
   // Load html file
   const splashPath = isDev
     ? path.join(__dirname, "../app/assets/splash.html")
-    : path.join(app.getAppPath(), ".output/public/splash.html");
+    : path.join(app.getAppPath(), "app/assets/splash.html");
 
   console.log("Attempting to load splash from:", splashPath);
   splashWindow.loadFile(splashPath);
