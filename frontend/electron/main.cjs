@@ -21,7 +21,7 @@ function createSplashWindow() {
     width: 400,
     height: 300,
     transparent: false,
-    frame: false,
+    frame: true,
     alwaysOnTop: true,
     webPreferences: {
       nodeIntegration: false,
@@ -81,6 +81,7 @@ function createWindow() {
     width: 1200,
     height: 800,
     show: false,
+    frame: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       nodeIntegration: false,
