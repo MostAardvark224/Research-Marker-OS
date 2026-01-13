@@ -58,12 +58,14 @@
   "build": {
     "appId": "com.researchmarker.os",
     "productName": "Research Marker",
+    "artifactName": "${productName}.${ext}",
     "directories": {
       "output": "dist_electron"
     },
     "files": [
       "electron/**/*",
-      ".output/public/**/*"
+      ".output/public/**/*",
+      "app/assets/**/*"
     ],
     "extraResources": [
       {

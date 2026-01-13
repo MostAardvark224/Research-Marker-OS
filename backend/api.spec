@@ -18,7 +18,7 @@ hidden_imports = []
 tmp_ret = []
 all_datas = []
 all_binaries = []
-
+    
 def force_load(package_name):
     global hidden_imports, all_datas, all_binaries
     d, b, h = collect_all(package_name)

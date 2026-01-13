@@ -67,8 +67,7 @@ Currently, students and researchers have to juggle PDFs in local folders, citati
 
 Build commands:
 Backend (cd into the backend dir and activate the venv):
-rm -rf dist build
-pyinstaller api.spec --noconfirm --clean
+rm -rf dist build && pyinstaller api.spec --noconfirm --clean
 
 Frontend (cd into the frontend dir):
 pnpm run build

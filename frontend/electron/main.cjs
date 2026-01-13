@@ -29,7 +29,12 @@ function createSplashWindow() {
   });
 
   // Load html file
-  splashWindow.loadFile(path.join(__dirname, "../app/assets/splash.html"));
+  const splashPath = isDev
+    ? path.join(__dirname, "../app/assets/splash.html")
+    : path.join(app.getAppPath(), ".output/public/splash.html");
+
+  console.log("Attempting to load splash from:", splashPath);
+  splashWindow.loadFile(splashPath);
 }
 
 function createPythonProcess() {
