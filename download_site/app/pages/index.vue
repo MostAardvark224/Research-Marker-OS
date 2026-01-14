@@ -37,21 +37,21 @@
           >GitHub</NuxtLink
         >
         <!-- <a
-          href="#features"
-          class="hover:text-white transition-colors cursor-pointer"
-          >Features</a
-        >
-        <a
-          href="#about"
-          class="hover:text-white transition-colors cursor-pointer"
-          >About</a
-        > -->
-        <NuxtLink
-          to="/"
-          class="bg-white text-black px-5 py-2 rounded font-semibold hover:bg-slate-200 transition-colors"
-        >
-          Get started
-        </NuxtLink>
+        href="#features"
+        class="hover:text-white transition-colors cursor-pointer"
+        >Features</a
+      >
+      <a
+        href="#about"
+        class="hover:text-white transition-colors cursor-pointer"
+        >About</a
+      > -->
+        <!-- <NuxtLink
+        to="/"
+        class="bg-white text-black px-5 py-2 rounded font-semibold hover:bg-slate-200 transition-colors"
+      >
+        Get started
+      </NuxtLink>-->
       </div>
     </nav>
 
@@ -74,29 +74,44 @@
           </h1>
 
           <p
-            class="text-[16px] text-slate-400 leading-relaxed mb-8 max-w-lg mx-auto lg:mx-0"
+            class="text-[16px] text-slate-300 leading-relaxed mb-2 max-w-lg mx-auto lg:mx-0"
           >
             Streamline your research workflow. Keep your papers and annotations
             private with a local workspace designed for serious research and
             deeper comprehension.
           </p>
 
+          <p
+            class="text-[12px] text-slate-400 leading-relaxed mb-8 max-w-lg mx-auto lg:mx-0"
+          >
+            Virus defenders may falsely flag the download due to its unsigned
+            nature. Rest assured, Research Marker is safe to use and all of our
+            code and build logs are open source. To use the application, you
+            must "Install Anyway" or "Keep" the file after downloading.
+          </p>
+
           <div class="flex flex-col items-center lg:items-start gap-6 w-full">
             <div class="flex flex-wrap justify-center lg:justify-start gap-4">
-              <NuxtLink
-                to="/"
-                class="rounded text-black font-semibold flex items-center justify-center transition-colors"
-              >
-                <GetStartedButton />
-              </NuxtLink>
+              <DownloadButton
+                downloadLink="https://github.com/MostAardvark224/Research-Marker-OS/releases/latest/download/Research-Marker.exe"
+                os="windows"
+              />
+              <DownloadButton
+                downloadLink="https://github.com/MostAardvark224/Research-Marker-OS/releases/latest/download/Research-Marker.dmg"
+                os="mac"
+              />
+              <DownloadButton
+                downloadLink="https://github.com/MostAardvark224/Research-Marker-OS/releases/latest/download/Research-Marker.AppImage"
+                os="linux"
+              />
 
               <!-- <a
-                href="#features"
-                class="h-12 px-8 rounded border border-white/10 text-slate-300 font-medium hover:bg-white/5 hover:text-white transition-colors flex items-center gap-2 cursor-pointer"
-              >
-                <Icon name="uil:book-open" />
-                <span>Explore Features</span>
-              </a> -->
+              href="#features"
+              class="h-12 px-8 rounded border border-white/10 text-slate-300 font-medium hover:bg-white/5 hover:text-white transition-colors flex items-center gap-2 cursor-pointer"
+            >
+              <Icon name="uil:book-open" />
+              <span>Explore Features</span>
+            </a> -->
             </div>
 
             <NuxtLink
