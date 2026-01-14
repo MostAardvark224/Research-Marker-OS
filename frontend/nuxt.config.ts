@@ -19,7 +19,9 @@ export default defineNuxtConfig({
     urlToProxy: process.env.URL_TO_PROXY,
     public: {
       apiBaseURL: isDev ? "/api" : "http://127.0.0.1:8000",
-      frontendOrigin: process.env.FRONTEND_ORIGIN,
+      frontendOrigin: process.env.FRONTEND_ORIGIN
+        ? process.env.FRONTEND_ORIGIN
+        : "http://localhost:3000",
     },
   },
 
@@ -51,6 +53,11 @@ export default defineNuxtConfig({
 
   $production: {
     devtools: { enabled: false },
+  },
+
+  experimental: {
+    appManifest: false,
+    payloadExtraction: false,
   },
 
   // have to implement this hook to fix relative paths for electron
