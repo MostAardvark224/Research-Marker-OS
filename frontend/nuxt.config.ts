@@ -1,7 +1,8 @@
 import tailwindcss from "@tailwindcss/vite";
 const isDev = process.env.NODE_ENV === "development";
+import fs from "node:fs";
+import path from "node:path";
 
-// https://nuxt.com/docs/api/configuration/nuxt-config
 export default defineNuxtConfig({
   compatibilityDate: "2025-07-15",
   devtools: { enabled: true },
@@ -24,15 +25,16 @@ export default defineNuxtConfig({
 
   css: ["~/assets/main.css"],
 
-  router: {
-    options: {
-      hashMode: true,
+  vite: {
+    build: {
+      assetsDir: "assets",
     },
+    plugins: [tailwindcss()],
   },
 
   app: {
     baseURL: "./",
-    buildAssetsDir: "/_nuxt/",
+    buildAssetsDir: "_nuxt",
     head: {
       title:
         "Research Marker | Research Paper Annotator | Understand Scientific Papers!",
@@ -43,15 +45,40 @@ export default defineNuxtConfig({
     },
   },
 
-  vite: {
-    plugins: [tailwindcss()],
-  },
-
   $development: {
     devtools: { enabled: true },
   },
 
   $production: {
     devtools: { enabled: false },
+  },
+
+  // have to implement this hook to fix relative paths for electron
+  // Nuxt doesn't allow relative paths, but electron needs them, so i have to change them after generation
+  // There's a github issue open since mid 2024 but its still unanswered.
+  hooks: {
+    close: async () => {
+      const indexHtmlPath = path.resolve(
+        process.cwd(),
+        ".output/public/index.html"
+      );
+
+      if (fs.existsSync(indexHtmlPath)) {
+        console.log("Electron Fix: Patching index.html paths...");
+        let content = fs.readFileSync(indexHtmlPath, "utf-8");
+
+        // fixing for css and js files
+        content = content.replace(/href="\/_nuxt\//g, 'href="./_nuxt/');
+        content = content.replace(/src="\/_nuxt\//g, 'src="./_nuxt/');
+
+        content = content.replace(/href="\//g, 'href="./');
+        content = content.replace(/src="\//g, 'src="./');
+
+        fs.writeFileSync(indexHtmlPath, content);
+        console.log("Electron Fix: Paths converted to relative ./");
+      } else {
+        console.log("Electron Fix: Could not find index.html to patch.");
+      }
+    },
   },
 });
