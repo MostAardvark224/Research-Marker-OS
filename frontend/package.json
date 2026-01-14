@@ -19,16 +19,11 @@
     "postinstall": "nuxt prepare",
     "build-icons": "electron-icon-builder --input=./public/logo.png --output=app/assets --flatten"
   },
-  "dependencies": {},
+  "dependencies": {
+    "electron-updater": "^6.7.3"
+  },
   "devDependencies": {
     "@iconify-json/uil": "^1.2.3",
-    "@tailwindcss/postcss": "^4.1.17",
-    "concurrently": "^9.2.1",
-    "cross-env": "^10.1.0",
-    "electron": "^39.2.7",
-    "electron-builder": "^26.4.0",
-    "electron-icon-builder": "^2.0.1",
-    "wait-on": "^9.0.3",
     "@nuxt/hints": "1.0.0-alpha.1",
     "@nuxt/icon": "2.1.0",
     "@nuxt/image": "2.0.0",
@@ -36,10 +31,16 @@
     "@nuxtjs/tailwindcss": "6.14.0",
     "@pinia/nuxt": "0.11.3",
     "@recogito/pdf-annotator": "^1.6.0",
+    "@tailwindcss/postcss": "^4.1.17",
     "@tailwindcss/vite": "^4.1.17",
     "annotpdf": "^1.0.15",
+    "concurrently": "^9.2.1",
+    "cross-env": "^10.1.0",
     "d3": "^7.9.0",
     "dompurify": "^3.3.1",
+    "electron": "^39.2.7",
+    "electron-builder": "^26.4.0",
+    "electron-icon-builder": "^2.0.1",
     "katex": "^0.16.27",
     "marked": "^17.0.1",
     "marked-katex-extension": "^5.1.6",
@@ -52,7 +53,8 @@
     "typescript": "^5.9.3",
     "ufo": "^1.6.1",
     "vue": "^3.5.24",
-    "vue-router": "^4.6.3"
+    "vue-router": "^4.6.3",
+    "wait-on": "^9.0.3"
   },
   "build": {
     "appId": "com.researchmarker.os",

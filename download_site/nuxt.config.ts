@@ -4,4 +4,9 @@ export default defineNuxtConfig({
   devtools: { enabled: true },
   modules: ["@nuxtjs/tailwindcss", "@nuxt/icon"],
   ssr: false,
+  app: {
+    head: {
+      link: [{ rel: "icon", type: "image/svg+xml", href: "/logo.svg" }],
+    },
+  },
 });

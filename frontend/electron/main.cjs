@@ -1,7 +1,7 @@
 const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
 const { spawn } = require("child_process");
-
+const { autoUpdater } = require("electron-updater");
 app.disableHardwareAcceleration();
 
 let mainWindow;
@@ -106,7 +106,8 @@ function createWindow() {
     mainWindow.webContents.openDevTools();
   } else {
     mainWindow.loadFile(
-      path.join(app.getAppPath(), ".output/public/index.html")
+      path.join(app.getAppPath(), ".output/public/index.html"),
+      { hash: "/" }
     );
   }
 
@@ -115,6 +116,10 @@ function createWindow() {
     splashWindow.destroy();
     mainWindow.show();
     mainWindow.focus();
+
+    if (!isDev) {
+      autoUpdater.checkForUpdatesAndNotify();
+    }
   });
 }
 
@@ -131,4 +136,14 @@ app.on("will-quit", () => {
   if (pythonProcess) {
     pythonProcess.kill();
   }
+});
+
+autoUpdater.on("update-available", () => {
+  console.log("Update available.");
+  mainWindow.webContents.send("update_available");
+});
+
+autoUpdater.on("update-downloaded", () => {
+  console.log("Update downloaded");
+  mainWindow.webContents.send("update_downloaded");
 });

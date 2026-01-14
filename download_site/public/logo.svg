@@ -1,0 +1,19 @@
+<svg width="400" height="400" viewBox="0 0 400 400" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="purpleBlueGradient" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#a0c4ff" /> <stop offset="100%" stop-color="#6a00ff" /> </linearGradient>
+    <filter id="softShadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="15" result="blur"/>
+      <feOffset in="blur" dx="5" dy="10" result="offsetBlur"/>
+      <feComponentTransfer in="offsetBlur" result="shadowAlpha">
+        <feFuncA type="linear" slope="0.3"/> </feComponentTransfer>
+      <feMerge>
+        <feMergeNode in="shadowAlpha"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+  <g filter="url(#softShadow)">
+    <rect x="100" y="100" width="200" height="200" rx="20" transform="rotate(45 200 200)" fill="url(#purpleBlueGradient)"/>
+  </g>
+</svg>
