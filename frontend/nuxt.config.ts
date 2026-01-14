@@ -32,6 +32,7 @@ export default defineNuxtConfig({
 
   app: {
     baseURL: "./",
+    buildAssetsDir: "/_nuxt/",
     head: {
       title:
         "Research Marker | Research Paper Annotator | Understand Scientific Papers!",

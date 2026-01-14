@@ -7,7 +7,10 @@ settings:
 importers:
 
   .:
-    dependencies:
+    devDependencies:
+      '@iconify-json/uil':
+        specifier: ^1.2.3
+        version: 1.2.3
       '@nuxt/hints':
         specifier: 1.0.0-alpha.1
         version: 1.0.0-alpha.1(encoding@0.1.13)(magicast@0.5.1)(vite@7.3.1(@types/node@25.0.5)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.44.1)(yaml@2.8.2))(vue@3.5.26(typescript@5.9.3))
@@ -29,18 +32,36 @@ importers:
       '@recogito/pdf-annotator':
         specifier: ^1.6.0
         version: 1.6.0
+      '@tailwindcss/postcss':
+        specifier: ^4.1.17
+        version: 4.1.18
       '@tailwindcss/vite':
         specifier: ^4.1.17
         version: 4.1.18(vite@7.3.1(@types/node@25.0.5)(jiti@2.6.1)(lightningcss@1.30.2)(terser@5.44.1)(yaml@2.8.2))
       annotpdf:
         specifier: ^1.0.15
         version: 1.0.15
+      concurrently:
+        specifier: ^9.2.1
+        version: 9.2.1
+      cross-env:
+        specifier: ^10.1.0
+        version: 10.1.0
       d3:
         specifier: ^7.9.0
         version: 7.9.0
       dompurify:
         specifier: ^3.3.1
         version: 3.3.1
+      electron:
+        specifier: ^39.2.7
+        version: 39.2.7
+      electron-builder:
+        specifier: ^26.4.0
+        version: 26.4.0(electron-builder-squirrel-windows@26.4.0)
+      electron-icon-builder:
+        specifier: ^2.0.1
+        version: 2.0.1
       katex:
         specifier: ^0.16.27
         version: 0.16.27
@@ -80,28 +101,6 @@ importers:
       vue-router:
         specifier: ^4.6.3
         version: 4.6.4(vue@3.5.26(typescript@5.9.3))
-    devDependencies:
-      '@iconify-json/uil':
-        specifier: ^1.2.3
-        version: 1.2.3
-      '@tailwindcss/postcss':
-        specifier: ^4.1.17
-        version: 4.1.18
-      concurrently:
-        specifier: ^9.2.1
-        version: 9.2.1
-      cross-env:
-        specifier: ^10.1.0
-        version: 10.1.0
-      electron:
-        specifier: ^39.2.7
-        version: 39.2.7
-      electron-builder:
-        specifier: ^26.4.0
-        version: 26.4.0(electron-builder-squirrel-windows@26.4.0)
-      electron-icon-builder:
-        specifier: ^2.0.1
-        version: 2.0.1
       wait-on:
         specifier: ^9.0.3
         version: 9.0.3
