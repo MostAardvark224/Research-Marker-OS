@@ -11,8 +11,15 @@ let apiPort = null;
 
 const isDev = process.env.NODE_ENV === "development";
 
+const resolvePath = (devPath, prodPath) => {
+  if (isDev) {
+    return path.join(__dirname, devPath);
+  }
+  return path.join(app.getAppPath(), prodPath);
+};
+
 const scriptPath = isDev
-  ? path.join(__dirname, "../../backend/dist/api/api")
+  ? path.join(app.getAppPath(), "../../backend/dist/api/api")
   : path.join(process.resourcesPath, "backend", "api");
 
 // creates loading screen before app startup.
@@ -29,9 +36,10 @@ function createSplashWindow() {
   });
 
   // Load html file
-  const splashPath = isDev
-    ? path.join(__dirname, "../app/assets/splash.html")
-    : path.join(app.getAppPath(), "app/assets/splash.html");
+  const splashPath = resolvePath(
+    "../app/assets/splash.html",
+    "app/assets/splash.html"
+  );
 
   console.log("Attempting to load splash from:", splashPath);
   splashWindow.loadFile(splashPath);
@@ -83,18 +91,23 @@ function createWindow() {
     show: false,
     frame: true,
     webPreferences: {
-      preload: path.join(__dirname, "preload.cjs"),
+      preload: resolvePath("preload.cjs", "electron/preload.cjs"),
       nodeIntegration: false,
       contextIsolation: true,
     },
-    icon: path.join(__dirname, "../app/assets/icons/icon.png"),
+    icon: resolvePath(
+      "../app/assets/icons/icon.png",
+      "app/assets/icons/icon.png"
+    ),
   });
 
   if (isDev) {
     mainWindow.loadURL("http://localhost:3000");
     mainWindow.webContents.openDevTools();
   } else {
-    mainWindow.loadFile(path.join(__dirname, "../.output/public/index.html"));
+    mainWindow.loadFile(
+      path.join(app.getAppPath(), ".output/public/index.html")
+    );
   }
 
   // changing from loading to app
