@@ -3,12 +3,16 @@
 <div align="center">
   <img src="frontend/public/logo.svg" alt="Research Marker" width="80" />
   <h1>Research Marker</h1>
+  
+  <a href="https://research-marker.web.app/">
+    <b>Download App ⬇️</b>
+  </a>
+  
   <br />
-</div>
-  <p>
+  <br /> <p>
     <strong>Consolidate your knowledge base in one central, queryable location.</strong>
   </p>
-
+</div>
   <p>
     Research Marker is an open-source research annotation platform designed to streamline your workflow. Never lose a research paper again.
   </p>
@@ -24,7 +28,7 @@
 
   <br />
   <h3>
-    🚧 Full documentation and downloads for Windows, Mac, and Linux are coming very soon! 🚧
+    🚧 Full documentation coming very soon! 🚧
   </h3>
   <br />
 
