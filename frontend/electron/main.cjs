@@ -19,7 +19,7 @@ const resolvePath = (devPath, prodPath) => {
 };
 
 const scriptPath = isDev
-  ? path.join(app.getAppPath(), "../../backend/dist/api/api")
+  ? path.join(app.getAppPath(), "../backend/dist/api/api")
   : path.join(process.resourcesPath, "backend", "api");
 
 // creates loading screen before app startup.
