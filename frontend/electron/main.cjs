@@ -138,6 +138,10 @@ app.on("will-quit", () => {
   }
 });
 
+ipcMain.on("restart_app", () => {
+  autoUpdater.quitAndInstall();
+});
+
 autoUpdater.on("update-available", () => {
   console.log("Update available.");
   mainWindow.webContents.send("update_available");
@@ -146,4 +150,9 @@ autoUpdater.on("update-available", () => {
 autoUpdater.on("update-downloaded", () => {
   console.log("Update downloaded");
   mainWindow.webContents.send("update_downloaded");
+});
+
+// error handling
+autoUpdater.on("error", (err) => {
+  console.log("Update error: ", err);
 });
