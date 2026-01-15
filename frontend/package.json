@@ -1,6 +1,6 @@
 {
   "name": "research-marker",
-  "version": "1.0.3",
+  "version": "1.0.0",
   "description": "A local research workflow tool",
   "author": "Amay Babel",
   "type": "module",
