@@ -34,8 +34,14 @@ export default defineNuxtConfig({
     plugins: [tailwindcss()],
   },
 
+  router: {
+    options: {
+      hashMode: true,
+    },
+  },
+
   app: {
-    baseURL: "/",
+    baseURL: "./",
     buildAssetsDir: "_nuxt",
     head: {
       title:
