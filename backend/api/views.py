@@ -399,9 +399,13 @@ class AIChatView(APIView):
         context_block = ""
 
         at_recent = to_bool(request.data.get("at_recent", False))
+        print(f"at_recent: {at_recent}")
         paper_ids = request.data.get("paper_ids", None)
+        print(f"paper_ids: {paper_ids}")
         folder_ids = request.data.get("folder_ids", None)
+        print(f"folder_ids: {folder_ids}")
         rag_enabled = to_bool(request.data.get("rag_enabled", False))
+        print(f"rag enabled: {rag_enabled}")
 
         # handling flags
 
@@ -451,7 +455,7 @@ class AIChatView(APIView):
             status=status.HTTP_200_OK)
 
         # handles @paper
-        elif paper_ids != None:
+        elif paper_ids:
             papers = models.Document.objects.filter(pk__in = paper_ids)
             pdf_paths = [Path(p.file.path) for p in papers if p.file]
 
@@ -489,7 +493,8 @@ class AIChatView(APIView):
             
 
         # handles @folder, doesn't send any paper pdfs
-        elif folder_ids != None:
+        elif folder_ids:
+            print("Folder IDs detected, handling @folder context injection")
             # get all necessary data (all 3 layers)
             folders = models.Folder.objects.filter(pk__in = folder_ids).prefetch_related(
             'documents', 
@@ -561,6 +566,7 @@ class AIChatView(APIView):
                 context_block = context_template.format(annot_data=context)
                 
             new_prompt = prompt + "\n\n" + context_block  
+
 
             model_response = send_prompt(
                     gemini_key = gemini_key, 

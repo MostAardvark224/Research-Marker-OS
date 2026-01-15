@@ -2,6 +2,9 @@ const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
 const { spawn } = require("child_process");
 const { autoUpdater } = require("electron-updater");
+
+autoUpdater.autoInstallOnAppQuit = false;
+
 app.disableHardwareAcceleration();
 
 let mainWindow;
@@ -139,7 +142,13 @@ app.on("will-quit", () => {
 });
 
 ipcMain.on("restart_app", () => {
-  autoUpdater.quitAndInstall();
+  if (pythonProcess) {
+    console.log("Killing Python process before update");
+    pythonProcess.kill();
+    pythonProcess = null;
+  }
+
+  autoUpdater.quitAndInstall(true, true);
 });
 
 autoUpdater.on("update-available", () => {
