@@ -2,6 +2,8 @@
 export default defineNuxtPlugin(async (nuxtApp) => {
   const config = useRuntimeConfig();
 
+  console.log("Attempting to get API port from Electron");
+
   if (window.electronAPI) {
     console.log("Initializing Electron API connection...");
 
@@ -21,5 +23,7 @@ export default defineNuxtPlugin(async (nuxtApp) => {
     config.public.apiBaseURL = `http://127.0.0.1:${port}/api`;
 
     console.log(`Config updated: API is at ${config.public.apiBaseURL}`);
+  } else {
+    console.log("Not an electron window");
   }
 });

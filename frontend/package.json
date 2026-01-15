@@ -19,6 +19,15 @@
     "postinstall": "nuxt prepare",
     "build-icons": "electron-icon-builder --input=./public/logo.png --output=app/assets --flatten"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@parcel/watcher",
+      "electron",
+      "esbuild",
+      "sharp",
+      "vue-demi"
+    ]
+  }, 
   "dependencies": {
     "electron-updater": "^6.7.3"
   },

@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
-contextBridge.exposeInMainWorld("electron", {
+contextBridge.exposeInMainWorld("electronAPI", {
   getApiPort: () => ipcRenderer.invoke("get-api-port"),
   onUpdateAvailable: (callback) => ipcRenderer.on("update_available", callback),
   onUpdateDownloaded: (callback) =>
