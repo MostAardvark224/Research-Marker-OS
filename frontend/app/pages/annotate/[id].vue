@@ -1,7 +1,8 @@
 <script setup>
 import { select } from "#build/ui";
 import "pdfjs-dist/web/pdf_viewer.css";
-
+import MarkdownIt from "markdown-it";
+import mk from "markdown-it-katex";
 import katex from "katex";
 import "katex/dist/katex.min.css";
 
@@ -63,43 +64,134 @@ const renderTasks = {};
 // katex rendering for sticky and notepad
 const isNotepadPreview = ref(false);
 
-// [ADD THIS] Helper function to render Text + Math
+const md = new MarkdownIt({
+  html: true, // Enable HTML tags in source
+  breaks: true, // Convert '\n' in paragraphs into <br>
+  linkify: true, // Autoconvert URL-like text to links
+});
+
+// Use the KaTeX plugin
+md.use(mk);
+
 const renderContent = (text) => {
   if (!text) return "";
+  try {
+    const preservedText = text.replace(/\n\n/g, "\n&nbsp;\n");
 
-  const parts = text.split("$$");
+    return md.render(preservedText);
+  } catch (e) {
+    return text;
+  }
+};
 
-  return parts
-    .map((part, index) => {
-      if (index % 2 === 1) {
-        try {
-          return katex.renderToString(part, {
-            displayMode: true,
-            throwOnError: false,
-          });
-        } catch (e) {
-          return `<span class="text-red-400">Error</span>`;
-        }
-      } else {
-        return part
-          .split("$")
-          .map((subPart, subIndex) => {
-            if (subIndex % 2 === 1) {
-              try {
-                return katex.renderToString(subPart, {
-                  displayMode: false,
-                  throwOnError: false,
-                });
-              } catch (e) {
-                return `$${subPart}$`;
-              }
-            }
-            return subPart.replace(/\n/g, "<br>");
-          })
-          .join("");
-      }
-    })
-    .join("");
+const notepadTextarea = ref(null);
+
+// Formatting Helper
+const insertFormat = (format) => {
+  const textarea = notepadTextarea.value;
+  if (!textarea) return;
+
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  const text = notepadData.value;
+
+  let insertion = "";
+  let newCursorPos = end;
+
+  // Helper: Check if we are at the start of the file or line
+  const isStart = start === 0;
+  const prefix = isStart ? "" : "\n\n";
+
+  switch (format) {
+    case "bold":
+      insertion = `**${text.substring(start, end) || "bold"}**`;
+      newCursorPos = start + insertion.length;
+      break;
+    case "italic":
+      insertion = `*${text.substring(start, end) || "italic"}*`;
+      newCursorPos = start + insertion.length;
+      break;
+    case "math-inline":
+      insertion = `$${text.substring(start, end) || ""}$`;
+      newCursorPos = start + insertion.length - 1;
+      break;
+    case "math-block":
+      // Math blocks still need newlines to render cleanly
+      insertion = `${prefix}$$\n${text.substring(start, end) || ""}\n$$`;
+      newCursorPos = start + insertion.length - 3;
+      break;
+  }
+
+  // Update State
+  notepadData.value =
+    text.substring(0, start) + insertion + text.substring(end);
+
+  // Restore Focus
+  nextTick(() => {
+    textarea.focus();
+    textarea.setSelectionRange(newCursorPos, newCursorPos);
+  });
+};
+
+// keyboard shortcuts
+const handleKeyboardShortcuts = (e) => {
+  // Check if user is typing in an input/textarea
+  const isTyping = ["INPUT", "TEXTAREA"].includes(
+    document.activeElement.tagName,
+  );
+  const isNotepadFocused = document.activeElement === notepadTextarea.value;
+
+  if (isNotepadFocused) {
+    // Bold: Ctrl + B or Cmd + B
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") {
+      e.preventDefault();
+      insertFormat("bold");
+    }
+    // Italic: Ctrl + I or Cmd + I
+    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "i") {
+      e.preventDefault();
+      insertFormat("italic");
+    }
+    // Inline Math: Ctrl + M
+    else if (
+      (e.ctrlKey || e.metaKey) &&
+      !e.shiftKey &&
+      e.key.toLowerCase() === "m"
+    ) {
+      e.preventDefault();
+      insertFormat("math-inline");
+    }
+    // Block Math: Ctrl + Shift + M
+    else if (
+      (e.ctrlKey || e.metaKey) &&
+      e.shiftKey &&
+      e.key.toLowerCase() === "m"
+    ) {
+      e.preventDefault();
+      insertFormat("math-block");
+    }
+    return; // wont trigger tool shortcuts while typing
+  }
+
+  // viewing pdf
+  if (!isTyping) {
+    // Prevent interfering with browser shortcuts
+    switch (e.key.toLowerCase()) {
+      case "v":
+      case "escape":
+        changeActiveTool("cursor");
+        break;
+      case "h":
+        changeActiveTool("highlighter");
+        break;
+      case "s":
+        changeActiveTool("stickyNote");
+        break;
+      case "d":
+        changeActiveTool("deleteAnnotation");
+        break;
+    }
+  }
 };
 
 // Highlight Events
@@ -934,6 +1026,7 @@ onMounted(async () => {
     await fetchAnnotations();
     await fetchPaper();
 
+    document.addEventListener("keydown", handleKeyboardShortcuts);
     document.addEventListener("mouseup", handleTextSelection);
   } catch (err) {
     console.error("Failed to load PDF libraries:", err);
@@ -944,7 +1037,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   document.removeEventListener("mouseup", handleTextSelection);
-
+  document.removeEventListener("keydown", handleKeyboardShortcuts);
   if (observer) observer.disconnect();
   if (pageTrackingObserver) pageTrackingObserver.disconnect();
 });
@@ -1174,7 +1267,7 @@ watch(currentPage, () => {
             @click="changeActiveTool('cursor')"
             class="tool-btn"
             :class="{ 'active-tool': activeTool === 'cursor' }"
-            title="Select Cursor"
+            title="Select Cursor (V)"
           >
             <Icon name="ph:cursor" class="text-[16px]" />
           </button>
@@ -1183,7 +1276,7 @@ watch(currentPage, () => {
             @click="changeActiveTool('highlighter')"
             :class="{ 'active-tool': activeTool === 'highlighter' }"
             class="tool-btn"
-            title="Highlight Text"
+            title="Highlight Text (H)"
           >
             <Icon name="ph:highlighter" class="text-[16px]" />
           </button>
@@ -1193,7 +1286,7 @@ watch(currentPage, () => {
             @click="changeActiveTool('stickyNote')"
             :class="{ 'active-tool': activeTool === 'stickyNote' }"
             class="tool-btn"
-            title="Sticky Note"
+            title="Sticky Note (S)"
           >
             <Icon name="ph:note" class="text-[16px]" />
           </button>
@@ -1202,7 +1295,7 @@ watch(currentPage, () => {
             @click="changeActiveTool('deleteAnnotation')"
             class="tool-btn"
             :class="{ 'active-tool': activeTool === 'deleteAnnotation' }"
-            title="Delete Annotation"
+            title="Delete Annotation (D)"
           >
             <Icon name="material-symbols:delete-outline" class="text-[16px]" />
           </button>
@@ -1518,23 +1611,77 @@ watch(currentPage, () => {
         </div>
         <div
           v-show="sidebarActiveTab === 'notepad'"
-          class="flex-1 p-4 overflow-y-auto"
+          class="flex-1 flex flex-col h-full overflow-hidden"
         >
           <div
-            v-if="isNotepadPreview"
-            class="w-full min-h-full bg-transparent text-slate-200 text-sm break-words prose prose-invert prose-p:my-2 prose-headings:my-3 max-w-none"
-            v-html="
-              renderContent(notepadData) ||
-              '<span class=\'opacity-50 italic\'>Start typing to add notes...</span>'
-            "
-          ></div>
+            v-if="!isNotepadPreview"
+            class="flex items-center justify-between px-4 py-2 border-b border-slate-800 bg-slate-900 shrink-0"
+          >
+            <div class="flex gap-2">
+              <button
+                @mousedown.prevent
+                @click="insertFormat('bold')"
+                class="toolbar-btn"
+                title="Bold (Ctrl+B)"
+              >
+                <Icon name="ph:text-b" class="w-4 h-4" />
+              </button>
+              <button
+                @mousedown.prevent
+                @click="insertFormat('italic')"
+                class="toolbar-btn"
+                title="Italic (Ctrl+I)"
+              >
+                <Icon name="ph:text-italic" class="w-4 h-4" />
+              </button>
 
-          <textarea
-            v-else
-            v-model="notepadData"
-            placeholder="Start typing... Use $...$ for equations."
-            class="w-full h-full bg-slate-800 text-slate-200 p-3 rounded-lg border border-slate-700 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm resize-none transition-colors font-mono custom-scrollbar"
-          ></textarea>
+              <button
+                @mousedown.prevent
+                @click="insertFormat('math-inline')"
+                class="toolbar-btn"
+                title="Inline Math (Ctrl+M)"
+              >
+                <Icon name="ph:function" class="w-4 h-4" />
+              </button>
+              <button
+                @mousedown.prevent
+                @click="insertFormat('math-block')"
+                class="toolbar-btn"
+                title="Block Math (Ctrl+Shift+M)"
+              >
+                <Icon name="ph:sigma" class="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          <div class="flex-1 overflow-y-auto p-4 relative">
+            <div
+              v-if="isNotepadPreview"
+              class="prose prose-sm prose-invert max-w-none break-words prose-headings:text-indigo-300 prose-headings:font-bold prose-headings:mb-2 prose-headings:mt-4 prose-p:text-slate-300 prose-p:my-2 prose-p:leading-relaxed prose-strong:text-slate-100 prose-strong:font-semibold prose-ul:my-2 prose-li:my-0 prose-code:text-amber-300 prose-code:bg-slate-800 prose-code:px-1 prose-code:rounded prose-code:font-mono prose-code:before:content-none prose-code:after:content-none"
+              v-html="
+                renderContent(notepadData) ||
+                '<span class=\'opacity-50 italic\'>Start typing to add notes...</span>'
+              "
+            ></div>
+
+            <textarea
+              v-else
+              ref="notepadTextarea"
+              v-model="notepadData"
+              placeholder="# Notes
+- Use markdown
+- $E=mc^2$ for math"
+              class="w-full h-full bg-transparent text-slate-300 text-sm font-mono leading-relaxed outline-none resize-none custom-scrollbar selection:bg-indigo-500/30 placeholder:text-slate-600"
+            ></textarea>
+          </div>
+
+          <div
+            class="h-6 bg-slate-900 border-t border-slate-800 flex items-center justify-end px-2 shrink-0"
+          >
+            <span class="text-[10px] text-slate-500 font-mono">
+              Markdown Supported • KaTeX Ready
+            </span>
+          </div>
         </div>
       </aside>
     </div>
@@ -1636,5 +1783,30 @@ canvas {
 :deep(.textLayer ::selection) {
   background: rgba(99, 102, 241, 0.4);
   color: transparent;
+}
+
+.toolbar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  color: #94a3b8; /* slate-400 */
+  transition: all 0.2s;
+}
+
+.toolbar-btn:hover {
+  background-color: #334155; /* slate-700 */
+  color: #f8fafc; /* slate-50 */
+}
+
+:deep(.katex) {
+  font-size: 1.1em;
+}
+:deep(.katex-display) {
+  margin: 0.5em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 </style>

@@ -27,7 +27,7 @@
       "sharp",
       "vue-demi"
     ]
-  }, 
+  },
   "dependencies": {
     "electron-updater": "^6.7.3"
   },
@@ -53,6 +53,8 @@
     "katex": "^0.16.27",
     "marked": "^17.0.1",
     "marked-katex-extension": "^5.1.6",
+    "markdown-it": "^14.1.0",
+    "markdown-it-katex": "^2.0.3",
     "nuxt": "^4.2.1",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^5.4.449",
