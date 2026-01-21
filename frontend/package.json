@@ -71,7 +71,6 @@
     "appId": "com.researchmarker.os",
     "productName": "Research Marker",
     "artifactName": "${productName}.${ext}",
-    "releaseType": "release",
     "directories": {
       "output": "dist_electron"
     },
