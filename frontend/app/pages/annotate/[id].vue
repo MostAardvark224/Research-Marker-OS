@@ -2,6 +2,9 @@
 import { select } from "#build/ui";
 import "pdfjs-dist/web/pdf_viewer.css";
 
+import katex from "katex";
+import "katex/dist/katex.min.css";
+
 const {
   public: { apiBaseURL },
 } = useRuntimeConfig();
@@ -56,6 +59,48 @@ const isResizing = ref(false);
 const isManualScrolling = ref(false);
 
 const renderTasks = {};
+
+// katex rendering for sticky and notepad
+const isNotepadPreview = ref(false);
+
+// [ADD THIS] Helper function to render Text + Math
+const renderContent = (text) => {
+  if (!text) return "";
+
+  const parts = text.split("$$");
+
+  return parts
+    .map((part, index) => {
+      if (index % 2 === 1) {
+        try {
+          return katex.renderToString(part, {
+            displayMode: true,
+            throwOnError: false,
+          });
+        } catch (e) {
+          return `<span class="text-red-400">Error</span>`;
+        }
+      } else {
+        return part
+          .split("$")
+          .map((subPart, subIndex) => {
+            if (subIndex % 2 === 1) {
+              try {
+                return katex.renderToString(subPart, {
+                  displayMode: false,
+                  throwOnError: false,
+                });
+              } catch (e) {
+                return `$${subPart}$`;
+              }
+            }
+            return subPart.replace(/\n/g, "<br>");
+          })
+          .join("");
+      }
+    })
+    .join("");
+};
 
 // Highlight Events
 const handleTextSelection = async () => {
@@ -158,13 +203,13 @@ const handleAnnotationClick = async (event, annotation) => {
       const textLayer = textLayerRefs.value[pageIndex];
       if (textLayer) {
         const elements = textLayer.querySelectorAll(
-          `[data-id="${annotation.id}"]`
+          `[data-id="${annotation.id}"]`,
         );
         elements.forEach((el) => el.remove());
       }
 
       savedHighlights.value = savedHighlights.value.filter(
-        (h) => h.id !== annotation.id
+        (h) => h.id !== annotation.id,
       );
 
       undoStack.value.push({ type: "delete", data: annotation });
@@ -177,7 +222,7 @@ const handleAnnotationClick = async (event, annotation) => {
         if (el) el.remove();
       }
       stickyNoteData.value = stickyNoteData.value.filter(
-        (s) => s.id !== annotation.id
+        (s) => s.id !== annotation.id,
       );
       if (activeStickyNoteId.value === annotation.id) {
         activeStickyNoteId.value = null;
@@ -197,6 +242,10 @@ const handleAnnotationClick = async (event, annotation) => {
 
 // Sticky Note Events
 const handleLayerClick = async (event, pageNum) => {
+  if (activeStickyNoteId.value !== null) {
+    activeStickyNoteId.value = null;
+  }
+
   if (activeTool.value !== "stickyNote") return;
 
   const textLayer = textLayerRefs.value[pageNum - 1];
@@ -320,7 +369,7 @@ const performUndo = async () => {
   if (action.type === "add") {
     if (action.data.type === "highlight") {
       savedHighlights.value = savedHighlights.value.filter(
-        (h) => h.id !== action.data.id
+        (h) => h.id !== action.data.id,
       );
       const pageIndex = action.data.page - 1;
       const textLayer = textLayerRefs.value[pageIndex];
@@ -331,7 +380,7 @@ const performUndo = async () => {
       }
     } else if (action.data.type === "stickyNote") {
       stickyNoteData.value = stickyNoteData.value.filter(
-        (s) => s.id !== action.data.id
+        (s) => s.id !== action.data.id,
       );
       const pageIndex = action.data.page - 1;
       const textLayer = textLayerRefs.value[pageIndex];
@@ -377,7 +426,7 @@ const performRedo = async () => {
   } else if (action.type === "delete") {
     if (action.data.type === "highlight") {
       savedHighlights.value = savedHighlights.value.filter(
-        (h) => h.id !== action.data.id
+        (h) => h.id !== action.data.id,
       );
       const pageIndex = action.data.page - 1;
       const textLayer = textLayerRefs.value[pageIndex];
@@ -388,7 +437,7 @@ const performRedo = async () => {
       }
     } else if (action.data.type === "stickyNote") {
       stickyNoteData.value = stickyNoteData.value.filter(
-        (s) => s.id !== action.data.id
+        (s) => s.id !== action.data.id,
       );
       const pageIndex = action.data.page - 1;
       const textLayer = textLayerRefs.value[pageIndex];
@@ -445,6 +494,7 @@ const selectColor = (color) => {
 const activeTool = ref("cursor");
 function changeActiveTool(newToolButton) {
   activeTool.value = newToolButton;
+  activeStickyNoteId.value = null;
   console.log("Active tool changed to:", newToolButton);
 }
 
@@ -473,7 +523,7 @@ watch(
       saveAnnotationsToBackend();
     }, 1500);
   },
-  { deep: true }
+  { deep: true },
 );
 
 const focusStickyNote = (noteId) => {
@@ -674,12 +724,12 @@ async function renderPage(pageNum) {
       await textLayer.render();
 
       const pageHighlights = savedHighlights.value.filter(
-        (h) => h.page === pageNum
+        (h) => h.page === pageNum,
       );
       pageHighlights.forEach((h) => renderHighlight(h, textLayerDiv));
 
       const pageStickyNotes = stickyNoteData.value.filter(
-        (s) => s.page === pageNum
+        (s) => s.page === pageNum,
       );
       pageStickyNotes.forEach((s) => renderStickyNote(s, textLayerDiv));
 
@@ -694,7 +744,7 @@ async function renderPage(pageNum) {
           if (regex.test(span.textContent)) {
             span.innerHTML = span.textContent.replace(
               regex,
-              `<mark class="bg-yellow-500/40 text-transparent rounded-sm">$1</mark>`
+              `<mark class="bg-yellow-500/40 text-transparent rounded-sm">$1</mark>`,
             );
           }
         });
@@ -860,7 +910,7 @@ watch(zoomLevel, async (newZoom, oldZoom) => {
 
   zoomDebounce = setTimeout(async () => {
     const promises = Array.from(visiblePages.value).map((pageNum) =>
-      renderPage(pageNum)
+      renderPage(pageNum),
     );
     await Promise.all(promises);
   }, 150);
@@ -1340,14 +1390,30 @@ watch(currentPage, () => {
           </div>
           <div
             @click="changeSidebarTab('notepad')"
-            class="flex-1 text-center py-2 text-sm font-medium transition-colors z-10"
+            class="flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium transition-colors z-10 cursor-pointer"
             :class="{
               'text-slate-200': sidebarActiveTab === 'notepad',
-              'text-slate-500 hover:text-slate-300 cursor-pointer':
+              'text-slate-500 hover:text-slate-300':
                 sidebarActiveTab !== 'notepad',
             }"
           >
             Notepad
+
+            <button
+              v-if="sidebarActiveTab === 'notepad'"
+              @click.stop="isNotepadPreview = !isNotepadPreview"
+              class="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+              :title="
+                isNotepadPreview
+                  ? 'Switch to Edit Mode'
+                  : 'Switch to Preview Mode'
+              "
+            >
+              <Icon
+                :name="isNotepadPreview ? 'ph:pencil-simple' : 'ph:eye'"
+                class="w-3.5 h-3.5"
+              />
+            </button>
           </div>
         </div>
 
@@ -1363,6 +1429,7 @@ watch(currentPage, () => {
               >Click on PDF to add note</span
             >
           </div>
+
           <div
             v-for="note in stickyNoteData"
             :key="note.id"
@@ -1429,22 +1496,44 @@ watch(currentPage, () => {
               </button>
             </div>
 
-            <textarea
-              v-model="note.content"
-              @click.stop
-              class="w-full bg-slate-900/50 text-slate-300 text-sm p-2 rounded border border-slate-700/50 focus:outline-none focus:border-indigo-500/50 resize-none h-20 custom-scrollbar"
-              placeholder="Type note..."
-            ></textarea>
+            <div class="relative w-full">
+              <div
+                v-if="activeStickyNoteId !== note.id"
+                class="w-full bg-slate-900/50 text-slate-300 text-sm p-2 rounded border border-slate-700/50 min-h-[5rem] break-words prose prose-invert prose-p:my-0"
+                v-html="
+                  renderContent(note.content) ||
+                  '<span class=\'opacity-50 italic\'>Empty note...</span>'
+                "
+              ></div>
+
+              <textarea
+                v-else
+                v-model="note.content"
+                @click.stop
+                class="w-full bg-slate-900/50 text-slate-300 text-sm p-2 rounded border border-slate-700/50 focus:outline-none focus:border-indigo-500/50 resize-none h-20 custom-scrollbar font-mono"
+                placeholder="Type note... ($E=mc^2$)"
+              ></textarea>
+            </div>
           </div>
         </div>
         <div
           v-show="sidebarActiveTab === 'notepad'"
           class="flex-1 p-4 overflow-y-auto"
         >
+          <div
+            v-if="isNotepadPreview"
+            class="w-full min-h-full bg-transparent text-slate-200 text-sm break-words prose prose-invert prose-p:my-2 prose-headings:my-3 max-w-none"
+            v-html="
+              renderContent(notepadData) ||
+              '<span class=\'opacity-50 italic\'>Start typing to add notes...</span>'
+            "
+          ></div>
+
           <textarea
+            v-else
             v-model="notepadData"
-            placeholder="Start typing your notes here..."
-            class="w-full h-full bg-slate-800 text-slate-200 p-3 rounded-lg border border-slate-700 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm resize-none transition-colors"
+            placeholder="Start typing... Use $...$ for equations."
+            class="w-full h-full bg-slate-800 text-slate-200 p-3 rounded-lg border border-slate-700 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm resize-none transition-colors font-mono custom-scrollbar"
           ></textarea>
         </div>
       </aside>

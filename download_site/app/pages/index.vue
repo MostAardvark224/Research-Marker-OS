@@ -76,18 +76,17 @@
           <p
             class="text-[16px] text-slate-300 leading-relaxed mb-2 max-w-lg mx-auto lg:mx-0"
           >
-            Streamline your research workflow. Keep your papers and annotations
-            private with a local workspace designed for serious research and
-            deeper comprehension.
+            Consolidate your knowledge base in one central, queryable location.
+            Research Marker is an open-source platform built to optimize your
+            research annotation workflow. Never lose a research paper again.
           </p>
 
           <p
             class="text-[12px] text-slate-400 leading-relaxed mb-8 max-w-lg mx-auto lg:mx-0"
           >
-            Virus defenders may falsely flag the download due to its unsigned
-            nature. Rest assured, Research Marker is safe to use and all of our
-            code and build logs are open source. To use the application, you
-            must "Install Anyway" or "Keep" the file after downloading.
+            Your antivirus may flag this installer because it is unsigned.
+            Research Marker is open source and safe, please select 'Keep' or
+            'Run Anyway' to ensure a successful download.
           </p>
 
           <div class="flex flex-col items-center lg:items-start gap-6 w-full">

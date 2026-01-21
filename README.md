@@ -14,7 +14,7 @@
   </p>
 </div>
   <p>
-    Research Marker is an open-source research annotation platform designed to streamline your workflow. Never lose a research paper again.
+    Research Marker is an open-source platform built to optimize your research annotation workflow. Never lose a research paper again.
   </p>
 
   <p>
