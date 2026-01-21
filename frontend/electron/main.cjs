@@ -1,8 +1,9 @@
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog } = require("electron");
 const path = require("path");
 const { spawn } = require("child_process");
 const { autoUpdater } = require("electron-updater");
 
+autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = false;
 
 app.disableHardwareAcceleration();
@@ -11,6 +12,7 @@ let mainWindow;
 let splashWindow;
 let pythonProcess;
 let apiPort = null;
+let isAppReady = false;
 
 const isDev = process.env.NODE_ENV === "development";
 
@@ -41,7 +43,7 @@ function createSplashWindow() {
   // Load html file
   const splashPath = resolvePath(
     "../app/assets/splash.html",
-    "app/assets/splash.html"
+    "app/assets/splash.html",
   );
 
   console.log("Attempting to load splash from:", splashPath);
@@ -75,6 +77,7 @@ function createPythonProcess() {
 
       if (!mainWindow) {
         createWindow();
+        isAppReady = true;
       }
     }
   };
@@ -100,7 +103,7 @@ function createWindow() {
     },
     icon: resolvePath(
       "../app/assets/icons/icon.png",
-      "app/assets/icons/icon.png"
+      "app/assets/icons/icon.png",
     ),
   });
 
@@ -110,7 +113,7 @@ function createWindow() {
   } else {
     mainWindow.loadFile(
       path.join(app.getAppPath(), ".output/public/index.html"),
-      { hash: "/" }
+      { hash: "/" },
     );
   }
 
@@ -119,10 +122,6 @@ function createWindow() {
     splashWindow.destroy();
     mainWindow.show();
     mainWindow.focus();
-
-    if (!isDev) {
-      autoUpdater.checkForUpdatesAndNotify();
-    }
   });
 }
 
@@ -131,8 +130,10 @@ ipcMain.handle("get-api-port", () => {
 });
 
 app.whenReady().then(() => {
+  autoUpdater.checkForUpdates();
   createSplashWindow();
   createPythonProcess();
+  autoUpdater.checkForUpdates();
 });
 
 app.on("will-quit", () => {
@@ -158,7 +159,26 @@ autoUpdater.on("update-available", () => {
 
 autoUpdater.on("update-downloaded", () => {
   console.log("Update downloaded");
-  mainWindow.webContents.send("update_downloaded");
+
+  if (!isAppReady) {
+    if (pythonProcess) pythonProcess.kill(); // Kill python before update
+    autoUpdater.quitAndInstall(true, true);
+  } else {
+    dialog
+      .showMessageBox(mainWindow, {
+        type: "question",
+        buttons: ["Install & Restart", "Later"],
+        title: "Update Available",
+        message: "A new version has been downloaded. Restart now to install?",
+      })
+      .then((result) => {
+        if (result.response === 0) {
+          // User clicked "Install & Restart"
+          if (pythonProcess) pythonProcess.kill();
+          autoUpdater.quitAndInstall(true, true);
+        }
+      });
+  }
 });
 
 // error handling
