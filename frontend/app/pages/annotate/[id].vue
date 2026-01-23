@@ -1,8 +1,6 @@
 <script setup>
 import { select } from "#build/ui";
 import "pdfjs-dist/web/pdf_viewer.css";
-import MarkdownIt from "markdown-it";
-import mk from "markdown-it-katex";
 import katex from "katex";
 import "katex/dist/katex.min.css";
 
@@ -64,24 +62,33 @@ const renderTasks = {};
 // katex rendering for sticky and notepad
 const isNotepadPreview = ref(false);
 
-const md = new MarkdownIt({
-  html: true, // Enable HTML tags in source
-  breaks: true, // Convert '\n' in paragraphs into <br>
-  linkify: true, // Autoconvert URL-like text to links
-});
-
 // Use the KaTeX plugin
-md.use(mk);
-
 const renderContent = (text) => {
   if (!text) return "";
-  try {
-    const preservedText = text.replace(/\n\n/g, "\n&nbsp;\n");
 
-    return md.render(preservedText);
-  } catch (e) {
-    return text;
-  }
+  const regex = /(\$\$[\s\S]*?\$\$)|(\$[^\$]*?\$)|(\n)/g;
+
+  return text.replace(regex, (match, displayMath, inlineMath, newline) => {
+    if (newline) {
+      return "<br />";
+    }
+
+    const mathContent = displayMath || inlineMath;
+    const isDisplayMode = !!displayMath;
+
+    const rawTex = isDisplayMode
+      ? mathContent.slice(2, -2)
+      : mathContent.slice(1, -1);
+
+    try {
+      return katex.renderToString(rawTex, {
+        displayMode: isDisplayMode,
+        throwOnError: false,
+      });
+    } catch (e) {
+      return match;
+    }
+  });
 };
 
 const notepadTextarea = ref(null);
@@ -1671,7 +1678,7 @@ watch(currentPage, () => {
               placeholder="# Notes
 - Use markdown
 - $E=mc^2$ for math"
-              class="w-full h-full bg-transparent text-slate-300 text-sm font-mono leading-relaxed outline-none resize-none custom-scrollbar selection:bg-indigo-500/30 placeholder:text-slate-600"
+              class="w-full h-full bg-transparent text-slate-300 text-sm font-mono outline-none resize-none custom-scrollbar selection:bg-indigo-500/30 placeholder:text-slate-600"
             ></textarea>
           </div>
 
@@ -1689,16 +1696,6 @@ watch(currentPage, () => {
 </template>
 
 <style scoped>
-/*
-canvas {
-  transition: width 0.25s ease-out, height 0.25s ease-out;
-}
-
-.textLayer {
-  transition: width 0.25 ease-out, height 0.25s ease-out;
-}
-  */
-
 .icon-btn {
   border-radius: 0.25rem;
   padding: 0.5rem;
@@ -1792,21 +1789,53 @@ canvas {
   width: 28px;
   height: 28px;
   border-radius: 4px;
-  color: #94a3b8; /* slate-400 */
+  color: #94a3b8;
   transition: all 0.2s;
 }
 
 .toolbar-btn:hover {
-  background-color: #334155; /* slate-700 */
-  color: #f8fafc; /* slate-50 */
+  background-color: #334155;
+  color: #f8fafc;
+}
+
+.prose {
+  width: 100%;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
+  word-break: break-word;
+  line-height: 1.6;
+}
+
+:deep(.katex-display) {
+  display: block;
+  max-width: 100%;
+  margin: 0.5em 0;
+  overflow-x: auto !important;
+  overflow-y: hidden;
+  padding-bottom: 6px;
 }
 
 :deep(.katex) {
   font-size: 1.1em;
 }
-:deep(.katex-display) {
-  margin: 0.5em 0;
-  overflow-x: auto;
-  overflow-y: hidden;
+
+:deep(p .katex),
+:deep(span .katex) {
+  display: inline-block;
+  max-width: 100%;
+}
+
+:deep(.katex-display)::-webkit-scrollbar {
+  height: 4px;
+  background: transparent;
+}
+
+:deep(.katex-display)::-webkit-scrollbar-thumb {
+  background-color: #475569;
+  border-radius: 4px;
+}
+
+:deep(.katex-display)::-webkit-scrollbar-track {
+  background: transparent;
 }
 </style>
