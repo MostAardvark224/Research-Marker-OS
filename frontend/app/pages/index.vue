@@ -329,7 +329,11 @@
                     draggable="true"
                     @dragstart="onDragStart($event, doc)"
                     @dblclick="
-                      navigateToAnnotate(doc.id, doc.last_page, doc.zoom_level)
+                      navigateToAnnotate(
+                        doc.id,
+                        doc.last_page,
+                        doc.zoom_level ? doc.zoom_level : 200,
+                      )
                     "
                     :key="doc.id"
                     :class="`flex items-center gap-2 px-2 py-1.5 text-xs ${colorScheme.sidebarText} truncate ${colorScheme.sidebarTextHover} select-none`"
@@ -417,7 +421,7 @@
                         navigateToAnnotate(
                           paper.id,
                           paper.last_page,
-                          doc.zoom_level,
+                          paper.zoom_level ? paper.zoom_level : 200,
                         )
                       "
                       :class="[
