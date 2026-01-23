@@ -130,7 +130,6 @@ ipcMain.handle("get-api-port", () => {
 });
 
 app.whenReady().then(() => {
-  autoUpdater.checkForUpdates();
   createSplashWindow();
   createPythonProcess();
   autoUpdater.checkForUpdates();
@@ -154,7 +153,9 @@ ipcMain.on("restart_app", () => {
 
 autoUpdater.on("update-available", () => {
   console.log("Update available.");
-  mainWindow.webContents.send("update_available");
+  if (mainWindow) {
+    mainWindow.webContents.send("update_available");
+  }
 });
 
 autoUpdater.on("update-downloaded", () => {

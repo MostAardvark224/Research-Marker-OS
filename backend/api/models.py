@@ -20,6 +20,7 @@ class Document(models.Model):
     folder = models.ForeignKey(Folder, related_name='documents', on_delete=models.SET_NULL, null=True)
     searchable = models.BooleanField(default=False)
     last_page = models.IntegerField(blank=True, null=True)
+    zoom_level = models.IntegerField(blank=True, null=True)
 
     def __str__(self):
         return self.title

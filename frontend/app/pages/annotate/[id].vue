@@ -40,10 +40,18 @@ const sidebarWidth = ref(320);
 
 const currentPage = ref(1);
 const lastPage = route.query.page;
-
+const zoomFromQuery = route.query.zoom;
 onMounted(() => {
   if (lastPage) {
     currentPage.value = parseInt(lastPage);
+  }
+
+  if (zoomFromQuery) {
+    const zoomVal = parseInt(zoomFromQuery);
+    if (!isNaN(zoomVal) && zoomVal >= 50 && zoomVal <= 500) {
+      zoomLevel.value = zoomVal;
+      inputZoomLevel.value = zoomVal;
+    }
   }
 });
 
@@ -1145,6 +1153,7 @@ async function postPage() {
     method: "PATCH",
     body: {
       last_page: currentPage.value,
+      zoom_level: zoomLevel.value,
     },
   });
 }

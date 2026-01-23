@@ -328,7 +328,9 @@
                     v-for="doc in folder.documents"
                     draggable="true"
                     @dragstart="onDragStart($event, doc)"
-                    @dblclick="navigateToAnnotate(doc.id, doc.last_page)"
+                    @dblclick="
+                      navigateToAnnotate(doc.id, doc.last_page, doc.zoom_level)
+                    "
                     :key="doc.id"
                     :class="`flex items-center gap-2 px-2 py-1.5 text-xs ${colorScheme.sidebarText} truncate ${colorScheme.sidebarTextHover} select-none`"
                   >
@@ -411,7 +413,13 @@
                     <tr
                       v-for="(paper, index) in filteredPapers"
                       :key="paper.id"
-                      @dblclick="navigateToAnnotate(paper.id, paper.last_page)"
+                      @dblclick="
+                        navigateToAnnotate(
+                          paper.id,
+                          paper.last_page,
+                          doc.zoom_level,
+                        )
+                      "
                       :class="[
                         `border-b ${colorScheme.tableRowBorder} ${colorScheme.tableRowHover} transition-colors`,
                         index % 2 === 0
@@ -1021,7 +1029,7 @@ function closeMenus() {
 function toggleFolderExpanded(folderId) {
   if (expandedFolderIds.value.includes(folderId)) {
     expandedFolderIds.value = expandedFolderIds.value.filter(
-      (id) => id !== folderId
+      (id) => id !== folderId,
     );
   } else {
     expandedFolderIds.value.push(folderId);
@@ -1067,14 +1075,14 @@ const filteredPapers = computed(() => {
     list.sort((a, b) =>
       (a.title || "").localeCompare(b.title || "", undefined, {
         sensitivity: "base",
-      })
+      }),
     );
   }
 
   if (searchQuery.value.trim()) {
     const q = searchQuery.value.toLowerCase();
     list = list.filter((paper) =>
-      (paper.title || "").toLowerCase().includes(q)
+      (paper.title || "").toLowerCase().includes(q),
     );
   }
 
@@ -1098,11 +1106,12 @@ function formatDate(isoString) {
 
 // Annotate Page Navigation
 // ADD PAGE NUM LOGIC HERE, IT SHOULD BE A QUERY PARAM
-function navigateToAnnotate(paperId, lastPage) {
+function navigateToAnnotate(paperId, lastPage, zoom) {
   navigateTo({
     path: `/annotate/${paperId}`,
     query: {
       page: lastPage,
+      zoom: zoom,
     },
   });
 }
