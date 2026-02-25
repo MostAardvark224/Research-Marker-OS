@@ -751,13 +751,16 @@ async function fetchPastPapers() {
         ? res.Unassigned
         : [];
 
-      if (activeFolderId.value === null && unassignedDocs.value.length > 0) {
+      // Retrieve the last active folder from local storage
+      const storedFolder = localStorage.getItem("researchMarker_lastFolder");
+
+      if (storedFolder === "unassigned" || !storedFolder) {
         activeFolderId.value = null;
-      } else if (
-        activeFolderId.value !== null &&
-        !folderList.value.some((f) => f.id === activeFolderId.value)
-      ) {
-        activeFolderId.value = null;
+      } else {
+        const existingFolder = folderList.value.find(
+          (f) => String(f.id) === storedFolder,
+        );
+        activeFolderId.value = existingFolder ? existingFolder.id : null;
       }
     }
   } catch (error) {
@@ -899,9 +902,15 @@ async function updateDocumentFolder(paper, newFolderId) {
 // Opening dropdown when folder is activated
 function activateFolder(folderId) {
   activeFolderId.value = folderId;
-  if (!expandedFolderIds.value.includes(folderId)) {
+
+  if (folderId !== null && !expandedFolderIds.value.includes(folderId)) {
     toggleFolderExpanded(folderId);
   }
+
+  localStorage.setItem(
+    "researchMarker_lastFolder",
+    folderId === null ? "unassigned" : folderId,
+  );
 }
 
 // Create a new folder
