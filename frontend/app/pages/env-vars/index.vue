@@ -98,6 +98,39 @@
         <div
           class="flex items-center justify-end gap-4 mt-4 pt-6 border-t border-white/5"
         >
+          <div class="mr-auto flex flex-col md:flex-row gap-3 md:items-center">
+            <label class="flex items-center gap-2 text-xs text-slate-400">
+              Provider
+              <select
+                v-model="defaultAiProvider"
+                class="bg-[#0A0A0C] border border-white/10 rounded-lg px-3 py-2 text-white focus:border-indigo-500/50 outline-none"
+              >
+                <option
+                  v-for="provider in aiProviders"
+                  :key="provider.id"
+                  :value="provider.id"
+                >
+                  {{ provider.label }}
+                </option>
+              </select>
+            </label>
+            <label class="flex items-center gap-2 text-xs text-slate-400">
+              Model
+              <select
+                v-model="aiModels[defaultAiProvider]"
+                class="bg-[#0A0A0C] border border-white/10 rounded-lg px-3 py-2 text-white focus:border-indigo-500/50 outline-none max-w-56"
+              >
+                <option
+                  v-for="model in currentProviderModels"
+                  :key="model"
+                  :value="model"
+                >
+                  {{ model }}
+                </option>
+              </select>
+            </label>
+          </div>
+
           <button
             @click="handleSkip"
             class="px-6 py-2.5 rounded-lg text-slate-400 text-sm font-medium hover:text-white hover:bg-white/5 transition-colors"
@@ -125,6 +158,14 @@ const {
 const potentialList = ref([]);
 const formValues = ref({});
 
+const {
+  aiProviders,
+  aiModels,
+  selectedAiProvider: defaultAiProvider,
+  selectedProviderModels: currentProviderModels,
+  initializeAiModels,
+} = useAiModels();
+
 import { storeToRefs } from "pinia";
 import { useEnvStateStore } from "~~/stores/useEnvStateStore";
 
@@ -134,8 +175,20 @@ const envStateStore = useEnvStateStore();
 const envMetadata = {
   GEMINI_API_KEY: {
     description:
-      "Required for the AI Analysis and semantic linking features. You can get a free trial key from Google as well.",
-    type: "text",
+      "Used for Gemini chat models and required for embeddings / Smart Collections.",
+    type: "password",
+  },
+  ANTHROPIC_API_KEY: {
+    description: "Used for Claude chat models.",
+    type: "password",
+  },
+  OPENAI_API_KEY: {
+    description: "Used for OpenAI chat models.",
+    type: "password",
+  },
+  OPENROUTER_API_KEY: {
+    description: "Used for OpenRouter chat models.",
+    type: "password",
   },
   SCHOLAR_INBOX_PERSONAL_LOGIN: {
     description:
@@ -155,6 +208,10 @@ try {
   console.error("Failed to check env vars:", error);
 }
 
+onMounted(async () => {
+  await initializeAiModels();
+});
+
 const computedEnvList = computed(() => {
   return potentialList.value.map((key) => {
     const meta = envMetadata[key] || {};
@@ -168,12 +225,32 @@ const computedEnvList = computed(() => {
 
 const handleSave = async () => {
   try {
-    const res = await $fetch(`${apiBaseURL}/env-vars/`, {
+    await $fetch(`${apiBaseURL}/env-vars/`, {
       method: "PUT",
       body: {
         variables: formValues.value,
       },
     });
+    await $fetch(`${apiBaseURL}/user-preferences/`, {
+      method: "PUT",
+      body: {
+        preferences: {
+          user_preferences: {
+            general: {},
+            scholar_inbox: {
+              auto_import: false,
+              last_import_date: "null",
+              amount_to_import: 0,
+            },
+            ai: {
+              default_provider: defaultAiProvider.value,
+              models: aiModels.value,
+            },
+          },
+        },
+      },
+    });
+    await initializeAiModels({ refresh: true });
   } catch (error) {
     console.log(`error saving ${error}`);
   } finally {

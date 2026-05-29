@@ -365,74 +365,72 @@
           </button>
         </div>
 
-        <div class="flex-1 relative overflow-hidden flex flex-col">
+        <div class="flex-1 min-h-0 relative flex flex-col">
           <div
             ref="chatContainerRef"
-            class="flex-1 overflow-y-auto p-6 pb-32 space-y-6 custom-scrollbar flex flex-col"
+            class="flex-1 min-h-0 overflow-y-auto px-4 py-5 space-y-5 custom-scrollbar"
           >
-            <div v-if="chatHistory.length === 0" class="space-y-6">
-              <div class="flex gap-4">
-                <div
-                  class="w-8 h-8 rounded bg-indigo-500/20 flex items-center justify-center shrink-0"
-                >
-                  <Icon name="uil:robot" class="text-indigo-400" />
-                </div>
-                <div class="space-y-2">
-                  <div class="text-xs text-slate-500">Research Assistant</div>
-                  <div
-                    class="p-4 rounded-xl rounded-tl-none bg-white/[0.03] border border-white/5 text-sm xl:text-[16px] text-slate-300 leading-relaxed"
-                  >
-                    Hello! I have indexed
-                    <strong>{{ countAnnotations }} papers</strong>. I can help
-                    you summarize documents, find connections between concepts,
-                    or draft outlines.
-                  </div>
-                </div>
-              </div>
+            <div
+              v-if="chatHistory.length === 0"
+              class="flex flex-col items-center justify-center min-h-[280px] text-center px-4"
+            >
               <div
-                class="flex-1 flex flex-col items-center justify-center text-center opacity-30 pointer-events-none select-none pt-20"
+                class="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500/20 to-purple-500/10 border border-indigo-500/20"
               >
-                <Icon
-                  name="uil:comment-alt-lines"
-                  class="text-4xl text-slate-700 mb-2"
-                />
-                <p class="text-sm text-slate-600">Ask a question to begin</p>
+                <Icon name="uil:robot" class="text-2xl text-indigo-400" />
+              </div>
+              <h3 class="text-sm font-semibold text-slate-200 mb-1">
+                Research Assistant
+              </h3>
+              <p class="text-xs text-slate-500 max-w-xs leading-relaxed mb-4">
+                I have indexed
+                <strong class="text-slate-300">{{ countAnnotations }} papers</strong>.
+                Ask me to summarize, compare, or explore your notes.
+              </p>
+              <div class="flex flex-wrap justify-center gap-2">
+                <span class="px-2.5 py-1 rounded-full text-[10px] font-mono bg-white/5 border border-white/10 text-slate-400">@paper</span>
+                <span class="px-2.5 py-1 rounded-full text-[10px] font-mono bg-white/5 border border-white/10 text-slate-400">@recent</span>
+                <span class="px-2.5 py-1 rounded-full text-[10px] font-mono bg-white/5 border border-white/10 text-slate-400">RAG</span>
               </div>
             </div>
 
             <div
               v-for="(msg, index) in chatHistory"
               :key="index"
-              class="flex gap-4"
+              class="flex gap-3"
+              :class="msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'"
             >
               <div
-                v-if="msg.role === 'user'"
-                class="w-8 h-8 shrink-0 flex items-center justify-center"
+                class="w-8 h-8 shrink-0 rounded-xl flex items-center justify-center"
+                :class="
+                  msg.role === 'user'
+                    ? 'bg-slate-800 border border-white/10'
+                    : 'bg-indigo-500/15 border border-indigo-500/20'
+                "
               >
-                <div
-                  class="w-6 h-6 rounded-full bg-slate-700 border border-white/10 flex items-center justify-center"
-                >
-                  <Icon name="uil:user" class="text-slate-300 text-xs" />
-                </div>
+                <Icon
+                  :name="msg.role === 'user' ? 'uil:user' : 'uil:robot'"
+                  class="text-sm"
+                  :class="msg.role === 'user' ? 'text-slate-300' : 'text-indigo-400'"
+                />
               </div>
 
               <div
-                v-else
-                class="w-8 h-8 rounded bg-indigo-500/20 flex items-center justify-center shrink-0"
+                class="max-w-[82%] space-y-1"
+                :class="msg.role === 'user' ? 'items-end' : 'items-start'"
               >
-                <Icon name="uil:robot" class="text-indigo-400" />
-              </div>
-
-              <div class="space-y-1 max-w-[85%]">
-                <div class="text-xs xl:text-[16px] text-slate-500 capitalize">
+                <div
+                  class="text-[10px] font-medium uppercase tracking-wider"
+                  :class="msg.role === 'user' ? 'text-right text-slate-500' : 'text-left text-indigo-300/70'"
+                >
                   {{ msg.role === "model" ? "Assistant" : "You" }}
                 </div>
                 <div
-                  class="p-4 rounded-xl text-sm xl:text-[16px] leading-relaxed overflow-x-auto"
+                  class="px-4 py-3 rounded-2xl text-sm leading-relaxed shadow-sm"
                   :class="
                     msg.role === 'user'
-                      ? 'bg-indigo-500/10 border border-indigo-500/20 text-indigo-100 rounded-tr-none'
-                      : 'bg-white/[0.03] border border-white/5 text-slate-300 rounded-tl-none prose prose-invert prose-sm'
+                      ? 'bg-gradient-to-br from-indigo-600/90 to-indigo-700/80 text-white rounded-tr-md'
+                      : 'bg-[#12121a] border border-white/8 text-slate-200 rounded-tl-md chat-prose'
                   "
                   v-html="
                     msg.role === 'model' ? msg.displayContent : msg.content
@@ -441,25 +439,17 @@
               </div>
             </div>
 
-            <div v-if="isAiLoading" class="flex gap-4">
+            <div v-if="isAiLoading" class="flex gap-3">
               <div
-                class="w-8 h-8 rounded bg-indigo-500/20 flex items-center justify-center shrink-0"
+                class="w-8 h-8 shrink-0 rounded-xl bg-indigo-500/15 border border-indigo-500/20 flex items-center justify-center"
               >
-                <Icon name="uil:robot" class="text-indigo-400" />
+                <Icon name="uil:robot" class="text-sm text-indigo-400" />
               </div>
-              <div
-                class="p-4 rounded-xl rounded-tl-none bg-white/[0.03] border border-white/5"
-              >
-                <div class="flex gap-1">
-                  <span
-                    class="w-1.5 h-1.5 bg-slate-500 rounded-full animate-bounce"
-                  ></span>
-                  <span
-                    class="w-1.5 h-1.5 bg-slate-500 rounded-full animate-bounce delay-100"
-                  ></span>
-                  <span
-                    class="w-1.5 h-1.5 bg-slate-500 rounded-full animate-bounce delay-200"
-                  ></span>
+              <div class="px-4 py-3 rounded-2xl rounded-tl-md bg-[#12121a] border border-white/8">
+                <div class="flex gap-1.5">
+                  <span class="w-1.5 h-1.5 bg-indigo-400/80 rounded-full animate-bounce"></span>
+                  <span class="w-1.5 h-1.5 bg-indigo-400/80 rounded-full animate-bounce [animation-delay:120ms]"></span>
+                  <span class="w-1.5 h-1.5 bg-indigo-400/80 rounded-full animate-bounce [animation-delay:240ms]"></span>
                 </div>
               </div>
             </div>
@@ -467,7 +457,7 @@
 
           <div
             v-if="showHistory"
-            class="absolute inset-0 bg-[#050508] z-40 flex flex-col animate-fade-in"
+            class="absolute inset-0 bg-[#050508]/98 backdrop-blur-sm z-40 flex flex-col"
           >
             <div class="p-4 border-b border-white/5">
               <button
@@ -514,142 +504,122 @@
               </div>
             </div>
           </div>
-        </div>
 
-        <div
-          class="absolute bottom-0 left-0 w-full p-6 border-t border-white/5 bg-[#050508] z-20"
-        >
-          <div class="relative">
-            <div
-              v-if="showChatSuggestions"
-              class="absolute bottom-full mb-2 w-full bg-[#15151A] border border-white/10 rounded-xl overflow-hidden shadow-2xl z-50 max-h-48 overflow-y-auto custom-scrollbar"
-            >
+          <div class="shrink-0 p-4 border-t border-white/5 bg-[#050508]">
+            <div class="chat-composer rounded-2xl border border-white/10 bg-[#0b0b10] shadow-[0_-8px_30px_rgba(0,0,0,0.35)] overflow-hidden">
               <div
-                v-for="(suggestion, index) in filteredChatSuggestions"
-                :key="suggestion.id"
-                class="px-4 py-3 cursor-pointer hover:bg-white/5 flex items-center gap-3 transition-colors border-b border-white/5 last:border-0"
-                :class="{ 'bg-white/10': activeChatSuggestionIndex === index }"
-                @click="selectChatSuggestion(suggestion)"
+                v-if="showChatSuggestions"
+                class="border-b border-white/5 max-h-44 overflow-y-auto custom-scrollbar"
               >
                 <div
-                  class="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold"
-                  :class="
-                    suggestion.type === 'cmd'
-                      ? 'bg-purple-500/20 text-purple-400'
-                      : 'bg-indigo-500/20 text-indigo-400'
-                  "
+                  v-for="(suggestion, index) in filteredChatSuggestions"
+                  :key="suggestion.id"
+                  class="px-4 py-2.5 cursor-pointer hover:bg-white/5 flex items-center gap-3 transition-colors border-b border-white/5 last:border-0"
+                  :class="{ 'bg-white/10': activeChatSuggestionIndex === index }"
+                  @click="selectChatSuggestion(suggestion)"
                 >
-                  {{ suggestion.type === "cmd" ? "/" : "@" }}
+                  <div
+                    class="w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-bold"
+                    :class="
+                      suggestion.type === 'cmd'
+                        ? 'bg-purple-500/20 text-purple-400'
+                        : 'bg-indigo-500/20 text-indigo-400'
+                    "
+                  >
+                    {{ suggestion.type === "cmd" ? "/" : "@" }}
+                  </div>
+                  <span class="text-sm text-slate-200 truncate">{{
+                    suggestion.label
+                  }}</span>
                 </div>
-                <span class="text-sm text-slate-200 truncate">{{
-                  suggestion.label
-                }}</span>
               </div>
-            </div>
 
-            <textarea
-              ref="chatInputRef"
-              v-model="chatInput"
-              @input="handleChatInput"
-              @keydown.down.prevent="navigateChatSuggestions(1)"
-              @keydown.up.prevent="navigateChatSuggestions(-1)"
-              @keydown.enter.prevent="
-                showChatSuggestions
-                  ? selectChatSuggestion(
-                      filteredChatSuggestions[activeChatSuggestionIndex]
-                    )
-                  : sendChatMessage()
-              "
-              rows="1"
-              placeholder="Ask a question..."
-              class="w-full bg-slate-900/50 border border-white/10 rounded-xl py-1 xl:py-4 pl-4 pr-46 text-[14px] xl:text-[17px] text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500/40 focus:bg-slate-900 resize-none overflow-y-auto transition-all shadow-inner custom-scrollbar"
-              style="min-height: 56px; max-height: 150px"
-            ></textarea>
-
-            <div
-              class="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-4 backdrop-blur-md rounded-lg pl-2 py-1"
-            >
-              <div
-                class="flex items-center gap-2 border-r border-white/10 pr-4 mb-2 transition-opacity duration-300"
-                :class="{ 'opacity-50 cursor-not-allowed': hasContextTag }"
-              >
-                <div
-                  class="flex items-center gap-2"
-                  :class="
-                    hasContextTag ? 'pointer-events-none' : 'cursor-pointer'
-                  "
-                  @click="!hasContextTag && (isRagEnabled = !isRagEnabled)"
+              <div class="flex items-center gap-2 px-3 py-2 border-b border-white/5 bg-white/[0.02]">
+                <select
+                  v-model="selectedAiProvider"
+                  class="flex-1 min-w-0 bg-transparent border border-white/10 rounded-lg px-2 py-1.5 text-[11px] text-slate-300 focus:border-indigo-500/40 outline-none"
                 >
-                  <span
-                    class="text-[10px] font-bold uppercase tracking-wider transition-colors"
+                  <option
+                    v-for="provider in aiProviders"
+                    :key="provider.id"
+                    :value="provider.id"
+                  >
+                    {{ provider.label }}
+                  </option>
+                </select>
+                <select
+                  v-model="selectedAiModel"
+                  class="flex-[1.4] min-w-0 bg-transparent border border-white/10 rounded-lg px-2 py-1.5 text-[11px] text-slate-300 focus:border-indigo-500/40 outline-none truncate"
+                >
+                  <option
+                    v-for="model in selectedProviderModels"
+                    :key="model"
+                    :value="model"
+                  >
+                    {{ model }}
+                  </option>
+                </select>
+              </div>
+
+              <textarea
+                ref="chatInputRef"
+                v-model="chatInput"
+                @input="handleChatInput"
+                @keydown.down.prevent="navigateChatSuggestions(1)"
+                @keydown.up.prevent="navigateChatSuggestions(-1)"
+                @keydown.enter.prevent="
+                  showChatSuggestions
+                    ? selectChatSuggestion(
+                        filteredChatSuggestions[activeChatSuggestionIndex]
+                      )
+                    : sendChatMessage()
+                "
+                rows="1"
+                placeholder="Ask a question… use @paper or @recent for context"
+                class="w-full bg-transparent px-4 py-3 text-sm text-white placeholder:text-slate-600 focus:outline-none resize-none overflow-y-auto custom-scrollbar"
+                style="min-height: 52px; max-height: 140px"
+              ></textarea>
+
+              <div class="flex items-center justify-between gap-3 px-3 py-2.5 border-t border-white/5">
+                <div
+                  class="flex items-center gap-2 transition-opacity duration-300"
+                  :class="{ 'opacity-50 cursor-not-allowed': hasContextTag }"
+                >
+                  <button
+                    type="button"
+                    class="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-colors"
                     :class="
                       hasContextTag
                         ? 'text-slate-600'
                         : isRagEnabled
-                        ? 'text-emerald-400'
-                        : 'text-slate-600'
+                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                        : 'text-slate-500 hover:text-slate-300 border border-white/10'
                     "
-                    >RAG</span
+                    :disabled="hasContextTag"
+                    @click="!hasContextTag && (isRagEnabled = !isRagEnabled)"
                   >
-
-                  <div
-                    class="w-8 h-4 rounded-full relative transition-colors duration-200"
-                    :class="
-                      hasContextTag
-                        ? 'bg-slate-900 border border-white/5'
-                        : isRagEnabled
-                        ? 'bg-emerald-500/20 border border-emerald-500/50'
-                        : 'bg-slate-800 border border-white/5'
-                    "
-                  >
-                    <div
-                      class="absolute top-0.5 left-0.5 w-2.5 h-2.5 rounded-full bg-current transition-all duration-200 shadow-sm"
-                      :class="
-                        hasContextTag
-                          ? 'translate-x-0 bg-slate-600'
-                          : isRagEnabled
-                          ? 'translate-x-4 bg-emerald-400'
-                          : 'translate-x-0 bg-slate-500'
-                      "
-                    ></div>
-                  </div>
+                    <Icon name="uil:database" class="text-sm" />
+                    RAG
+                  </button>
+                  <span v-if="hasContextTag" class="text-[10px] text-amber-400/80">
+                    Disabled with @ tags
+                  </span>
                 </div>
 
-                <div class="relative group">
-                  <Icon
-                    name="uil:question-circle"
-                    class="text-slate-600 hover:text-slate-400 text-lg cursor-help transition-colors mt-1.5"
-                  />
-                  <div
-                    class="absolute bottom-full right-[-50px] mb-4 w-64 p-3 bg-[#15151A] border border-white/10 rounded-xl shadow-2xl text-xs text-slate-400 leading-relaxed opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50"
-                  >
-                    <div class="font-bold text-slate-200 mb-1">
-                      Retrieval Augmented Generation
-                    </div>
-                    <p v-if="hasContextTag" class="text-amber-400 font-medium">
-                      <Icon name="uil:padlock" class="mr-1 inline-block" />
-                      RAG is disabled because you are using specific context
-                      tags (@).
-                    </p>
-                    <p v-else>
-                      Scans your library for context before answering.
-                    </p>
-                  </div>
-                </div>
+                <button
+                  @click="sendChatMessage"
+                  :disabled="isAiLoading || !chatInput.trim()"
+                  class="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-all"
+                  :class="
+                    chatInput.trim() && !isAiLoading
+                      ? 'bg-indigo-500 text-white hover:bg-indigo-400 shadow-lg shadow-indigo-500/20'
+                      : 'bg-white/5 text-slate-500 cursor-not-allowed'
+                  "
+                >
+                  <Icon name="uil:message" class="text-base" />
+                  Send
+                </button>
               </div>
-
-              <button
-                @click="sendChatMessage"
-                :disabled="isAiLoading || !chatInput"
-                class="p-1.5 mb-1.5 rounded transition-all duration-200 flex items-center justify-center"
-                :class="
-                  chatInput
-                    ? 'bg-indigo-500 text-white hover:bg-indigo-400 shadow-lg shadow-indigo-500/20'
-                    : 'bg-indigo-500/10 text-indigo-400/50 cursor-not-allowed'
-                "
-              >
-                <Icon name="uil:message" class="text-lg" />
-              </button>
             </div>
           </div>
         </div>
@@ -733,6 +703,7 @@ async function fetchNotes() {
 
 onMounted(() => {
   fetchNotes();
+  initializeAiModels();
 });
 
 /* Setting up display for carousel animation
@@ -1081,6 +1052,14 @@ const chatContainerRef = ref(null); // auto-scrolling
 const chatInputRef = ref(null); // Ref for the textarea
 const isRagEnabled = ref(false);
 
+const {
+  aiProviders,
+  selectedAiProvider,
+  selectedAiModel,
+  selectedProviderModels,
+  initializeAiModels,
+} = useAiModels();
+
 const showHistory = ref(false);
 const savedChats = ref([]);
 const isDeleting = ref(false);
@@ -1313,6 +1292,8 @@ async function sendChatMessage() {
       paper_ids: contextData.paper_ids,
       at_recent: contextData.at_recent,
       rag_enabled: isRagEnabled.value,
+      model_provider: selectedAiProvider.value,
+      model: selectedAiModel.value,
     };
 
     const res = await $fetch(`${apiBaseURL}/ask-ai/`, {
@@ -1419,6 +1400,56 @@ const autoResizeInput = () => {
 
 .animate-scroll-right {
   animation: scrollRight 60s linear infinite;
+}
+
+.chat-prose :deep(p) {
+  margin: 0.35rem 0;
+  line-height: 1.65;
+}
+
+.chat-prose :deep(p:first-child) {
+  margin-top: 0;
+}
+
+.chat-prose :deep(p:last-child) {
+  margin-bottom: 0;
+}
+
+.chat-prose :deep(h1),
+.chat-prose :deep(h2),
+.chat-prose :deep(h3) {
+  color: #c7d2fe;
+  font-weight: 600;
+  margin: 0.75rem 0 0.35rem;
+}
+
+.chat-prose :deep(ul),
+.chat-prose :deep(ol) {
+  margin: 0.35rem 0;
+  padding-left: 1.25rem;
+}
+
+.chat-prose :deep(code) {
+  background: rgba(255, 255, 255, 0.06);
+  color: #fbbf24;
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.25rem;
+  font-size: 0.85em;
+}
+
+.chat-prose :deep(pre) {
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  overflow-x: auto;
+  margin: 0.5rem 0;
+}
+
+.chat-prose :deep(pre code) {
+  background: transparent;
+  padding: 0;
+  color: #cbd5e1;
 }
 
 .mask-sides {

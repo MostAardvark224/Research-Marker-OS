@@ -215,7 +215,91 @@
           </div>
 
           <div v-else-if="activeTab === 'ai'" class="space-y-6 max-w-xl">
-            <div class="space-y-3">No AI Preferences available yet.</div>
+            <div
+              class="p-3 rounded-lg border border-indigo-500/20 bg-indigo-500/5 mb-4"
+            >
+              <div class="flex gap-3">
+                <Icon
+                  name="material-symbols:info-outline"
+                  class="text-indigo-400 text-lg flex-shrink-0"
+                />
+                <p class="text-xs text-indigo-200/80 leading-relaxed">
+                  Model lists are fetched live from each provider API and cached
+                  for one hour. Add API keys in General, then refresh here.
+                </p>
+              </div>
+            </div>
+
+            <div class="flex items-center justify-between">
+              <span class="text-xs text-slate-500">
+                {{ aiModelsLoading ? "Refreshing model lists..." : "Live provider catalogs" }}
+              </span>
+              <button
+                @click="fetchAiModels({ refresh: true })"
+                :disabled="aiModelsLoading"
+                class="px-3 py-1.5 rounded-lg text-xs font-medium bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 disabled:opacity-50"
+              >
+                Refresh models
+              </button>
+            </div>
+
+            <div class="space-y-4">
+              <label class="block">
+                <span class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">
+                  Default Provider
+                </span>
+                <select
+                  v-model="defaultAiProvider"
+                  class="w-full bg-[#0A0A0C] border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 outline-none"
+                >
+                  <option
+                    v-for="provider in aiProviders"
+                    :key="provider.id"
+                    :value="provider.id"
+                  >
+                    {{ provider.label }}
+                  </option>
+                </select>
+              </label>
+
+              <div
+                v-for="provider in aiProviders"
+                :key="provider.id"
+                class="p-4 rounded-xl border border-white/10 bg-white/[0.02] space-y-2"
+              >
+                <div class="flex items-center justify-between gap-3">
+                  <label class="block font-mono text-xs text-indigo-300">
+                    {{ provider.label }} Model
+                  </label>
+                  <span
+                    v-if="provider.error"
+                    class="text-[10px] text-amber-400 truncate"
+                    :title="provider.error"
+                  >
+                    {{ provider.error }}
+                  </span>
+                </div>
+                <select
+                  v-model="aiModels[provider.id]"
+                  class="w-full bg-[#0A0A0C] border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 outline-none"
+                  :disabled="!provider.models?.length"
+                >
+                  <option
+                    v-for="model in provider.models"
+                    :key="model"
+                    :value="model"
+                  >
+                    {{ model }}
+                  </option>
+                </select>
+                <input
+                  v-model="aiModels[provider.id]"
+                  class="w-full bg-[#0A0A0C] border border-white/10 rounded-lg px-4 py-2 text-xs text-slate-300 placeholder-slate-700 focus:border-indigo-500/50 outline-none font-mono"
+                  :placeholder="`Custom ${provider.label} model id...`"
+                  spellcheck="false"
+                />
+              </div>
+            </div>
           </div>
         </div>
 
@@ -246,6 +330,16 @@ const {
 } = useRuntimeConfig();
 const emit = defineEmits(["close"]);
 
+const {
+  aiProviders,
+  aiModels,
+  selectedAiProvider: defaultAiProvider,
+  selectedProviderModels,
+  initializeAiModels,
+  fetchAiModels,
+  aiModelsLoading,
+} = useAiModels();
+
 const activeTab = ref("general");
 const tabs = [
   { id: "general", label: "General", icon: "uil:setting" },
@@ -272,7 +366,29 @@ const activeTabDescription = computed(() => {
 const envPotentialList = ref([]);
 const envFormValues = ref({});
 
-const envMetadata = {};
+const envMetadata = {
+  GEMINI_API_KEY: {
+    description:
+      "Used for Gemini chat models and required for embeddings / Smart Collections.",
+    type: "password",
+  },
+  ANTHROPIC_API_KEY: {
+    description: "Used for Claude chat models.",
+    type: "password",
+  },
+  OPENAI_API_KEY: {
+    description: "Used for OpenAI chat models.",
+    type: "password",
+  },
+  OPENROUTER_API_KEY: {
+    description: "Used for OpenRouter chat models.",
+    type: "password",
+  },
+  SCHOLAR_INBOX_PERSONAL_LOGIN: {
+    description: "Used to import papers from Scholar Inbox.",
+    type: "text",
+  },
+};
 
 const computedEnvList = computed(() => {
   return envPotentialList.value.map((key) => {
@@ -339,14 +455,24 @@ async function loadUserPreferences() {
         paperLimitValue.value = 0;
       }
     }
+
+    const aiPrefs = res.user_preferences?.ai;
+    if (aiPrefs) {
+      defaultAiProvider.value = aiPrefs.default_provider || defaultAiProvider.value;
+      aiModels.value = {
+        ...aiModels.value,
+        ...(aiPrefs.models || {}),
+      };
+    }
   } catch (error) {
     console.error("Failed to load user preferences:", error);
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   loadEnvVars();
   loadUserPreferences();
+  await initializeAiModels();
 });
 
 async function saveSettings() {
@@ -359,7 +485,10 @@ async function saveSettings() {
           last_import_date: last_import_date.value,
           amount_to_import: amount_to_import.value,
         },
-        ai: {},
+        ai: {
+          default_provider: defaultAiProvider.value,
+          models: aiModels.value,
+        },
       },
     };
 

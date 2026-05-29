@@ -206,7 +206,15 @@ class EnvironmentVariablesView(APIView):
     def put(self, request): 
         vars = request.data.get('variables', {})
         write_env_vars(vars)
+        get_all_provider_models(load_env_vars(), force_refresh=True)
         return Response({'message': 'Variables updated successfully.'}, status=status.HTTP_200_OK)
+
+
+class AIModelsView(APIView):
+    def get(self, request):
+        force_refresh = to_bool(request.query_params.get("refresh", False))
+        providers = get_all_provider_models(load_env_vars(), force_refresh=force_refresh)
+        return Response({"providers": providers}, status=status.HTTP_200_OK)
 
 
 # Runs fetch from scholar inbox and uplaods papers to "Scholar Inbox" folder
@@ -350,17 +358,47 @@ note to self: implement Latex and markdown
 Button where user can pick whether they want to use RAG or not.
 Rag will get top 2-3 embeddings with n cos similarity and append them to the prompt as context.
 """
-from .ai import add_message_to_chat ,send_prompt, name_chat, rag_context_injection
+from .ai import (
+    AI_PROVIDER_CONFIG,
+    add_message_to_chat,
+    get_all_provider_models,
+    get_provider_api_key,
+    name_chat,
+    normalize_provider,
+    rag_context_injection,
+    send_prompt,
+)
 class AIChatView(APIView):
     def post(self, request, format=None):
-        gemini_key = env_vars.get("GEMINI_API_KEY", "")
-        if not gemini_key: 
-            return Response({"error": "Gemini API key not set. See docs."}, status=status.HTTP_400_BAD_REQUEST)
-        
-        gemini_model = deep_get(prefs, "GEMINI_MODEL", default="gemini-3-flash-preview")
-        if not gemini_model: 
-            return Response({"error": "Gemini model not set. See docs."}, status=status.HTTP_400_BAD_REQUEST)
-        
+        current_env_vars = load_env_vars()
+        current_prefs = load_user_preferences()
+
+        ai_prefs = deep_get(current_prefs, "user_preferences.ai", default={}) or {}
+        provider = normalize_provider(
+            request.data.get("model_provider")
+            or ai_prefs.get("default_provider")
+            or "gemini"
+        )
+
+        provider_config = AI_PROVIDER_CONFIG[provider]
+        preferred_models = ai_prefs.get("models", {}) if isinstance(ai_prefs, dict) else {}
+        model = (
+            request.data.get("model")
+            or preferred_models.get(provider)
+            or ai_prefs.get("default_model")
+            or deep_get(current_prefs, "GEMINI_MODEL", default=None)
+            or provider_config["default_chat_model"]
+        )
+        if not model:
+            return Response({"error": "AI model not set. See Settings."}, status=status.HTTP_400_BAD_REQUEST)
+
+        api_key = get_provider_api_key(provider, current_env_vars)
+        if not api_key:
+            return Response(
+                {"error": f"{provider_config['label']} API key not set. See Settings."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         prompt = request.data.get("prompt", "")
         if not prompt:
             return Response({"error": "Prompt is required"}, status=status.HTTP_400_BAD_REQUEST)
@@ -372,7 +410,7 @@ class AIChatView(APIView):
         # means that this is a new chat
         if not chat_id:
             # using a model to create a new chat name based on input prompt
-            chat_name = name_chat(gemini_key, prompt)
+            chat_name = name_chat(provider, api_key, prompt)
             chatlog_obj = models.ChatLogs.objects.create(
                 name=chat_name,
             )
@@ -435,8 +473,9 @@ class AIChatView(APIView):
             new_prompt = prompt +  "\n\n" + context_block    
 
             model_response = send_prompt(
-                gemini_key = gemini_key, 
-                model = gemini_model, 
+                provider = provider,
+                api_key = api_key,
+                model = model,
                 prompt = new_prompt, 
                 pdf_count=0, 
                 pdf_paths=[],
@@ -472,8 +511,9 @@ class AIChatView(APIView):
             new_prompt = prompt +  "\n\n" + context_block    
 
             model_response = send_prompt(
-                gemini_key = gemini_key, 
-                model = gemini_model, 
+                provider = provider,
+                api_key = api_key,
+                model = model,
                 prompt = new_prompt, 
                 pdf_count=len(pdf_paths), 
                 pdf_paths = pdf_paths,
@@ -535,8 +575,9 @@ class AIChatView(APIView):
                 new_prompt = prompt +  "\n\n" + context_block    
 
                 model_response = send_prompt(
-                    gemini_key = gemini_key, 
-                    model = gemini_model, 
+                    provider = provider,
+                    api_key = api_key,
+                    model = model,
                     prompt = new_prompt, 
                     chat_id = chat_id
                     )
@@ -569,8 +610,9 @@ class AIChatView(APIView):
 
 
             model_response = send_prompt(
-                    gemini_key = gemini_key, 
-                    model = gemini_model, 
+                    provider = provider,
+                    api_key = api_key,
+                    model = model,
                     prompt = new_prompt, 
                     chat_id = chat_id
                 )
@@ -589,8 +631,9 @@ class AIChatView(APIView):
         # running normal model if not context or no rag 
         else: 
             model_response = send_prompt(
-                    gemini_key = gemini_key, 
-                    model = gemini_model, 
+                    provider = provider,
+                    api_key = api_key,
+                    model = model,
                     prompt = prompt, 
                     chat_id = chat_id
                 )

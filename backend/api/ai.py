@@ -17,10 +17,71 @@ import colorsys
 import math
 from django.db.models import Avg
 from api.utils import load_env_vars
+import fitz
+import requests
+import time
 
 env_vars = load_env_vars()
 
+MODELS_CACHE_TTL_SECONDS = 3600
+_models_cache = {"fetched_at": 0, "providers": None}
+
+MAX_MODELS_PER_PROVIDER = 30
+MAX_MODELS_BY_PROVIDER = {
+    "gemini": 40,
+    "claude": 40,
+    "openai": 60,
+    "openrouter": 500,
+}
+
 backup_gemini_key = env_vars.get("GEMINI_API_KEY", "")
+
+AI_PROVIDER_CONFIG = {
+    "gemini": {
+        "label": "Gemini",
+        "api_key_env": "GEMINI_API_KEY",
+        "default_chat_model": "gemini-2.5-flash",
+        "default_naming_model": "gemini-2.5-flash-lite",
+    },
+    "claude": {
+        "label": "Claude",
+        "api_key_env": "ANTHROPIC_API_KEY",
+        "default_chat_model": "claude-sonnet-4-20250514",
+        "default_naming_model": "claude-3-5-haiku-latest",
+    },
+    "openai": {
+        "label": "OpenAI",
+        "api_key_env": "OPENAI_API_KEY",
+        "default_chat_model": "gpt-4.1",
+        "default_naming_model": "gpt-4.1-mini",
+    },
+    "openrouter": {
+        "label": "OpenRouter",
+        "api_key_env": "OPENROUTER_API_KEY",
+        "default_chat_model": "openai/gpt-4.1",
+        "default_naming_model": "openai/gpt-4.1-mini",
+    },
+}
+
+SYSTEM_PROMPT = """
+# IDENTITY
+You are the Research Marker Assistant, a specialized AI designed to help researchers, students, and professionals synthesize information from their personal "Knowledge Index." You are analytical, precise, and objective.
+
+# OPERATIONAL RULES
+1. DATA INTEGRITY: Only make claims based on the indexed documents (if they exist). If the information is not in the index, state clearly: "I don't find specific mention of that in your current library, but based on general knowledge..."
+2. CITATION STYLE: When referencing a paper, always mention its title. If quoting a highlight, use "quotes" and mention the source.
+3. SYNTHESIS: When asked to "summarize" or "find connections," use bullet points and bold headers for scannability.
+4. TONE: Maintain a professional, academic, yet helpful tone. Avoid fluff, long introductions, or "I hope this helps" style filler.
+
+# FORMATTING
+- Use Markdown for structure (headers, bolding, lists).
+- Use LaTeX for ALL mathematical formulas or scientific notations.
+- IMPORTANT: Wrap inline math in single dollar signs (e.g., $E=mc^2$).
+- IMPORTANT: Wrap block equations in double dollar signs (e.g., $$ x = ... $$).
+
+# LIMITATIONS
+- Do not hallucinate data that isn't present in the user's annotations or papers. However you can use general knowledge if no data is passed to you in the context.
+"""
 
 # for saving chat logs
 # this only saves the user prompt and doesn't include added context so that it looks normal in the chat history
@@ -41,7 +102,10 @@ def add_message_to_chat(chat_id, role, text):
 
 # getting chat history to pass to model
 # gets past 10 chats to save tokens
-def get_chat_history(chat_id): 
+def get_chat_history(chat_id):
+    if not chat_id:
+        return []
+
     chatlog_obj = models.ChatLogs.objects.get(pk=chat_id)
     chatlog = chatlog_obj.content
 
@@ -49,17 +113,313 @@ def get_chat_history(chat_id):
     for msg in chatlog:
         history.append({
             "role": msg['role'],
-            "parts": [{"text": msg['content']}]
+            "content": msg['content']
         })
 
     recent_history = history[-10:]
     return recent_history
 
-# names the AI chat based on the user prompt
-def name_chat(gemini_key, user_prompt):
-    client = genai.Client(api_key=gemini_key) 
-    model = "gemini-2.5-flash-lite" # extremely cheap
+def get_gemini_chat_history(chat_id):
+    return [
+        {
+            "role": msg["role"],
+            "parts": [{"text": msg["content"]}]
+        }
+        for msg in get_chat_history(chat_id)
+    ]
 
+def normalize_provider(provider):
+    if not provider:
+        return "gemini"
+
+    normalized = str(provider).strip().lower()
+    if normalized == "anthropic":
+        return "claude"
+
+    return normalized if normalized in AI_PROVIDER_CONFIG else "gemini"
+
+def get_provider_api_key(provider, env_vars_override=None):
+    env_source = env_vars_override if env_vars_override is not None else load_env_vars()
+    provider_config = AI_PROVIDER_CONFIG[normalize_provider(provider)]
+    return env_source.get(provider_config["api_key_env"], "")
+
+def _limit_models(models, provider="gemini"):
+    limit = MAX_MODELS_BY_PROVIDER.get(provider, MAX_MODELS_PER_PROVIDER)
+    return models[:limit]
+
+def _pick_naming_model(models, provider):
+    if not models:
+        return AI_PROVIDER_CONFIG[provider]["default_naming_model"]
+    for model in models:
+        lowered = model.lower()
+        if any(token in lowered for token in ("lite", "haiku", "mini", "flash")):
+            return model
+    return models[-1]
+
+def _pick_chat_model(models, provider):
+    if not models:
+        return AI_PROVIDER_CONFIG[provider]["default_chat_model"]
+    for model in models:
+        lowered = model.lower()
+        if "flash" in lowered or "mini" in lowered or "sonnet" in lowered:
+            return model
+    return models[0]
+
+GEMINI_TEXT_CHAT_BLOCKLIST = (
+    "embed",
+    "aqa",
+    "tts",
+    "imagen",
+    "veo",
+    "live",
+    "robotics",
+    "robot",
+    "banana",
+    "nano-banana",
+    "-image",
+    "image-preview",
+    "computer-use",
+    "audio",
+    "transcribe",
+)
+
+OPENAI_TEXT_CHAT_BLOCKLIST = (
+    "embed",
+    "whisper",
+    "tts",
+    "dall-e",
+    "realtime",
+    "audio",
+    "transcribe",
+    "moderation",
+    "search",
+    "image",
+    "vision",
+)
+
+OPENROUTER_TEXT_CHAT_BLOCKLIST = (
+    "embed",
+    "moderation",
+    "tts",
+    "whisper",
+    "dall-e",
+    "stable-diffusion",
+    "transcribe",
+)
+
+def _is_gemini_text_chat_model(name):
+    lowered = name.lower()
+    if any(token in lowered for token in GEMINI_TEXT_CHAT_BLOCKLIST):
+        return False
+    return lowered.startswith("gemini-") or lowered.startswith("learnlm")
+
+def _is_openai_text_chat_model(model_id):
+    lowered = model_id.lower()
+    if any(token in lowered for token in OPENAI_TEXT_CHAT_BLOCKLIST):
+        return False
+    return lowered.startswith("gpt-") or lowered.startswith("o")
+
+def _is_openrouter_text_chat_model(item):
+    model_id = item.get("id", "")
+    lowered = model_id.lower()
+    if not model_id or any(token in lowered for token in OPENROUTER_TEXT_CHAT_BLOCKLIST):
+        return False
+
+    architecture = item.get("architecture") or {}
+    output_modalities = architecture.get("output_modalities") or []
+    input_modalities = architecture.get("input_modalities") or []
+
+    if output_modalities and "text" not in output_modalities:
+        return False
+    if input_modalities and set(input_modalities) != {"text"}:
+        return False
+
+    return True
+
+def fetch_gemini_models(api_key):
+    if not api_key:
+        return [], "API key not configured"
+
+    response = requests.get(
+        "https://generativelanguage.googleapis.com/v1beta/models",
+        params={"key": api_key},
+        timeout=20,
+    )
+    response.raise_for_status()
+    payload = response.json()
+
+    models = []
+    for item in payload.get("models", []):
+        methods = item.get("supportedGenerationMethods", [])
+        if "generateContent" not in methods:
+            continue
+
+        name = item.get("name", "").replace("models/", "")
+        if not _is_gemini_text_chat_model(name):
+            continue
+
+        models.append(name)
+
+    models.sort(reverse=True)
+    return _limit_models(models, "gemini"), None
+
+def fetch_openai_models(api_key):
+    if not api_key:
+        return [], "API key not configured"
+
+    response = requests.get(
+        "https://api.openai.com/v1/models",
+        headers={"Authorization": f"Bearer {api_key}"},
+        timeout=20,
+    )
+    response.raise_for_status()
+    payload = response.json()
+
+    models = []
+    for item in payload.get("data", []):
+        model_id = item.get("id", "")
+        if not _is_openai_text_chat_model(model_id):
+            continue
+        models.append(model_id)
+
+    created_map = {item.get("id"): item.get("created", 0) for item in payload.get("data", [])}
+    models.sort(key=lambda model_id: created_map.get(model_id, 0), reverse=True)
+    return _limit_models(models, "openai"), None
+
+def fetch_claude_models(api_key):
+    if not api_key:
+        return [], "API key not configured"
+
+    response = requests.get(
+        "https://api.anthropic.com/v1/models",
+        headers={
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+        },
+        timeout=20,
+    )
+    response.raise_for_status()
+    payload = response.json()
+
+    models = [item.get("id") for item in payload.get("data", []) if item.get("id")]
+    models = [model_id for model_id in models if "computer" not in model_id.lower()]
+    models.sort(reverse=True)
+    return _limit_models(models, "claude"), None
+
+def fetch_openrouter_models(api_key=None):
+    headers = {}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    response = requests.get(
+        "https://openrouter.ai/api/v1/models",
+        headers=headers,
+        timeout=30,
+    )
+    response.raise_for_status()
+    payload = response.json()
+
+    scored = []
+    for item in payload.get("data", []):
+        if not _is_openrouter_text_chat_model(item):
+            continue
+
+        model_id = item.get("id", "")
+        created = item.get("created") or 0
+        context_length = item.get("context_length") or 0
+        scored.append((created, context_length, model_id))
+
+    scored.sort(key=lambda row: (row[0], row[1]), reverse=True)
+    models = [model_id for _, _, model_id in scored]
+    return _limit_models(models, "openrouter"), None
+
+def fetch_provider_models(provider, env_vars_override=None):
+    provider = normalize_provider(provider)
+    config = AI_PROVIDER_CONFIG[provider]
+    api_key = get_provider_api_key(provider, env_vars_override)
+
+    fetchers = {
+        "gemini": fetch_gemini_models,
+        "claude": fetch_claude_models,
+        "openai": fetch_openai_models,
+        "openrouter": fetch_openrouter_models,
+    }
+
+    try:
+        if provider == "openrouter":
+            models, error = fetch_openrouter_models(api_key)
+        else:
+            models, error = fetchers[provider](api_key)
+    except Exception as exc:
+        print(f"Failed fetching models for {provider}: {exc}")
+        models = []
+        error = str(exc)
+
+    return {
+        "id": provider,
+        "label": config["label"],
+        "models": models,
+        "default_chat_model": _pick_chat_model(models, provider),
+        "default_naming_model": _pick_naming_model(models, provider),
+        "has_api_key": bool(api_key) or provider == "openrouter",
+        "error": error,
+    }
+
+def get_all_provider_models(env_vars_override=None, force_refresh=False):
+    now = time.time()
+    if (
+        not force_refresh
+        and _models_cache["providers"] is not None
+        and now - _models_cache["fetched_at"] < MODELS_CACHE_TTL_SECONDS
+    ):
+        return _models_cache["providers"]
+
+    providers = [
+        fetch_provider_models(provider_id, env_vars_override)
+        for provider_id in AI_PROVIDER_CONFIG.keys()
+    ]
+
+    _models_cache["providers"] = providers
+    _models_cache["fetched_at"] = now
+    return providers
+
+def extract_pdf_text(pdf_paths, word_limit=7000):
+    chunks = []
+    words_used = 0
+
+    for path in pdf_paths or []:
+        try:
+            if not path.exists():
+                continue
+
+            doc = fitz.open(path)
+            pages = []
+            for index, page in enumerate(doc, start=1):
+                text = page.get_text("text").strip()
+                if text:
+                    pages.append(f"[Page {index}]\n{text}")
+            doc.close()
+
+            combined = "\n\n".join(pages)
+            words = re.findall(r"\b\w+(?:['\-]\w+)*\b", combined)
+            remaining = word_limit - words_used
+            if remaining <= 0:
+                break
+
+            if len(words) > remaining:
+                combined = " ".join(words[:remaining])
+
+            chunks.append(f"--- PDF Text: {path.name} ---\n{combined}\n--- END PDF Text ---")
+            words_used += min(len(words), remaining)
+        except Exception as e:
+            print(f"Failed extracting PDF text for {path}: {e}")
+
+    return "\n\n".join(chunks)
+
+# names the AI chat based on the user prompt
+def name_chat(provider, api_key, user_prompt, model=None):
+    provider = normalize_provider(provider)
+    model = model or AI_PROVIDER_CONFIG[provider]["default_naming_model"]
     prompt = f"""### Role
     You are a Chat Naming Specialist for a research application.
 
@@ -80,14 +440,19 @@ def name_chat(gemini_key, user_prompt):
     ### Context
     User Prompt: {user_prompt}"""
 
-    response = client.models.generate_content(
-        model=model, 
-        contents=prompt, 
-        config=types.GenerateContentConfig(
-            temperature=0.7)
-        )
-
-    return response.text
+    try:
+        return send_prompt(
+            provider=provider,
+            api_key=api_key,
+            model=model,
+            prompt=prompt,
+            chat_id=None,
+            system_prompt="Return only the requested chat title.",
+            temperature=0.3,
+        ).strip()[:80]
+    except Exception as e:
+        print(f"Failed naming chat with {provider}: {e}")
+        return "Research Chat"
 
 
 """
@@ -374,46 +739,85 @@ def rag_context_injection(original_prompt):
             return
 
 # main function that sends prompt and context to model and returns a response
-def send_prompt(gemini_key, model, prompt, pdf_count=0, pdf_paths=[], chat_id=None):
-    client = genai.Client(api_key=gemini_key) 
+def send_prompt(
+    provider,
+    api_key,
+    model,
+    prompt,
+    pdf_count=0,
+    pdf_paths=None,
+    chat_id=None,
+    system_prompt=SYSTEM_PROMPT,
+    temperature=0.7,
+):
+    provider = normalize_provider(provider)
+    if not api_key:
+        raise ValueError(f"Missing API key for {AI_PROVIDER_CONFIG[provider]['label']}")
 
-    sys_prompt = """
-    # IDENTITY
-    You are the Research Marker Assistant, a specialized AI designed to help researchers, students, and professionals synthesize information from their personal "Knowledge Index." You are analytical, precise, and objective.
+    pdf_paths = pdf_paths or []
 
-    # OPERATIONAL RULES
-    1. DATA INTEGRITY: Only make claims based on the indexed documents (if they exist). If the information is not in the index, state clearly: "I don't find specific mention of that in your current library, but based on general knowledge..."
-    2. CITATION STYLE: When referencing a paper, always mention its title. If quoting a highlight, use "quotes" and mention the source.
-    3. SYNTHESIS: When asked to "summarize" or "find connections," use bullet points and bold headers for scannability.
-    4. TONE: Maintain a professional, academic, yet helpful tone. Avoid fluff, long introductions, or "I hope this helps" style filler.
+    if provider == "gemini":
+        return send_prompt_gemini(
+            api_key=api_key,
+            model=model,
+            prompt=prompt,
+            pdf_count=pdf_count,
+            pdf_paths=pdf_paths,
+            chat_id=chat_id,
+            system_prompt=system_prompt,
+            temperature=temperature,
+        )
 
-    # FORMATTING
-    - Use Markdown for structure (headers, bolding, lists).
-    - Use LaTeX for ALL mathematical formulas or scientific notations.
-    - IMPORTANT: Wrap inline math in single dollar signs (e.g., $E=mc^2$).
-    - IMPORTANT: Wrap block equations in double dollar signs (e.g., $$ x = ... $$).
+    # Gemini accepts native PDF parts. Other providers receive extracted text.
+    if pdf_count > 0:
+        pdf_context = extract_pdf_text(pdf_paths)
+        if pdf_context:
+            prompt = f"{prompt}\n\n[PDF TEXT CONTEXT]\n{pdf_context}"
 
-    # LIMITATIONS
-    - Do not hallucinate data that isn't present in the user's annotations or papers. However you can use general knowledge if no data is passed to you in the context.
-    """
+    if provider == "claude":
+        return send_prompt_claude(api_key, model, prompt, chat_id, system_prompt, temperature)
+    if provider == "openai":
+        return send_prompt_openai_compatible(
+            api_key=api_key,
+            model=model,
+            prompt=prompt,
+            chat_id=chat_id,
+            system_prompt=system_prompt,
+            temperature=temperature,
+            base_url="https://api.openai.com/v1/chat/completions",
+        )
+    if provider == "openrouter":
+        return send_prompt_openai_compatible(
+            api_key=api_key,
+            model=model,
+            prompt=prompt,
+            chat_id=chat_id,
+            system_prompt=system_prompt,
+            temperature=temperature,
+            base_url="https://openrouter.ai/api/v1/chat/completions",
+            extra_headers={
+                "HTTP-Referer": "https://researchmarker.local",
+                "X-Title": "Research Marker",
+            },
+        )
 
-    # getting recent chat history to give gemini conversation context
-    chat_history = get_chat_history(chat_id)
+    raise ValueError(f"Unsupported model provider: {provider}")
+
+def send_prompt_gemini(api_key, model, prompt, pdf_count=0, pdf_paths=None, chat_id=None, system_prompt=SYSTEM_PROMPT, temperature=0.7):
+    client = genai.Client(api_key=api_key)
 
     chat = client.chats.create(
         model=model,
-        history=chat_history, 
+        history=get_gemini_chat_history(chat_id),
         config=types.GenerateContentConfig(
-            system_instruction=sys_prompt, 
-            temperature=0.7
+            system_instruction=system_prompt,
+            temperature=temperature
         )
     )
 
     message_contents = []
-
-    # adding pdfs if they need to be added
     if pdf_count > 0:
-        for path in pdf_paths:
+        for path in pdf_paths or []:
             if path.exists():
                 message_contents.append(
                     types.Part.from_bytes(
@@ -423,12 +827,67 @@ def send_prompt(gemini_key, model, prompt, pdf_count=0, pdf_paths=[], chat_id=No
                 )
 
     message_contents.append(prompt)
-
-    response = chat.send_message(
-        message=message_contents
-    )
-
+    response = chat.send_message(message=message_contents)
     return response.text
+
+def send_prompt_openai_compatible(api_key, model, prompt, chat_id=None, system_prompt=SYSTEM_PROMPT, temperature=0.7, base_url="", extra_headers=None):
+    messages = [{"role": "system", "content": system_prompt}]
+    for msg in get_chat_history(chat_id):
+        role = "assistant" if msg["role"] == "model" else msg["role"]
+        messages.append({"role": role, "content": msg["content"]})
+    messages.append({"role": "user", "content": prompt})
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    if extra_headers:
+        headers.update(extra_headers)
+
+    response = requests.post(
+        base_url,
+        headers=headers,
+        json={
+            "model": model,
+            "messages": messages,
+            "temperature": temperature,
+        },
+        timeout=120,
+    )
+    response.raise_for_status()
+    data = response.json()
+    return data["choices"][0]["message"]["content"]
+
+def send_prompt_claude(api_key, model, prompt, chat_id=None, system_prompt=SYSTEM_PROMPT, temperature=0.7):
+    messages = []
+    for msg in get_chat_history(chat_id):
+        role = "assistant" if msg["role"] == "model" else "user"
+        messages.append({"role": role, "content": msg["content"]})
+    messages.append({"role": "user", "content": prompt})
+
+    response = requests.post(
+        "https://api.anthropic.com/v1/messages",
+        headers={
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+        },
+        json={
+            "model": model,
+            "max_tokens": 4096,
+            "temperature": temperature,
+            "system": system_prompt,
+            "messages": messages,
+        },
+        timeout=120,
+    )
+    response.raise_for_status()
+    data = response.json()
+    return "".join(
+        block.get("text", "")
+        for block in data.get("content", [])
+        if block.get("type") == "text"
+    )
 
 # NOTE: following is specifically for Smart Collections
 

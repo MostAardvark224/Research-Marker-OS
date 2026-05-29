@@ -378,6 +378,42 @@
               class="w-full h-full cursor-grab active:cursor-grabbing"
             ></div>
 
+            <div
+              class="absolute right-4 top-1/2 z-20 flex -translate-y-1/2 flex-col items-center gap-3 rounded-2xl border border-white/10 bg-[#050508]/90 px-2.5 py-4 shadow-2xl shadow-black/40 backdrop-blur-md"
+            >
+              <button
+                @click="zoomIn"
+                class="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white/70 transition-colors hover:border-purple-500/40 hover:bg-purple-500/10 hover:text-white"
+                title="Zoom In"
+              >
+                <Icon name="uil:plus" class="text-base" />
+              </button>
+
+              <div class="flex h-48 flex-col items-center gap-2">
+                <span class="text-[10px] font-mono text-slate-500">
+                  {{ Math.round(zoomScale * 100) }}%
+                </span>
+                <input
+                  :value="zoomScale"
+                  @input="setZoomLevel(Number($event.target.value))"
+                  type="range"
+                  :min="ZOOM_MIN"
+                  :max="ZOOM_MAX"
+                  :step="0.1"
+                  class="zoom-range h-36 w-2 cursor-pointer accent-purple-500"
+                  aria-label="Graph zoom level"
+                />
+              </div>
+
+              <button
+                @click="zoomOut"
+                class="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white/70 transition-colors hover:border-purple-500/40 hover:bg-purple-500/10 hover:text-white"
+                title="Zoom Out"
+              >
+                <Icon name="uil:minus" class="text-base" />
+              </button>
+            </div>
+
             <div class="absolute bottom-6 right-6 flex flex-col gap-2 z-10">
               <button
                 @click="resetZoom"
@@ -847,6 +883,9 @@ const getTopicColor = (majorTopic, level) => {
 
 const graphContainer = ref(null);
 let svg, g, zoom; // D3 variables
+const ZOOM_MIN = 0.5;
+const ZOOM_MAX = 20;
+const zoomScale = ref(1);
 
 // calculating geometric centers of major and sub clusters
 const processGraphData = (rawData) => {
@@ -1050,10 +1089,11 @@ const initGraph = () => {
   // zoom logic
   zoom = d3
     .zoom()
-    .scaleExtent([0.5, 20]) // Max zoom out / Max zoom in
+    .scaleExtent([ZOOM_MIN, ZOOM_MAX]) // Max zoom out / Max zoom in
     .on("zoom", (event) => {
       const { transform } = event;
       g.attr("transform", transform);
+      zoomScale.value = Number(transform.k.toFixed(2));
       updateSemanticZoom(transform.k);
     });
 
@@ -1108,6 +1148,26 @@ const resetZoom = () => {
     );
 
   // Since domain is mapped to range, scale 1 fits the view exactly
+};
+
+const setZoomLevel = (scale) => {
+  if (!svg || !zoom || !graphContainer.value) return;
+
+  const clampedScale = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, scale));
+  const { clientWidth: width, clientHeight: height } = graphContainer.value;
+
+  svg
+    .transition()
+    .duration(150)
+    .call(zoom.scaleTo, clampedScale, [width / 2, height / 2]);
+};
+
+const zoomIn = () => {
+  setZoomLevel(zoomScale.value + 0.5);
+};
+
+const zoomOut = () => {
+  setZoomLevel(zoomScale.value - 0.5);
 };
 
 onMounted(() => {
@@ -1174,5 +1234,20 @@ watch([data, graphColors], ([newData, newColors]) => {
 .animate-gradient {
   background-size: 200% auto;
   animation: gradient 8s ease infinite;
+}
+
+.zoom-range {
+  writing-mode: vertical-lr;
+  direction: rtl;
+}
+
+.zoom-range::-webkit-slider-runnable-track {
+  width: 0.35rem;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.zoom-range::-webkit-slider-thumb {
+  margin-left: -0.25rem;
 }
 </style>

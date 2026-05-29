@@ -2,5 +2,8 @@
   "DJANGO_SECRET_KEY": "your-secret-key-here",
   "exists": false,
   "SCHOLAR_INBOX_PERSONAL_LOGIN": "Go to scholar inbox settings and paste your login link here",
-  "GEMINI_API_KEY": "YOUR_GEMINI_API_KEY_HERE"
+  "GEMINI_API_KEY": "YOUR_GEMINI_API_KEY_HERE",
+  "ANTHROPIC_API_KEY": "YOUR_ANTHROPIC_API_KEY_HERE",
+  "OPENAI_API_KEY": "YOUR_OPENAI_API_KEY_HERE",
+  "OPENROUTER_API_KEY": "YOUR_OPENROUTER_API_KEY_HERE"
 }

@@ -19,6 +19,7 @@ urlpatterns = [
     path('get-paper/<int:pk>/', views.getPaper.as_view(), name='get-paper'),
     path('user-preferences/', views.UserPreferencesView.as_view(), name='user-preferences'),
     path('env-vars/', views.EnvironmentVariablesView.as_view(), name='environment-variables'),
+    path('ai-models/', views.AIModelsView.as_view(), name='ai-models'),
     path('fetch-scholar-inbox-papers/', views.FetchScholarInboxPapers.as_view(), name='fetch-scholar-inbox-papers'),
     path('search-notes/', views.SearchNotesView.as_view(), name=
          'search-notes'), 

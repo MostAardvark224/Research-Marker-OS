@@ -15,6 +15,9 @@ let apiPort = null;
 let isAppReady = false;
 
 const isDev = process.env.NODE_ENV === "development";
+const useExternalBackend =
+  isDev && process.env.ELECTRON_EXTERNAL_BACKEND === "1";
+const devApiPort = process.env.DEV_API_PORT || "8000";
 
 const resolvePath = (devPath, prodPath) => {
   if (isDev) {
@@ -131,7 +134,18 @@ ipcMain.handle("get-api-port", () => {
 
 app.whenReady().then(() => {
   createSplashWindow();
-  createPythonProcess();
+
+  if (useExternalBackend) {
+    apiPort = devApiPort;
+    console.log(
+      `Using external backend at http://127.0.0.1:${apiPort}/api`,
+    );
+    createWindow();
+    isAppReady = true;
+  } else {
+    createPythonProcess();
+  }
+
   autoUpdater.checkForUpdates();
 });
 

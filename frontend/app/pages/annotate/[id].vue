@@ -3,6 +3,12 @@ import { select } from "#build/ui";
 import "pdfjs-dist/web/pdf_viewer.css";
 import katex from "katex";
 import "katex/dist/katex.min.css";
+import { marked } from "marked";
+import markedKatex from "marked-katex-extension";
+import DOMPurify from "dompurify";
+
+marked.use(markedKatex({ throwOnError: false, output: "html" }));
+marked.use({ breaks: true, gfm: true });
 
 const {
   public: { apiBaseURL },
@@ -211,6 +217,11 @@ const handleKeyboardShortcuts = (e) => {
 
 // Highlight Events
 const handleTextSelection = async () => {
+  // Always capture selection for @selection chat context
+  const selectionRaw = window.getSelection();
+  const selText = selectionRaw?.toString().trim();
+  if (selText) capturedSelection.value = selText;
+
   if (activeTool.value !== "highlighter") return;
 
   const selection = window.getSelection();
@@ -611,6 +622,217 @@ function changeSidebarTab(tabName) {
   sidebarActiveTab.value = tabName;
 }
 
+// --- Chat Tab ---
+const chatMessages = ref([]);
+const chatInput = ref("");
+const chatId = ref(null);
+const chatLoading = ref(false);
+const chatInputRef = ref(null);
+const showAtMenu = ref(false);
+const chatScrollContainer = ref(null);
+const capturedSelection = ref("");
+
+const {
+  aiProviders,
+  selectedAiProvider,
+  selectedAiModel,
+  selectedProviderModels,
+  initializeAiModels,
+} = useAiModels();
+
+const atMenuOptions = [
+  { tag: "@page", label: "Current Page", desc: "Inject text from the current page", icon: "ph:book-open" },
+  { tag: "@paper", label: "This Paper", desc: "Include full PDF + all annotations", icon: "ph:file-pdf" },
+  { tag: "@highlights", label: "Highlights", desc: "All highlights in this paper", icon: "ph:highlighter" },
+  { tag: "@sticky", label: "Sticky Notes", desc: "All sticky notes in this paper", icon: "ph:note" },
+  { tag: "@notepad", label: "Notepad", desc: "Your notepad for this paper", icon: "ph:notebook" },
+  { tag: "@selection", label: "Selection", desc: "Currently selected text on the PDF", icon: "ph:text-select" },
+];
+
+const renderChatContent = (text) => {
+  if (!text) return "";
+  const html = marked.parse(text);
+  return DOMPurify.sanitize(html, {
+    ADD_TAGS: ["math", "semantics", "mrow", "mi", "mo", "mn", "msup", "mfrac", "msqrt", "mtext", "annotation", "annotation-xml"],
+    ADD_ATTR: ["xmlns", "display", "class", "style", "aria-hidden"],
+  });
+};
+
+const scrollChatToBottom = () => {
+  nextTick(() => {
+    if (chatScrollContainer.value) {
+      chatScrollContainer.value.scrollTop = chatScrollContainer.value.scrollHeight;
+    }
+  });
+};
+
+const handleChatInput = () => {
+  const input = chatInput.value;
+  const el = chatInputRef.value;
+  const cursorPos = el ? el.selectionStart : input.length;
+  const textBeforeCursor = input.slice(0, cursorPos);
+  showAtMenu.value = /@\w*$/.test(textBeforeCursor);
+};
+
+const toggleAtMenu = () => {
+  showAtMenu.value = !showAtMenu.value;
+  nextTick(() => chatInputRef.value?.focus());
+};
+
+const insertAtTag = (tag) => {
+  const input = chatInput.value;
+  const el = chatInputRef.value;
+  const cursorPos = el ? el.selectionStart : input.length;
+  const before = input.slice(0, cursorPos).replace(/@\w*$/, tag + " ");
+  const after = input.slice(cursorPos);
+  chatInput.value = before + after;
+  showAtMenu.value = false;
+  nextTick(() => {
+    el?.focus();
+    const newPos = before.length;
+    el?.setSelectionRange(newPos, newPos);
+  });
+};
+
+const buildContextFromInput = (rawInput) => {
+  let prompt = rawInput;
+  const contextParts = [];
+  let usePaperIds = false;
+
+  // @page or @page:N
+  const pageMatches = [...rawInput.matchAll(/@page(?::(\d+))?/g)];
+  for (const m of pageMatches) {
+    const pageNum = m[1] ? parseInt(m[1]) : currentPage.value;
+    const pageText = pageTextContent.value[pageNum];
+    if (pageText) {
+      contextParts.push(`--- Page ${pageNum} Text ---\n${pageText}\n---`);
+    }
+    prompt = prompt.replace(m[0], "");
+  }
+
+  // @paper → send paper_ids to backend which loads full PDF + annotations
+  if (/@paper\b/.test(rawInput)) {
+    usePaperIds = true;
+    prompt = prompt.replace(/@paper\b/g, "");
+  }
+
+  // @highlights
+  if (/@highlights\b/.test(rawInput)) {
+    const hlText = savedHighlights.value
+      .map((h) => `[Page ${h.page}] "${h.text}"`)
+      .join("\n");
+    if (hlText) contextParts.push(`--- Highlights ---\n${hlText}\n---`);
+    else contextParts.push("--- Highlights ---\n(No highlights yet)\n---");
+    prompt = prompt.replace(/@highlights\b/g, "");
+  }
+
+  // @sticky
+  if (/@sticky\b/.test(rawInput)) {
+    const stickyText = stickyNoteData.value
+      .map((s) => `[Page ${s.page}, Tag: ${s.tag || "none"}]\n${s.content || "(empty)"}`)
+      .join("\n\n");
+    if (stickyText) contextParts.push(`--- Sticky Notes ---\n${stickyText}\n---`);
+    else contextParts.push("--- Sticky Notes ---\n(No sticky notes yet)\n---");
+    prompt = prompt.replace(/@sticky\b/g, "");
+  }
+
+  // @notepad
+  if (/@notepad\b/.test(rawInput)) {
+    if (notepadData.value) contextParts.push(`--- Notepad ---\n${notepadData.value}\n---`);
+    else contextParts.push("--- Notepad ---\n(Notepad is empty)\n---");
+    prompt = prompt.replace(/@notepad\b/g, "");
+  }
+
+  // @selection
+  if (/@selection\b/.test(rawInput)) {
+    if (capturedSelection.value) {
+      contextParts.push(`--- Selected Text ---\n${capturedSelection.value}\n---`);
+    } else {
+      contextParts.push("--- Selected Text ---\n(No text selected on the PDF)\n---");
+    }
+    prompt = prompt.replace(/@selection\b/g, "");
+  }
+
+  prompt = prompt.trim();
+  if (contextParts.length > 0) {
+    prompt += `\n\n[Context from PDF viewer]\n${contextParts.join("\n\n")}`;
+  }
+
+  return { prompt, usePaperIds };
+};
+
+const sendChatMessage = async () => {
+  const rawInput = chatInput.value.trim();
+  if (!rawInput || chatLoading.value) return;
+
+  const { prompt, usePaperIds } = buildContextFromInput(rawInput);
+
+  chatMessages.value.push({ role: "user", content: rawInput, timestamp: new Date().toISOString() });
+  chatInput.value = "";
+  capturedSelection.value = "";
+  showAtMenu.value = false;
+
+  scrollChatToBottom();
+
+  chatLoading.value = true;
+  try {
+    const body = {
+      prompt,
+      ...(chatId.value ? { chat_id: chatId.value } : {}),
+      ...(usePaperIds ? { paper_ids: [id] } : {}),
+      model_provider: selectedAiProvider.value,
+      model: selectedAiModel.value,
+    };
+
+    const data = await $fetch(`${apiBaseURL}/ask-ai/`, {
+      method: "POST",
+      body,
+    });
+
+    chatId.value = data.chat_id;
+    chatMessages.value.push({
+      role: "model",
+      content: data.model_response,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (e) {
+    chatMessages.value.push({
+      role: "model",
+      content: "Sorry, something went wrong. Please check your API key is configured in Settings.",
+      timestamp: new Date().toISOString(),
+      isError: true,
+    });
+    console.error("Chat error:", e);
+  } finally {
+    chatLoading.value = false;
+    scrollChatToBottom();
+  }
+};
+
+const clearChat = () => {
+  chatMessages.value = [];
+  chatId.value = null;
+};
+
+// Splits user message into plain text and @tag parts for display
+const parseUserMessage = (text) => {
+  const parts = [];
+  const regex = /@\w+(?::\w+)?/g;
+  let lastIndex = 0;
+  let match;
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push({ type: "text", text: text.slice(lastIndex, match.index) });
+    }
+    parts.push({ type: "tag", text: match[0] });
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < text.length) {
+    parts.push({ type: "text", text: text.slice(lastIndex) });
+  }
+  return parts;
+};
+
 // Sidebar functions
 // Notepad
 let saveNotepadDebounce = null;
@@ -664,17 +886,13 @@ const deleteStickyNote = async (noteId) => {
 // For border transition when switching tabs
 const sliderStyle = computed(() => {
   if (sidebarActiveTab.value === "stickyNotes") {
-    return {
-      left: "0%",
-      width: "50%",
-    };
+    return { left: "0%", width: "33.333%" };
   } else if (sidebarActiveTab.value === "notepad") {
-    return {
-      left: "50%",
-      width: "50%",
-    };
+    return { left: "33.333%", width: "33.333%" };
+  } else if (sidebarActiveTab.value === "chat") {
+    return { left: "66.666%", width: "33.334%" };
   }
-  return { left: "0%", width: "50%" };
+  return { left: "0%", width: "33.333%" };
 });
 
 // Color wheel in tool bar
@@ -1025,6 +1243,8 @@ watch(zoomLevel, async (newZoom, oldZoom) => {
 
 onMounted(async () => {
   try {
+    await initializeAiModels();
+
     const pdfjsModule = await import("pdfjs-dist");
     pdfjsLib = pdfjsModule;
 
@@ -1488,10 +1708,10 @@ watch(currentPage, () => {
 
           <div
             @click="changeSidebarTab('stickyNotes')"
-            class="flex-1 text-center py-2 text-sm font-medium transition-colors z-10"
+            class="flex-1 text-center py-2 text-xs font-medium transition-colors z-10 cursor-pointer"
             :class="{
               'text-slate-200': sidebarActiveTab === 'stickyNotes',
-              'text-slate-500 hover:text-slate-300 cursor-pointer':
+              'text-slate-500 hover:text-slate-300':
                 sidebarActiveTab !== 'stickyNotes',
             }"
           >
@@ -1499,7 +1719,7 @@ watch(currentPage, () => {
           </div>
           <div
             @click="changeSidebarTab('notepad')"
-            class="flex-1 flex items-center justify-center gap-2 py-2 text-sm font-medium transition-colors z-10 cursor-pointer"
+            class="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium transition-colors z-10 cursor-pointer"
             :class="{
               'text-slate-200': sidebarActiveTab === 'notepad',
               'text-slate-500 hover:text-slate-300':
@@ -1507,21 +1727,36 @@ watch(currentPage, () => {
             }"
           >
             Notepad
-
             <button
               v-if="sidebarActiveTab === 'notepad'"
               @click.stop="isNotepadPreview = !isNotepadPreview"
               class="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
-              :title="
-                isNotepadPreview
-                  ? 'Switch to Edit Mode'
-                  : 'Switch to Preview Mode'
-              "
+              :title="isNotepadPreview ? 'Switch to Edit Mode' : 'Switch to Preview Mode'"
             >
               <Icon
                 :name="isNotepadPreview ? 'ph:pencil-simple' : 'ph:eye'"
-                class="w-3.5 h-3.5"
+                class="w-3 h-3"
               />
+            </button>
+          </div>
+          <div
+            @click="changeSidebarTab('chat')"
+            class="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium transition-colors z-10 cursor-pointer"
+            :class="{
+              'text-slate-200': sidebarActiveTab === 'chat',
+              'text-slate-500 hover:text-slate-300':
+                sidebarActiveTab !== 'chat',
+            }"
+          >
+            <Icon name="ph:chat-circle-dots" class="w-3.5 h-3.5" />
+            Chat
+            <button
+              v-if="sidebarActiveTab === 'chat' && chatMessages.length > 0"
+              @click.stop="clearChat"
+              class="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+              title="New chat"
+            >
+              <Icon name="ph:arrow-counter-clockwise" class="w-3 h-3" />
             </button>
           </div>
         </div>
@@ -1699,6 +1934,181 @@ watch(currentPage, () => {
             </span>
           </div>
         </div>
+
+        <!-- Chat Tab -->
+        <div
+          v-show="sidebarActiveTab === 'chat'"
+          class="flex-1 flex flex-col overflow-hidden bg-slate-900/40"
+        >
+          <div
+            ref="chatScrollContainer"
+            class="flex-1 min-h-0 overflow-y-auto px-3 py-4 space-y-4 custom-scrollbar"
+          >
+            <div
+              v-if="chatMessages.length === 0 && !chatLoading"
+              class="flex flex-col items-center justify-center min-h-[220px] text-center px-3"
+            >
+              <div class="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-500/10 border border-indigo-500/20">
+                <Icon name="ph:chat-circle-dots" class="w-6 h-6 text-indigo-400" />
+              </div>
+              <p class="text-sm font-medium text-slate-200 mb-1">Ask about this paper</p>
+              <p class="text-[11px] text-slate-500 leading-relaxed max-w-[220px]">
+                Use <span class="font-mono text-indigo-300/80">@page</span>, <span class="font-mono text-indigo-300/80">@paper</span>, or other tags to give the assistant context.
+              </p>
+              <div class="mt-4 grid w-full grid-cols-2 gap-1.5">
+                <button
+                  v-for="opt in atMenuOptions.slice(0, 4)"
+                  :key="opt.tag"
+                  @click="insertAtTag(opt.tag)"
+                  class="rounded-lg border border-slate-700/70 bg-slate-800/60 px-2 py-2 text-left hover:border-indigo-500/40 hover:bg-slate-800 transition-colors"
+                >
+                  <p class="text-[10px] font-mono text-indigo-300">{{ opt.tag }}</p>
+                </button>
+              </div>
+            </div>
+
+            <template v-else>
+              <div
+                v-for="(msg, idx) in chatMessages"
+                :key="idx"
+                class="flex gap-2.5"
+                :class="msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'"
+              >
+                <div
+                  class="w-7 h-7 shrink-0 rounded-lg flex items-center justify-center"
+                  :class="
+                    msg.role === 'user'
+                      ? 'bg-slate-800 border border-slate-700'
+                      : 'bg-indigo-500/15 border border-indigo-500/25'
+                  "
+                >
+                  <Icon
+                    :name="msg.role === 'user' ? 'ph:user' : 'ph:robot'"
+                    class="w-3.5 h-3.5"
+                    :class="msg.role === 'user' ? 'text-slate-300' : 'text-indigo-400'"
+                  />
+                </div>
+
+                <div
+                  class="max-w-[88%] rounded-2xl px-3 py-2.5 text-xs leading-relaxed shadow-sm"
+                  :class="{
+                    'bg-gradient-to-br from-indigo-600/90 to-indigo-700/80 text-white rounded-tr-md': msg.role === 'user',
+                    'bg-slate-800/90 text-slate-200 border border-slate-700/60 rounded-tl-md': msg.role === 'model' && !msg.isError,
+                    'bg-red-950/40 text-red-300 border border-red-800/40 rounded-tl-md': msg.isError,
+                  }"
+                >
+                  <div v-if="msg.role === 'user'" class="whitespace-pre-wrap break-words">
+                    <template v-for="(part, i) in parseUserMessage(msg.content)" :key="i">
+                      <span
+                        v-if="part.type === 'tag'"
+                        class="inline-flex items-center px-1 py-0.5 rounded bg-white/15 text-[10px] font-mono mx-0.5"
+                      >{{ part.text }}</span>
+                      <span v-else>{{ part.text }}</span>
+                    </template>
+                  </div>
+                  <div v-else class="chat-prose" v-html="renderChatContent(msg.content)"></div>
+                </div>
+              </div>
+
+              <div v-if="chatLoading" class="flex gap-2.5">
+                <div class="w-7 h-7 shrink-0 rounded-lg bg-indigo-500/15 border border-indigo-500/25 flex items-center justify-center">
+                  <Icon name="ph:robot" class="w-3.5 h-3.5 text-indigo-400" />
+                </div>
+                <div class="rounded-2xl rounded-tl-md bg-slate-800/90 border border-slate-700/60 px-3 py-2.5 flex items-center gap-1.5">
+                  <div class="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce"></div>
+                  <div class="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce [animation-delay:120ms]"></div>
+                  <div class="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce [animation-delay:240ms]"></div>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <div class="shrink-0 border-t border-slate-800 bg-slate-900 p-2.5">
+            <div class="rounded-xl border border-slate-700/80 bg-slate-950/80 overflow-hidden shadow-lg">
+              <div class="grid grid-cols-2 gap-2 px-2.5 py-2 border-b border-slate-800 bg-slate-900/60">
+                <select
+                  v-model="selectedAiProvider"
+                  class="min-w-0 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-[10px] text-slate-300 outline-none focus:border-indigo-500/50"
+                >
+                  <option v-for="provider in aiProviders" :key="provider.id" :value="provider.id">
+                    {{ provider.label }}
+                  </option>
+                </select>
+                <select
+                  v-model="selectedAiModel"
+                  class="min-w-0 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-[10px] text-slate-300 outline-none focus:border-indigo-500/50"
+                >
+                  <option v-for="model in selectedProviderModels" :key="model" :value="model">
+                    {{ model }}
+                  </option>
+                </select>
+              </div>
+
+              <div
+                v-if="showAtMenu"
+                class="border-b border-slate-800 max-h-36 overflow-y-auto custom-scrollbar"
+              >
+                <button
+                  v-for="opt in atMenuOptions"
+                  :key="opt.tag"
+                  @mousedown.prevent="insertAtTag(opt.tag)"
+                  class="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-slate-800/80 transition-colors"
+                >
+                  <Icon :name="opt.icon" class="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                  <span class="text-[11px] font-mono text-slate-200">{{ opt.tag }}</span>
+                  <span class="text-[10px] text-slate-500 truncate">{{ opt.desc }}</span>
+                </button>
+              </div>
+
+              <div
+                v-if="capturedSelection"
+                class="flex items-center gap-2 border-b border-slate-800 bg-indigo-500/5 px-2.5 py-1.5"
+              >
+                <Icon name="ph:text-select" class="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                <span class="text-[10px] text-indigo-200 truncate flex-1">
+                  "{{ capturedSelection.slice(0, 60) }}{{ capturedSelection.length > 60 ? '…' : '' }}"
+                </span>
+                <button @click="capturedSelection = ''" class="text-slate-500 hover:text-slate-300">
+                  <Icon name="ph:x" class="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              <div
+                class="flex items-end gap-1 px-2 py-2 min-h-[52px]"
+              >
+                <button
+                  type="button"
+                  @click="toggleAtMenu"
+                  class="mb-0.5 shrink-0 rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-800 hover:text-indigo-400"
+                  :class="{ 'bg-slate-800 text-indigo-400': showAtMenu }"
+                  title="Add context"
+                >
+                  <Icon name="ph:at" class="w-4 h-4" />
+                </button>
+
+                <textarea
+                  ref="chatInputRef"
+                  v-model="chatInput"
+                  @input="handleChatInput"
+                  @keydown.enter.exact.prevent="sendChatMessage"
+                  @keydown.escape="showAtMenu = false"
+                  rows="2"
+                  placeholder="Ask about this paper…"
+                  class="flex-1 min-h-[44px] max-h-28 resize-none border-0 bg-transparent px-1 py-2 text-xs text-slate-200 placeholder:text-slate-600 outline-none custom-scrollbar"
+                ></textarea>
+
+                <button
+                  @click="sendChatMessage"
+                  :disabled="chatLoading || !chatInput.trim()"
+                  class="mb-0.5 shrink-0 rounded-lg bg-indigo-600 p-2 text-white transition-colors hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
+                  title="Send"
+                >
+                  <Icon name="ph:paper-plane-tilt" class="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       </aside>
     </div>
   </div>
@@ -1846,5 +2256,92 @@ watch(currentPage, () => {
 
 :deep(.katex-display)::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* Chat prose styles */
+.chat-prose :deep(p) {
+  margin: 0.25rem 0;
+  line-height: 1.6;
+}
+
+.chat-prose :deep(p:first-child) {
+  margin-top: 0;
+}
+
+.chat-prose :deep(p:last-child) {
+  margin-bottom: 0;
+}
+
+.chat-prose :deep(h1),
+.chat-prose :deep(h2),
+.chat-prose :deep(h3) {
+  font-weight: 600;
+  color: #c7d2fe;
+  margin: 0.5rem 0 0.25rem;
+}
+
+.chat-prose :deep(h1) { font-size: 0.9rem; }
+.chat-prose :deep(h2) { font-size: 0.85rem; }
+.chat-prose :deep(h3) { font-size: 0.8rem; }
+
+.chat-prose :deep(ul),
+.chat-prose :deep(ol) {
+  margin: 0.25rem 0;
+  padding-left: 1.25rem;
+}
+
+.chat-prose :deep(li) {
+  margin: 0.1rem 0;
+}
+
+.chat-prose :deep(strong) {
+  color: #f1f5f9;
+  font-weight: 600;
+}
+
+.chat-prose :deep(em) {
+  color: #cbd5e1;
+}
+
+.chat-prose :deep(code) {
+  background: #1e293b;
+  color: #fbbf24;
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+  font-family: monospace;
+  font-size: 0.75em;
+}
+
+.chat-prose :deep(pre) {
+  background: #1e293b;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 0.5rem 0;
+}
+
+.chat-prose :deep(pre code) {
+  background: transparent;
+  padding: 0;
+  color: #94a3b8;
+}
+
+.chat-prose :deep(blockquote) {
+  border-left: 2px solid #4f46e5;
+  padding-left: 0.75rem;
+  color: #94a3b8;
+  margin: 0.25rem 0;
+}
+
+.chat-prose :deep(.katex-display) {
+  display: block;
+  max-width: 100%;
+  margin: 0.5em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.chat-prose :deep(.katex) {
+  font-size: 1em;
 }
 </style>

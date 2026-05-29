@@ -28,6 +28,9 @@ def get_app_data_dir():
 def get_env_vars_potential_list(): 
     potential_list = [
         "GEMINI_API_KEY", 
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "OPENROUTER_API_KEY",
         "SCHOLAR_INBOX_PERSONAL_LOGIN", 
     ]
 
