@@ -1,6 +1,7 @@
 aiohappyeyeballs==2.6.2
 aiohttp==3.13.5
 aiosignal==1.4.0
+altgraph==0.17.5
 annotated-types==0.7.0
 anyio==4.13.0
 arrow==1.4.0
@@ -51,6 +52,8 @@ pycparser==3.0
 pydantic==2.13.4
 pydantic_core==2.46.4
 pyee==13.0.1
+pyinstaller==6.20.0
+pyinstaller-hooks-contrib==2026.5
 PyMuPDF==1.27.2.3
 pynndescent==0.6.0
 python-dateutil==2.9.0.post0
