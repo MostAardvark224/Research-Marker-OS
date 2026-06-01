@@ -16,6 +16,7 @@ let pythonProcess;
 let apiPort = null;
 let isAppReady = false;
 let updateCheckTimer = null;
+let backendProgressTimer = null;
 
 const isDev = process.env.NODE_ENV === "development";
 const useExternalBackend =
@@ -169,13 +170,60 @@ function scheduleUpdateChecks() {
   }, UPDATE_CHECK_INTERVAL_MS);
 }
 
+function setSplashProgress(percent, message) {
+  if (!splashWindow || splashWindow.isDestroyed()) {
+    return;
+  }
+
+  const pct = Math.min(100, Math.max(0, percent));
+  const msg = JSON.stringify(message || "Initializing Research Marker…");
+
+  splashWindow.webContents
+    .executeJavaScript(`window.setSplashProgress(${pct}, ${msg})`)
+    .catch(() => {});
+}
+
+function closeSplashWindow() {
+  if (backendProgressTimer) {
+    clearInterval(backendProgressTimer);
+    backendProgressTimer = null;
+  }
+
+  if (!splashWindow || splashWindow.isDestroyed()) {
+    return;
+  }
+
+  splashWindow.destroy();
+  splashWindow = null;
+}
+
+function startBackendProgressAnimation() {
+  let pct = 18;
+
+  if (backendProgressTimer) {
+    clearInterval(backendProgressTimer);
+  }
+
+  backendProgressTimer = setInterval(() => {
+    if (mainWindow || pct >= 48) {
+      clearInterval(backendProgressTimer);
+      backendProgressTimer = null;
+      return;
+    }
+
+    pct += 1;
+    setSplashProgress(pct, "Starting backend…");
+  }, 350);
+}
+
 function createSplashWindow() {
   splashWindow = new BrowserWindow({
-    width: 400,
-    height: 300,
+    width: 420,
+    height: 320,
     transparent: false,
     frame: true,
     alwaysOnTop: true,
+    resizable: false,
     webPreferences: {
       nodeIntegration: false,
     },
@@ -188,9 +236,15 @@ function createSplashWindow() {
 
   log.info("Attempting to load splash from:", splashPath);
   splashWindow.loadFile(splashPath);
+  splashWindow.webContents.once("did-finish-load", () => {
+    setSplashProgress(8, "Initializing Research Marker…");
+  });
 }
 
 function createPythonProcess() {
+  setSplashProgress(18, "Starting backend…");
+  startBackendProgressAnimation();
+
   const userDataPath = app.getPath("userData");
 
   log.info(`Launching Python from: ${scriptPath}`);
@@ -215,6 +269,11 @@ function createPythonProcess() {
       log.info(`Python backend ready on port ${apiPort}`);
 
       if (!mainWindow) {
+        if (backendProgressTimer) {
+          clearInterval(backendProgressTimer);
+          backendProgressTimer = null;
+        }
+        setSplashProgress(52, "Backend ready…");
         createWindow();
         isAppReady = true;
       }
@@ -230,6 +289,8 @@ function createPythonProcess() {
 }
 
 function createWindow() {
+  setSplashProgress(68, "Loading interface…");
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
@@ -256,11 +317,22 @@ function createWindow() {
     );
   }
 
+  mainWindow.webContents.on("did-start-loading", () => {
+    setSplashProgress(78, "Loading interface…");
+  });
+
+  mainWindow.webContents.on("dom-ready", () => {
+    setSplashProgress(92, "Almost ready…");
+  });
+
   mainWindow.once("ready-to-show", () => {
-    splashWindow.destroy();
-    mainWindow.show();
-    mainWindow.focus();
-    broadcastUpdateStatus();
+    setSplashProgress(100, "Ready");
+    setTimeout(() => {
+      closeSplashWindow();
+      mainWindow.show();
+      mainWindow.focus();
+      broadcastUpdateStatus();
+    }, 180);
   });
 }
 
@@ -299,6 +371,7 @@ app.whenReady().then(() => {
   if (useExternalBackend) {
     apiPort = devApiPort;
     log.info(`Using external backend at http://127.0.0.1:${apiPort}/api`);
+    setSplashProgress(40, "Connecting to backend…");
     createWindow();
     isAppReady = true;
   } else {

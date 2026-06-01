@@ -1,41 +1,131 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
   <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Research Marker</title>
     <style>
+      * {
+        box-sizing: border-box;
+      }
+
       body {
         margin: 0;
-        background: #2c3e50;
+        background: #020204;
         display: flex;
         align-items: center;
         justify-content: center;
         height: 100vh;
-        font-family: sans-serif;
-        color: white;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: #e2e8f0;
         -webkit-app-region: drag;
+        user-select: none;
       }
-      .loader {
-        border: 4px solid #f3f3f3;
-        border-top: 4px solid #3498db;
-        border-radius: 50%;
-        width: 40px;
-        height: 40px;
-        animation: spin 1s linear infinite;
-        margin: 0 auto 15px auto;
+
+      .shell {
+        width: min(320px, calc(100vw - 48px));
+        text-align: center;
       }
-      @keyframes spin {
-        0% {
-          transform: rotate(0deg);
-        }
-        100% {
-          transform: rotate(360deg);
-        }
+
+      .logo-wrap {
+        width: 56px;
+        height: 56px;
+        margin: 0 auto 18px;
+        border-radius: 16px;
+        background: linear-gradient(135deg, rgba(99, 102, 241, 0.18), rgba(168, 85, 247, 0.12));
+        border: 1px solid rgba(99, 102, 241, 0.25);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .logo-wrap svg {
+        width: 28px;
+        height: 28px;
+        color: #818cf8;
+      }
+
+      h1 {
+        margin: 0 0 6px;
+        font-size: 18px;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        color: #f8fafc;
+      }
+
+      .status {
+        margin: 0 0 20px;
+        font-size: 12px;
+        color: #64748b;
+        min-height: 18px;
+      }
+
+      .progress-track {
+        width: 100%;
+        height: 6px;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.06);
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.04);
+      }
+
+      .progress-fill {
+        height: 100%;
+        width: 0%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, #6366f1, #818cf8);
+        box-shadow: 0 0 18px rgba(99, 102, 241, 0.45);
+        transition: width 0.45s ease;
+      }
+
+      .progress-meta {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 8px;
+        font-size: 10px;
+        color: #475569;
+        font-variant-numeric: tabular-nums;
       }
     </style>
   </head>
   <body>
-    <div style="text-align: center">
-      <div class="loader"></div>
-      <p>Initializing Research Marker...</p>
+    <div class="shell">
+      <div class="logo-wrap" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+          <path
+            d="M12 3l7 4v10l-7 4-7-4V7l7-4z"
+            stroke-linejoin="round"
+          />
+          <path d="M12 11l7-4M12 11v10M12 11L5 7" stroke-linecap="round" />
+        </svg>
+      </div>
+      <h1>Research Marker</h1>
+      <p id="status" class="status">Initializing…</p>
+      <div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <div id="progress-fill" class="progress-fill"></div>
+      </div>
+      <div class="progress-meta">
+        <span>Starting up</span>
+        <span id="progress-label">0%</span>
+      </div>
     </div>
+
+    <script>
+      window.setSplashProgress = function setSplashProgress(percent, message) {
+        const pct = Math.min(100, Math.max(0, Number(percent) || 0));
+        const fill = document.getElementById("progress-fill");
+        const label = document.getElementById("progress-label");
+        const status = document.getElementById("status");
+        const track = document.querySelector(".progress-track");
+
+        fill.style.width = pct + "%";
+        label.textContent = Math.round(pct) + "%";
+        track.setAttribute("aria-valuenow", String(Math.round(pct)));
+
+        if (message) {
+          status.textContent = message;
+        }
+      };
+    </script>
   </body>
 </html>
