@@ -100,8 +100,7 @@
     "mac": {
       "target": ["dmg", "zip"],
       "icon": "app/assets/icons/icon.icns",
-      "hardenedRuntime": true,
-      "gatekeeperAssess": false
+      "identity": null
     },
     "win": {
       "target": "nsis",
