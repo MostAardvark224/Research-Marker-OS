@@ -17,6 +17,7 @@
     "dev:external": "concurrently \"pnpm run dev:nuxt\" \"pnpm run dev:electron:external\"",
     "generate": "nuxt generate --dotenv .env.prod",
     "build": "pnpm run generate && electron-builder --publish always",
+    "build:local": "pnpm run generate && electron-builder --publish never",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
     "build-icons": "electron-icon-builder --input=./public/logo.png --output=app/assets --flatten"
