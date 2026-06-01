@@ -1,8 +1,10 @@
-const { app, BrowserWindow, ipcMain, dialog } = require("electron");
+const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("path");
 const { spawn } = require("child_process");
 const { autoUpdater } = require("electron-updater");
+const log = require("electron-log");
 
+autoUpdater.logger = log;
 autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = false;
 
@@ -13,11 +15,21 @@ let splashWindow;
 let pythonProcess;
 let apiPort = null;
 let isAppReady = false;
+let updateCheckTimer = null;
 
 const isDev = process.env.NODE_ENV === "development";
 const useExternalBackend =
   isDev && process.env.ELECTRON_EXTERNAL_BACKEND === "1";
 const devApiPort = process.env.DEV_API_PORT || "8000";
+const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
+
+let updateState = {
+  status: "idle",
+  currentVersion: app.getVersion(),
+  availableVersion: null,
+  progress: null,
+  error: null,
+};
 
 const resolvePath = (devPath, prodPath) => {
   if (isDev) {
@@ -30,7 +42,133 @@ const scriptPath = isDev
   ? path.join(app.getAppPath(), "../backend/dist/api/api")
   : path.join(process.resourcesPath, "backend", "api");
 
-// creates loading screen before app startup.
+function broadcastUpdateStatus() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("updater:status-changed", { ...updateState });
+  }
+}
+
+function setUpdateStatus(partial) {
+  updateState = { ...updateState, ...partial };
+  broadcastUpdateStatus();
+}
+
+function killPythonProcess() {
+  if (pythonProcess) {
+    log.info("Stopping Python backend before update");
+    pythonProcess.kill();
+    pythonProcess = null;
+  }
+}
+
+function installDownloadedUpdate() {
+  killPythonProcess();
+  autoUpdater.quitAndInstall(true, true);
+}
+
+function setupAutoUpdater() {
+  autoUpdater.on("checking-for-update", () => {
+    setUpdateStatus({
+      status: "checking",
+      error: null,
+      progress: null,
+    });
+  });
+
+  autoUpdater.on("update-available", (info) => {
+    log.info("Update available:", info.version);
+    setUpdateStatus({
+      status: "available",
+      availableVersion: info.version,
+      error: null,
+    });
+  });
+
+  autoUpdater.on("update-not-available", (info) => {
+    log.info("No update available. Current:", info.version);
+    setUpdateStatus({
+      status: "up-to-date",
+      availableVersion: null,
+      progress: null,
+      error: null,
+    });
+  });
+
+  autoUpdater.on("download-progress", (progress) => {
+    setUpdateStatus({
+      status: "downloading",
+      progress: {
+        percent: progress.percent,
+        transferred: progress.transferred,
+        total: progress.total,
+        bytesPerSecond: progress.bytesPerSecond,
+      },
+    });
+  });
+
+  autoUpdater.on("update-downloaded", (info) => {
+    log.info("Update downloaded:", info.version);
+    setUpdateStatus({
+      status: "downloaded",
+      availableVersion: info.version,
+      progress: null,
+      error: null,
+    });
+
+    if (!isAppReady) {
+      installDownloadedUpdate();
+    }
+  });
+
+  autoUpdater.on("error", (err) => {
+    log.error("Auto-updater error:", err);
+    if (updateState.status === "downloaded") {
+      return;
+    }
+    setUpdateStatus({
+      status: "error",
+      error: err?.message || String(err),
+      progress: null,
+    });
+  });
+}
+
+async function runUpdateCheck() {
+  if (isDev) {
+    setUpdateStatus({
+      status: "unavailable",
+      error: "Updates are disabled in development mode.",
+      progress: null,
+    });
+    return updateState;
+  }
+
+  try {
+    await autoUpdater.checkForUpdates();
+  } catch (err) {
+    log.error("Update check failed:", err);
+    setUpdateStatus({
+      status: "error",
+      error: err?.message || String(err),
+      progress: null,
+    });
+  }
+
+  return updateState;
+}
+
+function scheduleUpdateChecks() {
+  if (isDev || updateCheckTimer) {
+    return;
+  }
+
+  updateCheckTimer = setInterval(() => {
+    autoUpdater.checkForUpdates().catch((err) => {
+      log.error("Periodic update check failed:", err);
+    });
+  }, UPDATE_CHECK_INTERVAL_MS);
+}
+
 function createSplashWindow() {
   splashWindow = new BrowserWindow({
     width: 400,
@@ -43,21 +181,20 @@ function createSplashWindow() {
     },
   });
 
-  // Load html file
   const splashPath = resolvePath(
     "../app/assets/splash.html",
     "app/assets/splash.html",
   );
 
-  console.log("Attempting to load splash from:", splashPath);
+  log.info("Attempting to load splash from:", splashPath);
   splashWindow.loadFile(splashPath);
 }
 
 function createPythonProcess() {
   const userDataPath = app.getPath("userData");
 
-  console.log(`Launching Python from: ${scriptPath}`);
-  console.log(`Passing User Data Dir: ${userDataPath}`);
+  log.info(`Launching Python from: ${scriptPath}`);
+  log.info(`Passing User Data Dir: ${userDataPath}`);
 
   pythonProcess = spawn(scriptPath, [], {
     env: {
@@ -69,14 +206,13 @@ function createPythonProcess() {
 
   const handleLog = (data) => {
     const output = data.toString();
-    console.log(`[Python]: ${output}`);
+    log.info(`[Python]: ${output}`);
 
-    // Uvicorn prints this when it is ready. can use to grab port.
     const match = output.match(/http:\/\/127\.0\.0\.1:(\d+)/);
 
     if (match) {
-      apiPort = match[1]; // nuxt plugin will fetch this
-      console.log(`Python backend ready on port ${apiPort}`);
+      apiPort = match[1];
+      log.info(`Python backend ready on port ${apiPort}`);
 
       if (!mainWindow) {
         createWindow();
@@ -89,7 +225,7 @@ function createPythonProcess() {
   pythonProcess.stderr.on("data", handleLog);
 
   pythonProcess.on("close", (code) => {
-    console.log(`Python process exited with code ${code}`);
+    log.info(`Python process exited with code ${code}`);
   });
 }
 
@@ -120,11 +256,11 @@ function createWindow() {
     );
   }
 
-  // changing from loading to app
   mainWindow.once("ready-to-show", () => {
     splashWindow.destroy();
     mainWindow.show();
     mainWindow.focus();
+    broadcastUpdateStatus();
   });
 }
 
@@ -132,71 +268,58 @@ ipcMain.handle("get-api-port", () => {
   return apiPort;
 });
 
+ipcMain.handle("updater:get-status", () => {
+  return { ...updateState };
+});
+
+ipcMain.handle("updater:get-version", () => {
+  return app.getVersion();
+});
+
+ipcMain.handle("updater:check", async () => {
+  return runUpdateCheck();
+});
+
+ipcMain.handle("updater:install", () => {
+  if (updateState.status !== "downloaded") {
+    return { ok: false, reason: "No downloaded update is ready to install." };
+  }
+  installDownloadedUpdate();
+  return { ok: true };
+});
+
+ipcMain.on("restart_app", () => {
+  installDownloadedUpdate();
+});
+
 app.whenReady().then(() => {
+  setupAutoUpdater();
   createSplashWindow();
 
   if (useExternalBackend) {
     apiPort = devApiPort;
-    console.log(
-      `Using external backend at http://127.0.0.1:${apiPort}/api`,
-    );
+    log.info(`Using external backend at http://127.0.0.1:${apiPort}/api`);
     createWindow();
     isAppReady = true;
   } else {
     createPythonProcess();
   }
 
-  autoUpdater.checkForUpdates();
+  if (isDev) {
+    setUpdateStatus({
+      status: "unavailable",
+      error: "Updates are disabled in development mode.",
+    });
+  } else {
+    runUpdateCheck();
+    scheduleUpdateChecks();
+  }
 });
 
 app.on("will-quit", () => {
-  if (pythonProcess) {
-    pythonProcess.kill();
+  if (updateCheckTimer) {
+    clearInterval(updateCheckTimer);
+    updateCheckTimer = null;
   }
-});
-
-ipcMain.on("restart_app", () => {
-  if (pythonProcess) {
-    console.log("Killing Python process before update");
-    pythonProcess.kill();
-    pythonProcess = null;
-  }
-
-  autoUpdater.quitAndInstall(true, true);
-});
-
-autoUpdater.on("update-available", () => {
-  console.log("Update available.");
-  if (mainWindow) {
-    mainWindow.webContents.send("update_available");
-  }
-});
-
-autoUpdater.on("update-downloaded", () => {
-  console.log("Update downloaded");
-
-  if (!isAppReady) {
-    if (pythonProcess) pythonProcess.kill(); // Kill python before update
-    autoUpdater.quitAndInstall(true, true);
-  } else {
-    dialog
-      .showMessageBox(mainWindow, {
-        type: "question",
-        buttons: ["Install & Restart", "Later"],
-        title: "Update Available",
-        message: "A new version has been downloaded. Restart now to install?",
-      })
-      .then((result) => {
-        if (result.response === 0) {
-          // User clicked "Install & Restart"
-          if (pythonProcess) pythonProcess.kill();
-          autoUpdater.quitAndInstall(true, true);
-        }
-      });
-  }
-});
-
-// error handling
-autoUpdater.on("error", (err) => {
-  console.log("Update error: ", err);
+  killPythonProcess();
 });

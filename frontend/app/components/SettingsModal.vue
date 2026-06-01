@@ -51,7 +51,7 @@
             <div
               class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"
             ></div>
-            <span class="text-[10px] text-slate-400 font-mono">v1</span>
+            <span class="text-[10px] text-slate-400 font-mono">v{{ appVersionLabel }}</span>
           </div>
         </div>
       </aside>
@@ -214,6 +214,99 @@
             </div>
           </div>
 
+          <div v-else-if="activeTab === 'updates'" class="space-y-6 max-w-xl">
+            <div
+              class="p-4 rounded-xl border border-white/10 bg-white/[0.02] space-y-4"
+            >
+              <div class="flex items-start justify-between gap-4">
+                <div>
+                  <p class="text-xs font-bold text-slate-500 uppercase tracking-widest mb-1">
+                    Current Version
+                  </p>
+                  <p class="text-2xl font-semibold text-white">
+                    v{{ updateState.currentVersion || "…" }}
+                  </p>
+                </div>
+                <div
+                  class="px-2.5 py-1 rounded-full text-[10px] font-medium border"
+                  :class="updateStatusBadgeClass"
+                >
+                  {{ updateStatusBadgeLabel }}
+                </div>
+              </div>
+
+              <p class="text-sm text-slate-400 leading-relaxed">
+                {{ statusMessage }}
+              </p>
+
+              <div
+                v-if="isDownloading"
+                class="space-y-2"
+              >
+                <div class="h-2 rounded-full bg-slate-800 overflow-hidden">
+                  <div
+                    class="h-full rounded-full bg-indigo-500 transition-all duration-300"
+                    :style="{ width: `${downloadProgress}%` }"
+                  ></div>
+                </div>
+                <p class="text-[11px] text-slate-500 text-right">
+                  {{ downloadProgress }}%
+                </p>
+              </div>
+
+              <div class="flex flex-wrap items-center gap-3 pt-1">
+                <button
+                  @click="checkForUpdates()"
+                  :disabled="isChecking || isDownloading || isReadyToInstall"
+                  class="px-4 py-2 rounded-lg text-sm font-medium bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {{ isChecking ? "Checking…" : "Check for updates" }}
+                </button>
+
+                <button
+                  v-if="isReadyToInstall"
+                  @click="installUpdate()"
+                  class="px-4 py-2 rounded-lg text-sm font-medium bg-indigo-500 text-white hover:bg-indigo-400 transition-colors shadow-lg shadow-indigo-500/20"
+                >
+                  Install & Restart
+                </button>
+              </div>
+            </div>
+
+            <div
+              v-if="!isDesktopApp"
+              class="p-3 rounded-lg border border-amber-500/20 bg-amber-500/5"
+            >
+              <div class="flex gap-3">
+                <Icon
+                  name="material-symbols:info-outline"
+                  class="text-amber-400 text-lg flex-shrink-0"
+                />
+                <p class="text-xs text-amber-200/80 leading-relaxed">
+                  Automatic updates are only available in the Research Marker desktop app.
+                  Download the latest release from GitHub if you are running in a browser.
+                </p>
+              </div>
+            </div>
+
+            <div
+              v-else
+              class="p-3 rounded-lg border border-indigo-500/20 bg-indigo-500/5"
+            >
+              <div class="flex gap-3">
+                <Icon
+                  name="material-symbols:info-outline"
+                  class="text-indigo-400 text-lg flex-shrink-0"
+                />
+                <p class="text-xs text-indigo-200/80 leading-relaxed">
+                  Updates download automatically in the background. When a new version is ready,
+                  click <strong class="text-indigo-100">Install & Restart</strong> to apply it.
+                  The app also checks for updates every few hours and on startup.
+                </p>
+              </div>
+            </div>
+          </div>
+
           <div v-else-if="activeTab === 'ai'" class="space-y-6 max-w-xl">
             <div
               class="p-3 rounded-lg border border-indigo-500/20 bg-indigo-500/5 mb-4"
@@ -340,12 +433,68 @@ const {
   aiModelsLoading,
 } = useAiModels();
 
+const {
+  isDesktopApp,
+  updateState,
+  isChecking,
+  isDownloading,
+  isReadyToInstall,
+  statusMessage,
+  downloadProgress,
+  checkForUpdates,
+  installUpdate,
+  initializeUpdater,
+  teardownUpdater,
+} = useAppUpdater();
+
 const activeTab = ref("general");
 const tabs = [
   { id: "general", label: "General", icon: "uil:setting" },
+  { id: "updates", label: "Updates", icon: "uil:sync" },
   { id: "scholar", label: "Scholar Inbox", icon: "uil:envelope-alt" },
   { id: "ai", label: "AI Preferences", icon: "uil:robot" },
 ];
+
+const appVersionLabel = computed(
+  () => updateState.value.currentVersion || "…",
+);
+
+const updateStatusBadgeLabel = computed(() => {
+  switch (updateState.value.status) {
+    case "checking":
+      return "Checking";
+    case "available":
+    case "downloading":
+      return "Downloading";
+    case "downloaded":
+      return "Ready";
+    case "up-to-date":
+      return "Up to date";
+    case "error":
+      return "Error";
+    case "unavailable":
+      return "N/A";
+    default:
+      return "Desktop";
+  }
+});
+
+const updateStatusBadgeClass = computed(() => {
+  switch (updateState.value.status) {
+    case "downloaded":
+      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-300";
+    case "available":
+    case "downloading":
+    case "checking":
+      return "border-indigo-500/30 bg-indigo-500/10 text-indigo-300";
+    case "up-to-date":
+      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-300";
+    case "error":
+      return "border-red-500/30 bg-red-500/10 text-red-300";
+    default:
+      return "border-white/10 bg-white/5 text-slate-400";
+  }
+});
 
 const activeTabLabel = computed(
   () => tabs.find((t) => t.id === activeTab.value)?.label
@@ -354,6 +503,8 @@ const activeTabDescription = computed(() => {
   switch (activeTab.value) {
     case "general":
       return "Customize interface & environment variables.";
+    case "updates":
+      return "Check for and install app updates.";
     case "scholar":
       return "Manage feeds & keywords.";
     case "ai":
@@ -470,9 +621,14 @@ async function loadUserPreferences() {
 }
 
 onMounted(async () => {
+  initializeUpdater();
   loadEnvVars();
   loadUserPreferences();
   await initializeAiModels();
+});
+
+onUnmounted(() => {
+  teardownUpdater();
 });
 
 async function saveSettings() {
