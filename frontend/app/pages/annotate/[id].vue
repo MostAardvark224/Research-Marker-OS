@@ -72,6 +72,75 @@ const isResizing = ref(false);
 const isManualScrolling = ref(false);
 
 const renderTasks = {};
+const activeRenderSignatures = new Map();
+const renderedPageSignatures = new Map();
+const queuedPageRenders = new Map();
+
+let isProcessingRenderQueue = false;
+let isUserScrolling = false;
+let scrollEndDebounce = null;
+
+const queuePageRender = (pageNum, force = false) => {
+  const existingForce = queuedPageRenders.get(pageNum) || false;
+  queuedPageRenders.set(pageNum, existingForce || force);
+};
+
+const getNextQueuedPage = () => {
+  let nextPage = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  queuedPageRenders.forEach((_force, pageNum) => {
+    const distance = Math.abs(pageNum - currentPage.value);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      nextPage = pageNum;
+    }
+  });
+
+  return nextPage;
+};
+
+const waitForFrame = () =>
+  new Promise((resolve) => {
+    requestAnimationFrame(() => resolve());
+  });
+
+const processRenderQueue = async () => {
+  if (isProcessingRenderQueue || isUserScrolling) return;
+  isProcessingRenderQueue = true;
+
+  try {
+    while (queuedPageRenders.size > 0) {
+      if (isUserScrolling) break;
+
+      const nextPage = getNextQueuedPage();
+      if (nextPage === null) break;
+
+      const force = queuedPageRenders.get(nextPage) || false;
+      queuedPageRenders.delete(nextPage);
+
+      await renderPage(nextPage, force);
+      await waitForFrame();
+    }
+  } finally {
+    isProcessingRenderQueue = false;
+  }
+
+  if (!isUserScrolling && queuedPageRenders.size > 0) {
+    setTimeout(() => {
+      processRenderQueue();
+    }, 0);
+  }
+};
+
+const handleMainScroll = () => {
+  isUserScrolling = true;
+  if (scrollEndDebounce) clearTimeout(scrollEndDebounce);
+  scrollEndDebounce = setTimeout(() => {
+    isUserScrolling = false;
+    processRenderQueue();
+  }, 80);
+};
 
 // katex rendering for sticky and notepad
 const isNotepadPreview = ref(false);
@@ -280,6 +349,24 @@ const handleTextSelection = async () => {
   await saveAnnotationsToBackend();
 };
 
+// Converts a #rgb / #rrggbb color into an rgba() string with the given alpha
+const hexToRgba = (hex, alpha) => {
+  if (typeof hex !== "string" || !hex.startsWith("#")) return hex;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  if (hex.length === 4) {
+    r = parseInt(hex[1] + hex[1], 16);
+    g = parseInt(hex[2] + hex[2], 16);
+    b = parseInt(hex[3] + hex[3], 16);
+  } else if (hex.length >= 7) {
+    r = parseInt(hex.slice(1, 3), 16);
+    g = parseInt(hex.slice(3, 5), 16);
+    b = parseInt(hex.slice(5, 7), 16);
+  }
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
 // Shows the highlight on the pdf
 const renderHighlight = (highlight, textLayerElement) => {
   if (!textLayerElement) {
@@ -293,10 +380,10 @@ const renderHighlight = (highlight, textLayerElement) => {
     div.dataset.id = highlight.id;
 
     div.style.position = "absolute";
-    div.style.backgroundColor = highlight.color;
+    div.style.backgroundColor = hexToRgba(highlight.color, 0.4);
     div.style.pointerEvents = "auto";
     div.style.cursor = "pointer";
-    div.style.mixBlendMode = "darken";
+    div.style.mixBlendMode = "multiply";
 
     div.style.left = `calc(${rect.x}px * var(--scale-factor))`;
     div.style.top = `calc(${rect.y}px * var(--scale-factor))`;
@@ -979,17 +1066,25 @@ const changePage = (diff) => {
   scrollToPage(newPage);
 };
 
-async function renderPage(pageNum) {
+async function renderPage(pageNum, force = false) {
   if (!pdfDoc) return;
 
   const canvas = canvasRefs.value[pageNum - 1];
   const textLayerDiv = textLayerRefs.value[pageNum - 1];
 
   if (!canvas) return;
+  const renderSignature = `${zoomLevel.value}|${searchQuery.value.trim().toLowerCase()}`;
+
+  if (!force && renderedPageSignatures.get(pageNum) === renderSignature) {
+    return;
+  }
 
   if (renderTasks[pageNum]) {
+    const activeSignature = activeRenderSignatures.get(pageNum);
+    if (!force && activeSignature === renderSignature) {
+      return renderTasks[pageNum].promise;
+    }
     renderTasks[pageNum].cancel();
-    delete renderTasks[pageNum];
   }
 
   try {
@@ -1021,10 +1116,9 @@ async function renderPage(pageNum) {
 
     const renderTask = page.render(renderContext);
     renderTasks[pageNum] = renderTask;
+    activeRenderSignatures.set(pageNum, renderSignature);
 
     await renderTask.promise;
-
-    delete renderTasks[pageNum];
 
     if (textLayerDiv) {
       textLayerDiv.innerHTML = "";
@@ -1075,18 +1169,22 @@ async function renderPage(pageNum) {
         });
       }
     }
+    renderedPageSignatures.set(pageNum, renderSignature);
   } catch (err) {
     if (err.name === "RenderingCancelledException") {
       return;
     }
     console.error(`Error rendering page ${pageNum}:`, err);
+  } finally {
+    delete renderTasks[pageNum];
+    activeRenderSignatures.delete(pageNum);
   }
 }
-async function renderAllPages() {
+async function renderAllPages(force = false) {
   if (!pdfDoc) return;
   const promises = [];
   for (let i = 1; i <= totalPages.value; i++) {
-    promises.push(renderPage(i));
+    promises.push(renderPage(i, force));
   }
   await Promise.all(promises);
 }
@@ -1094,6 +1192,12 @@ async function renderAllPages() {
 const pageSizes = ref([]);
 async function loadPdf(data) {
   try {
+    renderedPageSignatures.clear();
+    activeRenderSignatures.clear();
+    queuedPageRenders.clear();
+    Object.values(renderTasks).forEach((task) => task.cancel?.());
+    Object.keys(renderTasks).forEach((key) => delete renderTasks[key]);
+
     const loadingTask = pdfjsLib.getDocument(data);
     pdfDoc = await loadingTask.promise;
     totalPages.value = pdfDoc.numPages;
@@ -1147,7 +1251,8 @@ function setupIntersectionObserver() {
 
       if (entry.isIntersecting) {
         visiblePages.value.add(pageNum);
-        renderPage(pageNum);
+        queuePageRender(pageNum);
+        processRenderQueue();
       } else {
         visiblePages.value.delete(pageNum);
       }
@@ -1234,10 +1339,10 @@ watch(zoomLevel, async (newZoom, oldZoom) => {
   }
 
   zoomDebounce = setTimeout(async () => {
-    const promises = Array.from(visiblePages.value).map((pageNum) =>
-      renderPage(pageNum),
-    );
-    await Promise.all(promises);
+    Array.from(visiblePages.value).forEach((pageNum) => {
+      queuePageRender(pageNum, true);
+    });
+    processRenderQueue();
   }, 150);
 });
 
@@ -1261,6 +1366,9 @@ onMounted(async () => {
     await fetchAnnotations();
     await fetchPaper();
 
+    mainScrollContainer.value?.addEventListener("scroll", handleMainScroll, {
+      passive: true,
+    });
     document.addEventListener("keydown", handleKeyboardShortcuts);
     document.addEventListener("mouseup", handleTextSelection);
   } catch (err) {
@@ -1273,6 +1381,8 @@ onMounted(async () => {
 onUnmounted(() => {
   document.removeEventListener("mouseup", handleTextSelection);
   document.removeEventListener("keydown", handleKeyboardShortcuts);
+  mainScrollContainer.value?.removeEventListener("scroll", handleMainScroll);
+  if (scrollEndDebounce) clearTimeout(scrollEndDebounce);
   if (observer) observer.disconnect();
   if (pageTrackingObserver) pageTrackingObserver.disconnect();
 });
@@ -1309,8 +1419,10 @@ function performSearch() {
 
   if (!query) {
     // renderAllPages();
-    const promises = Array.from(visiblePages.value).map((p) => renderPage(p));
-    Promise.all(promises);
+    Array.from(visiblePages.value).forEach((pageNum) => {
+      queuePageRender(pageNum, true);
+    });
+    processRenderQueue();
     return;
   }
 
@@ -1330,7 +1442,7 @@ function performSearch() {
     scrollToPage(searchResults.value[0].page);
   }
 
-  renderAllPages();
+  renderAllPages(true);
   isSearching.value = false;
 }
 
@@ -1668,8 +1780,11 @@ watch(currentPage, () => {
                       height: `${
                         pageSizes[page - 1].height * (zoomLevel / 100)
                       }px`,
+                      contain: 'layout style',
                     }
-                  : {}
+                  : {
+                      contain: 'layout style',
+                    }
               "
             >
               <canvas
@@ -1678,7 +1793,7 @@ watch(currentPage, () => {
               ></canvas>
               <div
                 :ref="(el) => (textLayerRefs[page - 1] = el)"
-                class="textLayer absolute inset-0 mix-blend-multiply opacity-50"
+                class="textLayer absolute inset-0"
               ></div>
             </div>
           </div>

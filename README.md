@@ -75,3 +75,6 @@ rm -rf dist build && pyinstaller api.spec --noconfirm --clean
 
 Frontend (cd into the frontend dir):
 pnpm run build:local
+
+Tagging and Creating New Versions: 
+git tag v1.1.8 && git push origin v1.1.8
