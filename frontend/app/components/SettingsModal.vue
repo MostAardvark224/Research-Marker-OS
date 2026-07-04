@@ -102,10 +102,16 @@
                 <div class="space-y-3">
                   <div>
                     <label
-                      class="block font-mono text-xs text-indigo-300 mb-1 tracking-wide"
+                      class="block text-sm font-medium text-white mb-1 tracking-wide"
+                    >
+                      {{ env.label }}
+                    </label>
+                    <p
+                      v-if="env.key !== env.label"
+                      class="font-mono text-[10px] text-slate-600 mb-1"
                     >
                       {{ env.key }}
-                    </label>
+                    </p>
                     <p
                       v-if="env.description"
                       class="text-xs text-slate-500 leading-relaxed"
@@ -118,7 +124,7 @@
                     <input
                       v-model="envFormValues[env.key]"
                       :type="env.type"
-                      :placeholder="`Enter ${env.key}...`"
+                      :placeholder="env.placeholder || `Enter ${env.label}...`"
                       class="w-full bg-[#0A0A0C] border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white placeholder-slate-700 focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 focus:bg-white/[0.03] outline-none transition-all font-mono"
                       spellcheck="false"
                     />
@@ -535,9 +541,19 @@ const envMetadata = {
     description: "Used for OpenRouter chat models.",
     type: "password",
   },
-  SCHOLAR_INBOX_PERSONAL_LOGIN: {
-    description: "Used to import papers from Scholar Inbox.",
-    type: "text",
+  scholar_inbox_email: {
+    label: "Scholar Inbox Email",
+    description:
+      "The Gmail address that receives your Scholar Inbox Alert Digest emails.",
+    placeholder: "you@gmail.com",
+    type: "email",
+  },
+  gmail_app_password: {
+    label: "Gmail App Password",
+    description:
+      "A Gmail App Password for IMAP access — not your regular Gmail password. Create one in Google Account → Security → 2-Step Verification → App passwords.",
+    placeholder: "xxxx xxxx xxxx xxxx",
+    type: "password",
   },
 };
 
@@ -546,7 +562,9 @@ const computedEnvList = computed(() => {
     const meta = envMetadata[key] || {};
     return {
       key: key,
+      label: meta.label || key,
       description: meta.description || "",
+      placeholder: meta.placeholder || "",
       type: meta.type || "text",
     };
   });

@@ -4,9 +4,9 @@
   >
     <nav class="border-b border-white/5 bg-[#020204]/80 backdrop-blur-md z-50">
       <div
-        class="max-w-[1920px] mx-auto px-6 py-4 flex items-center justify-between"
+        class="relative max-w-[1920px] mx-auto px-6 py-4 flex items-center justify-center"
       >
-        <div class="flex items-center gap-2">
+        <div class="absolute left-6 flex items-center gap-2">
           <div
             class="w-5 h-5 bg-gradient-to-tr from-white to-slate-500 transform rotate-45 rounded-sm"
           ></div>
@@ -15,9 +15,9 @@
 
         <NuxtLink
           to="/"
-          class="text-xs font-semibold uppercase tracking-widest text-slate-500 hover:text-white transition-colors flex items-center gap-2"
+          class="inline-flex items-center gap-2.5 rounded-xl border border-indigo-400/30 bg-indigo-500 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-indigo-500/30 transition-all hover:bg-indigo-400 hover:shadow-indigo-400/40 active:scale-[0.98]"
         >
-          <Icon name="uil:arrow-left" />
+          <Icon name="uil:arrow-left" class="text-lg shrink-0" />
           Back to Index
         </NuxtLink>
       </div>
@@ -334,12 +334,10 @@
               >
                 <NuxtLink
                   to="/"
-                  class="flex h-10 w-full items-center justify-start gap-3 overflow-hidden whitespace-nowrap rounded-lg px-3 text-white/40 transition-all hover:bg-white/5 hover:text-white"
+                  class="flex w-full items-center justify-center gap-2.5 rounded-xl border border-indigo-400/30 bg-indigo-500 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-indigo-500/30 transition-all hover:bg-indigo-400 hover:shadow-indigo-400/40 active:scale-[0.98]"
                 >
-                  <Icon name="uil:arrow-left" class="text-xl shrink-0" />
-                  <span class="text-xs font-semibold uppercase tracking-widest">
-                    Back to Index
-                  </span>
+                  <Icon name="uil:arrow-left" class="text-lg shrink-0" />
+                  Back to Index
                 </NuxtLink>
               </div>
             </div>

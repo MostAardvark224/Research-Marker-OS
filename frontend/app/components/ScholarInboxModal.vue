@@ -29,7 +29,12 @@
         </button>
       </header>
 
-      <main class="p-4 space-y-4">
+      <div class="relative">
+        <div
+          class="opacity-35 pointer-events-none select-none blur-[1px] saturate-50"
+          aria-hidden="true"
+        >
+          <main class="p-4 space-y-4">
         <div
           class="p-3 rounded-lg border border-indigo-500/20 bg-indigo-500/5 relative overflow-hidden group"
         >
@@ -47,12 +52,15 @@
                 Configuration Required
               </h4>
               <p class="text-xs text-indigo-200/70 leading-snug">
-                Before fetching, ensure your
-                <code
-                  class="bg-indigo-500/20 px-1 py-0.5 rounded text-indigo-300"
-                  >SCHOLAR_INBOX_PERSONAL_LOGIN</code
+                Before fetching, set your
+                <span class="font-medium text-indigo-200"
+                  >Scholar Inbox Email</span
                 >
-                environment variable is set. See GitHub documentation.
+                and
+                <span class="font-medium text-indigo-200"
+                  >Gmail App Password</span
+                >
+                in Settings → General.
               </p>
             </div>
           </div>
@@ -126,16 +134,50 @@
             </p>
           </div>
         </div>
-      </main>
+          </main>
 
-      <footer class="px-6 py-3 border-t border-white/5 bg-white/[0.02]">
-        <div class="flex items-center justify-center gap-2 text-slate-300">
-          <Icon name="uil:layer-group" class="text-sm" />
-          <span class="text-[10px] font-medium uppercase tracking-widest">
-            More fine-grained control features coming soon
-          </span>
+          <footer class="px-6 py-3 border-t border-white/5 bg-white/[0.02]">
+            <div class="flex items-center justify-center gap-2 text-slate-300">
+              <Icon name="uil:layer-group" class="text-sm" />
+              <span class="text-[10px] font-medium uppercase tracking-widest">
+                More fine-grained control features coming soon
+              </span>
+            </div>
+          </footer>
         </div>
-      </footer>
+
+        <div
+          class="absolute inset-0 z-10 flex items-center justify-center bg-[#020204]/75 backdrop-blur-sm p-6"
+        >
+          <div
+            class="max-w-xs text-center space-y-4 rounded-xl border border-amber-500/20 bg-[#0A0A0C]/90 px-6 py-8 shadow-2xl"
+          >
+            <div
+              class="mx-auto w-12 h-12 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center"
+            >
+              <Icon
+                name="material-symbols:construction"
+                class="text-2xl text-amber-400"
+              />
+            </div>
+            <div class="space-y-2">
+              <h3 class="text-base font-semibold text-white tracking-tight">
+                Under Construction
+              </h3>
+              <p class="text-xs text-slate-400 leading-relaxed">
+                Scholar Inbox features are being rebuilt right now. Manual
+                fetch and auto-import will be back soon.
+              </p>
+            </div>
+            <button
+              @click="$emit('close')"
+              class="w-full px-4 py-2 rounded-lg text-sm font-medium bg-white/10 text-slate-200 hover:bg-white/15 hover:text-white transition-colors border border-white/10"
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>

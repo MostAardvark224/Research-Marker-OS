@@ -4,9 +4,9 @@
   >
     <nav class="border-b border-white/5 bg-[#020204]/80 backdrop-blur-md z-50">
       <div
-        class="max-w-[1920px] mx-auto px-6 py-4 flex items-center justify-between"
+        class="relative max-w-[1920px] mx-auto px-6 py-4 flex items-center justify-center"
       >
-        <div class="flex items-center gap-2">
+        <div class="absolute left-6 flex items-center gap-2">
           <div
             class="w-5 h-5 bg-gradient-to-tr from-white to-slate-500 transform rotate-45 rounded-sm"
           ></div>
@@ -19,12 +19,10 @@
         </div>
         <NuxtLink
           to="/"
-          class="flex h-10 items-center justify-start gap-3 overflow-hidden whitespace-nowrap rounded-lg px-3 text-white/40 transition-all hover:bg-white/5 hover:text-white"
+          class="inline-flex items-center gap-2.5 rounded-xl border border-indigo-400/30 bg-indigo-500 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-indigo-500/30 transition-all hover:bg-indigo-400 hover:shadow-indigo-400/40 active:scale-[0.98]"
         >
-          <Icon name="uil:arrow-left" class="text-xl shrink-0" />
-          <span class="text-xs font-semibold uppercase tracking-widest">
-            Back to Index
-          </span>
+          <Icon name="uil:arrow-left" class="text-lg shrink-0" />
+          Back to Index
         </NuxtLink>
       </div>
     </nav>
@@ -432,10 +430,24 @@
                       ? 'bg-gradient-to-br from-indigo-600/90 to-indigo-700/80 text-white rounded-tr-md'
                       : 'bg-[#12121a] border border-white/8 text-slate-200 rounded-tl-md chat-prose'
                   "
-                  v-html="
-                    msg.role === 'model' ? msg.displayContent : msg.content
-                  "
-                ></div>
+                >
+                  <div
+                    v-if="msg.role === 'user'"
+                    class="whitespace-pre-wrap break-words"
+                  >
+                    <template
+                      v-for="(part, partIndex) in parseChatInputParts(msg.content)"
+                      :key="partIndex"
+                    >
+                      <span
+                        v-if="part.type === 'tag'"
+                        class="chat-input-tag chat-input-tag--sent"
+                      >{{ part.text }}</span>
+                      <span v-else>{{ part.text }}</span>
+                    </template>
+                  </div>
+                  <div v-else v-html="msg.displayContent"></div>
+                </div>
               </div>
             </div>
 
@@ -534,51 +546,84 @@
                 </div>
               </div>
 
-              <div class="flex items-center gap-2 px-3 py-2 border-b border-white/5 bg-white/[0.02]">
-                <select
-                  v-model="selectedAiProvider"
-                  class="flex-1 min-w-0 bg-transparent border border-white/10 rounded-lg px-2 py-1.5 text-[11px] text-slate-300 focus:border-indigo-500/40 outline-none"
-                >
-                  <option
-                    v-for="provider in aiProviders"
-                    :key="provider.id"
-                    :value="provider.id"
+              <div class="border-b border-white/5 bg-white/[0.02]">
+                <div class="flex items-center gap-2 px-3 py-2">
+                  <select
+                    v-model="selectedAiProvider"
+                    class="ai-select flex-1 min-w-0 rounded-lg border border-white/10 px-2 py-1.5 text-[11px] focus:border-indigo-500/40 outline-none"
                   >
-                    {{ provider.label }}
-                  </option>
-                </select>
-                <select
-                  v-model="selectedAiModel"
-                  class="flex-[1.4] min-w-0 bg-transparent border border-white/10 rounded-lg px-2 py-1.5 text-[11px] text-slate-300 focus:border-indigo-500/40 outline-none truncate"
-                >
-                  <option
-                    v-for="model in selectedProviderModels"
-                    :key="model"
-                    :value="model"
+                    <option
+                      v-for="provider in aiProviders"
+                      :key="provider.id"
+                      :value="provider.id"
+                    >
+                      {{ provider.label }}
+                    </option>
+                  </select>
+                  <select
+                    v-model="selectedAiModel"
+                    :disabled="!selectedProviderHasModels"
+                    class="ai-select flex-[1.4] min-w-0 rounded-lg border border-white/10 px-2 py-1.5 text-[11px] focus:border-indigo-500/40 outline-none truncate disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {{ model }}
-                  </option>
-                </select>
+                    <option
+                      v-if="!selectedProviderHasModels"
+                      value=""
+                      disabled
+                    >
+                      {{ selectedProviderModelHint || "No models available" }}
+                    </option>
+                    <option
+                      v-for="model in selectedProviderModels"
+                      :key="model"
+                      :value="model"
+                    >
+                      {{ model }}
+                    </option>
+                  </select>
+                </div>
+                <p
+                  v-if="selectedProviderModelHint"
+                  class="px-3 pb-2 text-[10px] leading-relaxed text-amber-400/90"
+                >
+                  {{ selectedProviderModelHint }}
+                </p>
               </div>
 
-              <textarea
-                ref="chatInputRef"
-                v-model="chatInput"
-                @input="handleChatInput"
-                @keydown.down.prevent="navigateChatSuggestions(1)"
-                @keydown.up.prevent="navigateChatSuggestions(-1)"
-                @keydown.enter.prevent="
-                  showChatSuggestions
-                    ? selectChatSuggestion(
-                        filteredChatSuggestions[activeChatSuggestionIndex]
-                      )
-                    : sendChatMessage()
-                "
-                rows="1"
-                placeholder="Ask a question… use @paper or @recent for context"
-                class="w-full bg-transparent px-4 py-3 text-sm text-white placeholder:text-slate-600 focus:outline-none resize-none overflow-y-auto custom-scrollbar"
-                style="min-height: 52px; max-height: 140px"
-              ></textarea>
+              <div class="relative">
+                <div
+                  aria-hidden="true"
+                  class="pointer-events-none absolute inset-0 overflow-hidden px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap break-words"
+                >
+                  <template
+                    v-for="(part, partIndex) in parseChatInputParts(chatInput)"
+                    :key="partIndex"
+                  >
+                    <span
+                      v-if="part.type === 'tag'"
+                      class="chat-input-tag"
+                    >{{ part.text }}</span>
+                    <span v-else class="text-white">{{ part.text }}</span>
+                  </template>
+                </div>
+                <textarea
+                  ref="chatInputRef"
+                  v-model="chatInput"
+                  @input="handleChatInput"
+                  @keydown.down.prevent="navigateChatSuggestions(1)"
+                  @keydown.up.prevent="navigateChatSuggestions(-1)"
+                  @keydown.enter.prevent="
+                    showChatSuggestions
+                      ? selectChatSuggestion(
+                          filteredChatSuggestions[activeChatSuggestionIndex]
+                        )
+                      : sendChatMessage()
+                  "
+                  rows="1"
+                  placeholder="Ask a question… use @paper or @recent for context"
+                  class="chat-input-textarea w-full bg-transparent px-4 py-3 text-sm text-transparent caret-white placeholder:text-slate-600 focus:outline-none resize-none overflow-y-auto custom-scrollbar"
+                  style="min-height: 52px; max-height: 140px"
+                ></textarea>
+              </div>
 
               <div class="flex items-center justify-between gap-3 px-3 py-2.5 border-t border-white/5">
                 <div
@@ -587,19 +632,41 @@
                 >
                   <button
                     type="button"
-                    class="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-colors"
+                    role="switch"
+                    :aria-checked="isRagEnabled"
+                    :title="
+                      hasContextTag
+                        ? 'RAG is disabled when using @ context tags'
+                        : 'Toggle retrieval-augmented generation'
+                    "
+                    class="inline-flex items-center gap-2 rounded-full border px-2.5 py-1.5 text-[11px] font-medium transition-colors"
                     :class="
                       hasContextTag
-                        ? 'text-slate-600'
+                        ? 'border-white/5 bg-white/[0.02] text-slate-600 cursor-not-allowed'
                         : isRagEnabled
-                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
-                        : 'text-slate-500 hover:text-slate-300 border border-white/10'
+                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                        : 'border-white/10 bg-white/[0.03] text-slate-400 hover:border-white/20 hover:text-slate-200'
                     "
                     :disabled="hasContextTag"
                     @click="!hasContextTag && (isRagEnabled = !isRagEnabled)"
                   >
-                    <Icon name="uil:database" class="text-sm" />
-                    RAG
+                    <Icon name="uil:database" class="text-sm shrink-0" />
+                    <span class="font-semibold tracking-wide">RAG</span>
+                    <span
+                      class="relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors duration-200"
+                      :class="isRagEnabled && !hasContextTag ? 'bg-emerald-500' : 'bg-slate-600'"
+                    >
+                      <span
+                        class="absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform duration-200"
+                        :class="isRagEnabled && !hasContextTag ? 'translate-x-4' : 'translate-x-0'"
+                      />
+                    </span>
+                    <span
+                      class="min-w-[1.5rem] text-[10px] uppercase tracking-wider"
+                      :class="isRagEnabled && !hasContextTag ? 'text-emerald-300' : 'text-slate-500'"
+                    >
+                      {{ isRagEnabled && !hasContextTag ? "On" : "Off" }}
+                    </span>
                   </button>
                   <span v-if="hasContextTag" class="text-[10px] text-amber-400/80">
                     Disabled with @ tags
@@ -608,10 +675,10 @@
 
                 <button
                   @click="sendChatMessage"
-                  :disabled="isAiLoading || !chatInput.trim()"
+                  :disabled="isAiLoading || !chatInput.trim() || !selectedProviderHasModels"
                   class="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-all"
                   :class="
-                    chatInput.trim() && !isAiLoading
+                    chatInput.trim() && !isAiLoading && selectedProviderHasModels
                       ? 'bg-indigo-500 text-white hover:bg-indigo-400 shadow-lg shadow-indigo-500/20'
                       : 'bg-white/5 text-slate-500 cursor-not-allowed'
                   "
@@ -1057,6 +1124,8 @@ const {
   selectedAiProvider,
   selectedAiModel,
   selectedProviderModels,
+  selectedProviderModelHint,
+  selectedProviderHasModels,
   initializeAiModels,
 } = useAiModels();
 
@@ -1216,6 +1285,29 @@ const scrollToBottom = async () => {
   }
 };
 
+const parseChatInputParts = (text) => {
+  if (!text) return [{ type: "text", text: "" }];
+
+  const parts = [];
+  const regex = /(@recent|@paper:"[^"]*")/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push({ type: "text", text: text.slice(lastIndex, match.index) });
+    }
+    parts.push({ type: "tag", text: match[0] });
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push({ type: "text", text: text.slice(lastIndex) });
+  }
+
+  return parts.length ? parts : [{ type: "text", text }];
+};
+
 // parse the raw input string to find context flags
 const parseContextFromInput = (text) => {
   let paperIds = [];
@@ -1270,6 +1362,7 @@ const parseMarkdown = (rawText) => {
 
 async function sendChatMessage() {
   if (!chatInput.value.trim() || isAiLoading.value) return;
+  if (!selectedProviderHasModels.value) return;
 
   const rawInput = chatInput.value;
   const contextData = parseContextFromInput(rawInput);
@@ -1345,6 +1438,45 @@ const autoResizeInput = () => {
 </script>
 
 <style scoped>
+.chat-input-tag {
+  display: inline-flex;
+  align-items: center;
+  margin: 0 1px;
+  padding: 0.1rem 0.45rem;
+  border-radius: 0.375rem;
+  border: 1px solid rgba(129, 140, 248, 0.35);
+  background: rgba(99, 102, 241, 0.22);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.68rem;
+  line-height: 1.25rem;
+  color: #c7d2fe;
+  vertical-align: baseline;
+}
+
+.chat-input-tag--sent {
+  border-color: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.16);
+  color: #eef2ff;
+}
+
+.chat-input-textarea::placeholder {
+  color: rgb(71 85 105);
+}
+
+.ai-select {
+  background-color: #0b0b10;
+  color: #cbd5e1;
+}
+
+.ai-select option {
+  background-color: #12121a;
+  color: #e2e8f0;
+}
+
+.ai-select:disabled {
+  color: #94a3b8;
+}
+
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
   height: 6px;

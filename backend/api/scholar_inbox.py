@@ -1,248 +1,204 @@
-# File only contains function to fetch papers from Scholar Inbox
-# Returns pdf files
-# Lot more comments in this file than usual to help 
-
-# DEBUGGING: If scraping isn't working, first suspect is the CSS selectors used to find elements. Do control-F in this file and search for "NOTE TO USER" comments for places where selectors may need to be updated.
-
-# DEBUGGING: If your getting playwright errors, check and make sure that you have browser binaries installed. if not, just run "playwright install" in your terminal, or download one of google chrome, edge, opera, or brave
-# SAFARI ALONE WONT WORK WITH PLAYWRIGHT. 
-
-import asyncio
-from playwright.async_api import async_playwright
-from bs4 import BeautifulSoup, Tag
-import time 
-import json
-import aiohttp
+import imaplib
+import email
 import re
+import urllib.parse
 import urllib.request
 import feedparser
-import sys
-import os
-import subprocess
-import shutil
+import aiohttp
+from bs4 import BeautifulSoup
 
-if sys.platform == "win32":
-    import winreg
+# DEBUGGING: If scraping isn't working, first suspect is the CSS selectors or Regex used to find elements.
+# Do control-F in this file and search for "NOTE TO USER" comments for places where selectors may need to be updated.
 
-"""
-Looks for any of the following browsers (windows)
 
-"Microsoft Edge", 
-"Google Chrome", 
-"Brave", 
-"OperaStable"  
-"""
-def _find_windows_browser():
-    reg_path = r"SOFTWARE\Clients\StartMenuInternet"
-    
-    browser_keys = [
-        "Microsoft Edge", 
-        "Google Chrome", 
-        "Brave", 
-        "OperaStable"  
-    ]
+def _decode_html_payload(part) -> str:
+    payload = part.get_payload(decode=True)
+    if not isinstance(payload, bytes):
+        return ""
+    charset = part.get_content_charset() or "utf-8"
+    return payload.decode(charset, errors="ignore")
 
-    if sys.platform == "win32":
-        for browser in browser_keys:
+
+def _close_mail_connection(mail):
+    try:
+        mail.close()
+    except Exception:
+        pass
+    try:
+        mail.logout()
+    except Exception:
+        pass
+
+
+def _normalize_amount(amount_of_papers):
+    if amount_of_papers in (None, "all", ""):
+        return None
+    if isinstance(amount_of_papers, int) and amount_of_papers > 0:
+        return amount_of_papers
+    if isinstance(amount_of_papers, str) and amount_of_papers.isdigit():
+        return int(amount_of_papers)
+    return None
+
+
+async def fetch_scholar_inbox_papers(env_vars, amount_of_papers=None):
+    # 1. Connect to Gmail via IMAP (Must use SSL for Gmail)
+    mail = imaplib.IMAP4_SSL("imap.gmail.com")
+    email_addr = str(env_vars.get("scholar_inbox_email", ""))
+    password = str(env_vars.get("gmail_app_password", ""))
+
+    if not email_addr or not password:
+        print("Scholar Inbox Gmail credentials not configured.")
+        return []
+
+    try:
+        mail.login(email_addr, password)
+    except imaplib.IMAP4.error as e:
+        print(f"Login failed: {e}")
+        return []
+
+    try:
+        mail.select("INBOX", readonly=True)
+
+        # 2. Search for the latest email from noreply@cvlibs.net with "Alert Digest" in the subject
+        print("Searching for Alert Digest email...")
+        search_criteria = '(FROM "noreply@cvlibs.net" SUBJECT "Alert Digest")'
+        status, data = mail.search(None, search_criteria)
+
+        if status != "OK" or not data or not data[0]:
+            print("No 'Alert Digest' emails found in inbox.")
+            return []
+
+        mail_ids = data[0].split()
+        if not mail_ids:
+            print("No 'Alert Digest' emails found in inbox.")
+            return []
+
+        latest_id = mail_ids[-1]
+
+        # 3. Fetch the email content
+        status, data = mail.fetch(latest_id, "(RFC822)")
+        if status != "OK" or not data or not data[0]:
+            print("Failed to fetch Alert Digest email.")
+            return []
+
+        fetch_result = data[0]
+        if not isinstance(fetch_result, tuple) or len(fetch_result) < 2:
+            print("Unexpected email fetch response format.")
+            return []
+
+        raw_email = fetch_result[1]
+        if not isinstance(raw_email, bytes):
+            print("Email body was not bytes.")
+            return []
+
+        msg = email.message_from_bytes(raw_email)
+
+        # 4. Extract the HTML body from the email
+        html_content = ""
+        if msg.is_multipart():
+            for part in msg.walk():
+                if part.get_content_type() == "text/html":
+                    html_content = _decode_html_payload(part)
+                    break
+        elif msg.get_content_type() == "text/html":
+            html_content = _decode_html_payload(msg)
+
+        if not html_content:
+            print("Could not find HTML content in the email.")
+            return []
+
+        # 5. Parse the email HTML using BeautifulSoup
+        soup = BeautifulSoup(html_content, "html.parser")
+
+        # NOTE TO USER: We look for <a> tags where the href contains "scholar-inbox.com/login".
+        # If the email format changes, adjust this regex pattern.
+        paper_links = soup.find_all("a", href=re.compile(r"scholar-inbox\.com/login"))
+
+        extracted_papers = []
+        for link in paper_links:
+            title = link.text.strip()
+            title = re.sub(r"\s+", " ", title)
+
+            if title:
+                extracted_papers.append(
+                    {
+                        "title": title,
+                        "scraped_url": link.get("href"),
+                    }
+                )
+
+        seen_titles = set()
+        unique_papers = []
+        for paper in extracted_papers:
+            if paper["title"] not in seen_titles:
+                seen_titles.add(paper["title"])
+                unique_papers.append(paper)
+
+        paper_limit = _normalize_amount(amount_of_papers)
+        if paper_limit is not None:
+            unique_papers = unique_papers[:paper_limit]
+
+        print(f"Found {len(unique_papers)} unique papers in the email. Searching arXiv API by title...")
+
+        # 6. Search the arXiv API using the extracted titles
+        arxiv_links = []
+        for paper in unique_papers:
+            encoded_title = urllib.parse.quote(f'ti:"{paper["title"]}"')
+            query_url = f"http://export.arxiv.org/api/query?search_query={encoded_title}&max_results=1"
+
             try:
-                # Look in HKEY_LOCAL_MACHINE
-                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, f"{reg_path}\\{browser}\\shell\\open\\command") as key:
-                    cmd, _ = winreg.QueryValueEx(key, "")
-                    return cmd.strip('"')
-            except OSError:
-                # If system-wide fails, try HKEY_CURRENT_USER 
-                try:
-                    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, f"{reg_path}\\{browser}\\shell\\open\\command") as key:
-                        cmd, _ = winreg.QueryValueEx(key, "")
-                        return cmd.strip('"')
-                except OSError:
+                with urllib.request.urlopen(query_url) as response:
+                    feed_data = response.read()
+
+                feed = feedparser.parse(feed_data)
+
+                if feed.entries:
+                    entry = feed.entries[0]
+                    entry_id = str(entry.get("id", ""))
+                    arxiv_id = entry_id.split("/abs/")[-1]
+
+                    pdf_url = None
+                    for link in entry.links:
+                        if link.rel == "related" and link.type == "application/pdf":
+                            pdf_url = link.href
+                            break
+
+                    if not pdf_url:
+                        pdf_url = entry_id.replace("/abs/", "/pdf/")
+
+                    paper["id"] = arxiv_id
+                    paper["pdf_url"] = pdf_url
+                    arxiv_links.append(paper)
+                else:
+                    print(f"Could not find arXiv match for: {paper['title']}")
+            except Exception as e:
+                print(f"Error querying arXiv for '{paper['title']}': {e}")
+
+        # 7. Download PDFs asynchronously
+        print(f"Starting API fetch and download for {len(arxiv_links)} matched papers...")
+
+        async with aiohttp.ClientSession() as session:
+            for paper in arxiv_links:
+                pdf_url = paper.get("pdf_url")
+                if not pdf_url:
                     continue
 
-    return None
+                try:
+                    async with session.get(pdf_url) as resp:
+                        if resp.status == 200:
+                            paper["pdf_content"] = await resp.read()
+                        else:
+                            print(f"Failed to download {paper['id']} (Status: {resp.status})")
+                            paper["pdf_content"] = None
+                except Exception as e:
+                    print(f"Error downloading {paper.get('id', 'unknown')}: {e}")
+                    paper["pdf_content"] = None
 
-"""
-Looks for any of the following browsers (mac)
+        cleaned_arxiv_links = [
+            paper for paper in arxiv_links if paper.get("pdf_content") is not None
+        ]
 
-"Microsoft Edge", 
-"Google Chrome", 
-"Brave", 
-"OperaStable"  
-"""
-def _find_mac_browser():
-    bundle_ids = {
-        "com.google.Chrome": "/Contents/MacOS/Google Chrome",
-        "com.microsoft.edgemac": "/Contents/MacOS/Microsoft Edge",
-        "com.brave.Browser": "/Contents/MacOS/Brave Browser",
-        "com.operasoftware.Opera": "/Contents/MacOS/Opera"  
-    }
-
-    for bundle_id, inner_path in bundle_ids.items():
-        try:
-            output = subprocess.check_output(
-                ["mdfind", f"kMDItemCFBundleIdentifier == '{bundle_id}'"],
-                encoding="utf-8"
-            ).strip()
-
-            if output:
-                app_path = output.split('\n')[0]
-                full_path = app_path + inner_path
-                if os.path.exists(full_path):
-                    return full_path
-        except subprocess.CalledProcessError:
-            continue
-
-    return None
-
-"""
-Looks for any of the following browsers (linux)
-
-"Microsoft Edge", 
-"Google Chrome", 
-"Brave", 
-"OperaStable", 
-"Chromium
-"""
-def _find_linux_browser():
-    commands = [
-        "google-chrome", 
-        "microsoft-edge", 
-        "chromium", 
-        "brave-browser",
-        "opera",         
-        "opera-stable"   
-    ]
-    
-    for cmd in commands:
-        path = shutil.which(cmd)
-        if path:
-            return path
-    return None
-
-# gets the browser path for the users machine
-# I have to do this for js scraping scholar inbox
-def get_browser_path():
-    if sys.platform == "win32":
-        return _find_windows_browser()
-    elif sys.platform == "darwin":
-        return _find_mac_browser()
-    elif sys.platform == "linux":
-        return _find_linux_browser()
-    return None
-
-async def fetch_scholar_inbox_papers(login_url, amount_of_papers):
-    async with async_playwright() as p:
-        base_url = login_url
-
-        if not base_url.startswith("http"):
-            base_url = f"https://{base_url}"
-
-        browser_path = get_browser_path()
-
-        if not browser_path:
-            raise FileNotFoundError("No supported browser (Chrome, Edge, Opera, or Brave) found on this system.")
-
-        browser = await p.chromium.launch(executable_path=browser_path, headless=True)
-        page = await browser.new_page() 
-
-        await page.goto(base_url)
-
-        await page.wait_for_url('https://scholar-inbox.com', timeout=25000)
-        print("Page loaded.")
-
-        try:
-            await page.wait_for_selector("main", timeout=25000)
-        except Exception:
-            print("Timeout waiting for content to load.")
-            await browser.close() 
-            return None
-
-        time.sleep(5)  # Extra wait to ensure content is fully loaded   
-
-        rendered_html = await page.content()
-        await browser.close()
-        soup = BeautifulSoup(rendered_html, 'html.parser')
-
-        # Get all parent containers. Parent container has title, link, and relevance info
-        paper_containers = soup.select('div.MuiBox-root.css-vfiehx') # NOTE TO USER: selector is too general, but it seems to work for now. If scraping isn't working this is def a line to look at. 
-
-        arxiv_links = []
-
-        for container in paper_containers:
-            # This var has the title and the link to paper
-            link_tag = container.select_one('a[href^="https://arxiv.org/pdf/"].css-wnc5pm') # NOTE TO USER: "css-wnc5pm" is a class that may change, so if scraping breaks, check if this class is still valid. If not, update it to the current class used for arXiv links.
-            
-            # var has the relevance info
-            relevance_tag = container.select_one('div.MuiStack-root.css-2041sb span') # NOTE TO USER: same deal with "css-2041sb", may change over time.
-            
-            if link_tag:
-                url = link_tag.get('href')
-                title = link_tag.text.strip()
-                relevance = int(relevance_tag.text.strip()) if relevance_tag else "N/A"
-                arxiv_id = None
-                if url and isinstance(url, str):
-                    arxiv_id_match = re.search(r'pdf/(\d+\.\d+)', url)
-                    if arxiv_id_match:
-                        arxiv_id = arxiv_id_match.group(1)
-
-                        arxiv_links.append({
-                            "id": arxiv_id,
-                            "title": title,
-                            "relevance": relevance,
-                            "scraped_url": url
-                        })
-        
-        # Deduping
-        arxiv_links = [json.loads(d) for d in set(json.dumps(item, sort_keys=True) for item in arxiv_links)]
-
-        # Ordering by relevance
-        arxiv_links.sort(key=lambda x: x['relevance'], reverse=True)
-
-        if (type(amount_of_papers) != str): # str means too keep all, not str means that theres a limit
-            if (len(arxiv_links) > amount_of_papers):
-                arxiv_links = arxiv_links[:amount_of_papers] 
-
-        # Downloading PDFs from ArXiv API
-        print(f"Found {len(arxiv_links)} papers. Starting API fetch and download")
-
-        # Change this to append PDF bytes to arxiv_links dicts
-        ids = [d['id'] for d in arxiv_links]
-        ids_str = ','.join(ids) 
-        url = f'http://export.arxiv.org/api/query?id_list={ids_str}'
-
-        data = None
-        with urllib.request.urlopen(url) as response:
-            data = response.read()
-
-        feed = feedparser.parse(data)
-        
-        # async session to download PDFs
-        async with aiohttp.ClientSession() as session:
-            for entry in feed.entries:
-                arxiv_id = entry.id.split('/abs/')[-1] # type: ignore
-                
-                pdf_url = None
-                for link in entry.links:
-                    if link.rel == 'related' and link.type == 'application/pdf' and link.title == 'pdf':
-                        pdf_url = link.href
-                        break
-
-                for paper in arxiv_links:
-                    if paper['id'] in arxiv_id: 
-                        paper['pdf_url'] = pdf_url
-                        
-                        if pdf_url:
-                            try:
-                                async with session.get(pdf_url) as resp: # type: ignore
-                                    if resp.status == 200:
-                                        paper['pdf_content'] = await resp.read()
-                                    else:
-                                        print(f"Failed to download {paper['id']}")
-                                        paper['pdf_content'] = None
-                            except Exception as e:
-                                print(f"Error downloading {paper['id']}: {e}")
-                                paper['pdf_content'] = None
-
-        cleaned_arxiv_links = [paper for paper in arxiv_links if 'pdf_content' in paper and paper['pdf_content'] is not None]
-
-        print("cleaned arxiv links returned")
+        print(f"Returning {len(cleaned_arxiv_links)} papers with downloaded PDFs.")
         return cleaned_arxiv_links
+    finally:
+        _close_mail_connection(mail)

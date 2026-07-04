@@ -1,36 +1,44 @@
-from django.shortcuts import render
-from rest_framework import viewsets
-import api.models as models
-import api.serializers as serializers
-from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
-from rest_framework.response import Response
-from rest_framework import status
-from rest_framework.views import APIView
-import os
-import json
-from pathlib import Path
-from django.http import Http404, FileResponse
-import time
-from django.utils import timezone
-from datetime import timedelta
-from rest_framework import viewsets, status
-from rest_framework.parsers import MultiPartParser, FormParser
-from rest_framework.response import Response
-from . import models, serializers
-from .user_preferences import load_user_preferences, write_user_preferences, deep_get
-from django.db.models import Q
-import asyncio
-import aiohttp
-from django.core.files.base import ContentFile
-from django.core.files.uploadedfile import InMemoryUploadedFile
-import io
-from django_q.tasks import async_task, fetch
-from django_q.models import Task
-from api.utils import load_env_vars
-from .user_preferences import load_user_preferences
+# pyright: reportAttributeAccessIssue=false
 
-env_vars = load_env_vars()
-prefs = load_user_preferences()
+import asyncio
+import io
+import json
+import os
+import time
+from datetime import timedelta
+from pathlib import Path
+
+from django.db.models import Q
+from django.http import FileResponse
+from django.utils import timezone
+from django.core.files.uploadedfile import InMemoryUploadedFile
+from django_q.tasks import async_task, fetch
+from rest_framework import status, viewsets
+from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from api import models, serializers
+from api.OCR import create_searchable_pdf
+from api.ai import (
+    AI_PROVIDER_CONFIG,
+    add_message_to_chat,
+    generate_reading_recommendations,
+    get_all_provider_models,
+    get_provider_api_key,
+    name_chat,
+    normalize_provider,
+    rag_context_injection,
+    send_prompt,
+)
+from api.scholar_inbox import fetch_scholar_inbox_papers
+from api.user_preferences import deep_get, load_user_preferences, write_user_preferences
+from api.utils import (
+    get_env_vars_potential_list,
+    intitial_env_vars_data,
+    load_env_vars,
+    write_env_vars,
+)
 
 # to bool helper method for flag parsing
 def to_bool(value):
@@ -61,7 +69,6 @@ class CompleteFetch(APIView):
         }, status=status.HTTP_200_OK)
 
 # View that handles all document-related operations
-from .OCR import create_searchable_pdf
 class DocumentsViewSet(viewsets.ModelViewSet):
     queryset = models.Document.objects.all()
     serializer_class = serializers.DocumentSerializer
@@ -190,7 +197,6 @@ class UserPreferencesView(APIView):
         return Response({'message': 'Preferences updated successfully.'}, status=status.HTTP_200_OK)
     
 # get/set env vars
-from .utils import load_env_vars, write_env_vars, intitial_env_vars_data, get_env_vars_potential_list
 class EnvironmentVariablesView(APIView): 
     def get(self, request): 
         env_vars = load_env_vars()
@@ -218,20 +224,19 @@ class AIModelsView(APIView):
 
 
 # Runs fetch from scholar inbox and uplaods papers to "Scholar Inbox" folder
-from .scholar_inbox import fetch_scholar_inbox_papers
 class FetchScholarInboxPapers(APIView):
     def post(self, request):
         # Running fetch, logic can be altered in scholar_inbox.py
-        login_url = env_vars.get("SCHOLAR_INBOX_PERSONAL_LOGIN", "")
+        current_env_vars = load_env_vars()
         amount_to_import = request.data.get('amount_to_import', 'all')
 
-        if (login_url == ""):
-            print("ADD LOGIN URL TO BACKEND ENV FILE")
-            return Response({'error': 'Scholar Inbox login URL not configured.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        if not current_env_vars.get("scholar_inbox_email") or not current_env_vars.get("gmail_app_password"):
+            print("ADD SCHOLAR INBOX GMAIL CREDENTIALS TO BACKEND ENV FILE")
+            return Response({'error': 'Scholar Inbox Gmail credentials not configured.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        papers_dict = loop.run_until_complete(fetch_scholar_inbox_papers(login_url, amount_to_import))
+        papers_dict = loop.run_until_complete(fetch_scholar_inbox_papers(current_env_vars, amount_to_import))
         loop.close()
 
         if (papers_dict is None) or (len(papers_dict) == 0):    
@@ -305,7 +310,7 @@ document_title: {
 
 # Gets notes so that user can search on the frontend.
 class SearchNotesView(APIView):
-    def get(request, self, format=None): 
+    def get(self, request, format=None): 
         documents = models.Document.objects.filter(
         annotations__in = models.Annotations.objects.filter(
             Q(highlight_data__isnull = False) | 
@@ -358,16 +363,6 @@ note to self: implement Latex and markdown
 Button where user can pick whether they want to use RAG or not.
 Rag will get top 2-3 embeddings with n cos similarity and append them to the prompt as context.
 """
-from .ai import (
-    AI_PROVIDER_CONFIG,
-    add_message_to_chat,
-    get_all_provider_models,
-    get_provider_api_key,
-    name_chat,
-    normalize_provider,
-    rag_context_injection,
-    send_prompt,
-)
 class AIChatView(APIView):
     def post(self, request, format=None):
         current_env_vars = load_env_vars()
@@ -759,7 +754,6 @@ class PollSmartCollection(APIView):
             return Response({"state": "queued"})
 
 
-from api.ai import generate_reading_recommendations
 class ReadingRecommendationsView(APIView):
     def get(self, request): 
         
@@ -787,10 +781,13 @@ class ReadingRecommendationsView(APIView):
         if sc_obj.annotation_ids: 
             recs = generate_reading_recommendations(sc_obj.annotation_ids)
 
-            if not recs: 
-                return
+            if not recs:
+                return Response(
+                    {"error": "failed generating recommendations"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
 
-            sc_obj.reading_recommendations = recs # type: ignore
+            sc_obj.reading_recommendations = recs
             sc_obj.save(
                 update_fields=["reading_recommendations"]
             )

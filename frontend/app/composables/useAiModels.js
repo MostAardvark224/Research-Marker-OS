@@ -24,6 +24,24 @@ export function useAiModels() {
 
   const selectedProviderModels = computed(() => selectedProvider.value?.models || []);
 
+  const selectedProviderModelHint = computed(() => {
+    const provider = selectedProvider.value;
+    if (!provider) return null;
+
+    if (!provider.models?.length) {
+      if (!provider.has_api_key) {
+        return `Add your ${provider.label} API key in Settings → General to select a model.`;
+      }
+      return provider.error || `No models available for ${provider.label}.`;
+    }
+
+    return null;
+  });
+
+  const selectedProviderHasModels = computed(
+    () => selectedProviderModels.value.length > 0
+  );
+
   const selectedAiModel = computed({
     get: () => aiModels.value[selectedAiProvider.value] || "",
     set: (value) => {
@@ -98,7 +116,10 @@ export function useAiModels() {
     aiModels,
     selectedAiProvider,
     selectedAiModel,
+    selectedProvider,
     selectedProviderModels,
+    selectedProviderModelHint,
+    selectedProviderHasModels,
     defaultModelByProvider,
     aiModelsLoading,
     aiModelsError,

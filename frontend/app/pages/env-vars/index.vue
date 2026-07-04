@@ -61,10 +61,16 @@
           <div class="flex flex-col md:flex-row md:items-start gap-6">
             <div class="flex-1 min-w-0">
               <label
-                class="block font-mono text-sm text-indigo-300 mb-1 tracking-wide"
+                class="block text-sm font-medium text-white mb-1 tracking-wide"
+              >
+                {{ env.label }}
+              </label>
+              <p
+                v-if="env.key !== env.label"
+                class="font-mono text-[10px] text-slate-600 mb-1"
               >
                 {{ env.key }}
-              </label>
+              </p>
               <p
                 v-if="env.description"
                 class="text-sm text-slate-400 leading-relaxed"
@@ -78,7 +84,7 @@
                 <input
                   v-model="formValues[env.key]"
                   :type="env.type"
-                  :placeholder="`Enter ${env.key}...`"
+                  :placeholder="env.placeholder || `Enter ${env.label}...`"
                   class="w-full bg-[#0A0A0C] border border-white/10 rounded-lg px-4 py-3 text-sm text-white placeholder-slate-700 focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 focus:bg-white/[0.03] outline-none transition-all font-mono"
                   spellcheck="false"
                 />
@@ -190,10 +196,19 @@ const envMetadata = {
     description: "Used for OpenRouter chat models.",
     type: "password",
   },
-  SCHOLAR_INBOX_PERSONAL_LOGIN: {
+  scholar_inbox_email: {
+    label: "Scholar Inbox Email",
     description:
-      "Required for scraping your daily digest. Copy and paste your magic login link from your Scholar Inbox settings. Scholar Inbox is a free daily research digest tool, available at https://scholar-inbox.com/ (we are not affiliated with this in any way.)",
-    type: "text",
+      "The Gmail address that receives your Scholar Inbox Alert Digest emails. Scholar Inbox is a free daily research digest at https://scholar-inbox.com/ (we are not affiliated).",
+    placeholder: "you@gmail.com",
+    type: "email",
+  },
+  gmail_app_password: {
+    label: "Gmail App Password",
+    description:
+      "A Gmail App Password for IMAP access — not your regular Gmail password. Create one in Google Account → Security → 2-Step Verification → App passwords.",
+    placeholder: "xxxx xxxx xxxx xxxx",
+    type: "password",
   },
 };
 
@@ -217,7 +232,9 @@ const computedEnvList = computed(() => {
     const meta = envMetadata[key] || {};
     return {
       key: key,
-      description: meta.description || "", // Empty if no description exists
+      label: meta.label || key,
+      description: meta.description || "",
+      placeholder: meta.placeholder || "",
       type: meta.type || "text",
     };
   });

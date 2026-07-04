@@ -1,0 +1,9 @@
+{
+  "include": ["api"],
+  "exclude": ["**/migrations", "**/__pycache__", "venv", "dist", "build"],
+  "venvPath": ".",
+  "venv": "venv",
+  "extraPaths": ["."],
+  "pythonVersion": "3.12",
+  "typeCheckingMode": "basic"
+}
