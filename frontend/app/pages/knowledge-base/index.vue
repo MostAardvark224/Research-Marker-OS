@@ -591,8 +591,9 @@
 
               <div class="relative">
                 <div
+                  ref="chatMirrorRef"
                   aria-hidden="true"
-                  class="pointer-events-none absolute inset-0 overflow-hidden px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap break-words"
+                  class="chat-input-layer chat-input-mirror pointer-events-none absolute inset-0 overflow-hidden"
                 >
                   <template
                     v-for="(part, partIndex) in parseChatInputParts(chatInput)"
@@ -609,6 +610,7 @@
                   ref="chatInputRef"
                   v-model="chatInput"
                   @input="handleChatInput"
+                  @scroll="syncChatInputMirror"
                   @keydown.down.prevent="navigateChatSuggestions(1)"
                   @keydown.up.prevent="navigateChatSuggestions(-1)"
                   @keydown.enter.prevent="
@@ -620,7 +622,7 @@
                   "
                   rows="1"
                   placeholder="Ask a question… use @paper or @recent for context"
-                  class="chat-input-textarea w-full bg-transparent px-4 py-3 text-sm text-transparent caret-white placeholder:text-slate-600 focus:outline-none resize-none overflow-y-auto custom-scrollbar"
+                  class="chat-input-layer chat-input-textarea relative w-full bg-transparent text-transparent caret-white placeholder:text-slate-600 focus:outline-none resize-none overflow-y-auto custom-scrollbar"
                   style="min-height: 52px; max-height: 140px"
                 ></textarea>
               </div>
@@ -1117,6 +1119,7 @@ const currentChatId = ref(null);
 const isAiLoading = ref(false);
 const chatContainerRef = ref(null); // auto-scrolling
 const chatInputRef = ref(null); // Ref for the textarea
+const chatMirrorRef = ref(null);
 const isRagEnabled = ref(false);
 
 const {
@@ -1236,6 +1239,7 @@ const filteredChatSuggestions = computed(() => {
 
 const handleChatInput = (e) => {
   autoResizeInput();
+  syncChatInputMirror();
 
   // Check for @
   const match = chatInput.value.match(/@([\w\s]*)$/);
@@ -1262,6 +1266,7 @@ const selectChatSuggestion = (suggestion) => {
   chatInput.value = chatInput.value.replace(regex, replacement);
   showChatSuggestions.value = false;
   if (chatInputRef.value) chatInputRef.value.focus();
+  nextTick(syncChatInputMirror);
 };
 
 // api logic
@@ -1435,28 +1440,53 @@ const autoResizeInput = () => {
   const newHeight = Math.min(el.scrollHeight, 150);
   el.style.height = `${newHeight}px`;
 };
+
+const syncChatInputMirror = () => {
+  const input = chatInputRef.value;
+  const mirror = chatMirrorRef.value;
+  if (!input || !mirror) return;
+  mirror.scrollTop = input.scrollTop;
+  mirror.scrollLeft = input.scrollLeft;
+};
 </script>
 
 <style scoped>
+.chat-input-layer {
+  padding: 0.75rem 1rem;
+  font-family: inherit;
+  font-size: 0.875rem;
+  line-height: 1.625;
+  letter-spacing: normal;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.chat-input-mirror {
+  color: transparent;
+}
+
 .chat-input-tag {
+  background: rgba(99, 102, 241, 0.28);
+  color: rgb(199 210 254);
+  border-radius: 0.125rem;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.chat-input-tag--sent {
   display: inline-flex;
   align-items: center;
   margin: 0 1px;
   padding: 0.1rem 0.45rem;
   border-radius: 0.375rem;
-  border: 1px solid rgba(129, 140, 248, 0.35);
-  background: rgba(99, 102, 241, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.16);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.68rem;
   line-height: 1.25rem;
-  color: #c7d2fe;
-  vertical-align: baseline;
-}
-
-.chat-input-tag--sent {
-  border-color: rgba(255, 255, 255, 0.25);
-  background: rgba(255, 255, 255, 0.16);
   color: #eef2ff;
+  vertical-align: baseline;
 }
 
 .chat-input-textarea::placeholder {

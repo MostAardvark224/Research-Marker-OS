@@ -1,7 +1,7 @@
 from django.urls import path
 import api.views as views  
 from rest_framework.routers import DefaultRouter
-from .views import DocumentsViewSet
+from .views import DocumentsViewSet # type: ignore
 from django.conf import settings
 from django.views.static import serve
 from django.urls import re_path
@@ -16,6 +16,8 @@ router.register(r'chatlogs', views.ChatLogsViewset, basename='chatlogs')
 
 urlpatterns = [
     path('complete-fetch/', views.CompleteFetch.as_view(), name='complete-fetch'),
+    path('documents/reorder/', views.ReorderDocumentsView.as_view(), name='documents-reorder'),
+    path('folders/reorder/', views.ReorderFoldersView.as_view(), name='folders-reorder'),
     path('get-paper/<int:pk>/', views.getPaper.as_view(), name='get-paper'),
     path('user-preferences/', views.UserPreferencesView.as_view(), name='user-preferences'),
     path('env-vars/', views.EnvironmentVariablesView.as_view(), name='environment-variables'),

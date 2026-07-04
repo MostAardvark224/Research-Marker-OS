@@ -7,8 +7,25 @@ from django.db import transaction
 import re
 
 class Folder(models.Model):
-    name = models.CharField(max_length=255, unique=True)
+    name = models.CharField(max_length=255)
+    parent = models.ForeignKey(
+        "self",
+        related_name="subfolders",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+    )
+    sort_order = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["sort_order", "name"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["parent", "name"],
+                name="unique_folder_name_per_parent",
+            ),
+        ]
 
     def __str__(self):
         return self.name
@@ -18,6 +35,7 @@ class Document(models.Model):
     uploaded_at = models.DateField(auto_now_add=True)
     file = models.FileField(upload_to='documents/', max_length=255)
     folder = models.ForeignKey(Folder, related_name='documents', on_delete=models.SET_NULL, null=True)
+    sort_order = models.IntegerField(default=0)
     searchable = models.BooleanField(default=False)
     last_page = models.IntegerField(blank=True, null=True)
     zoom_level = models.IntegerField(blank=True, null=True)

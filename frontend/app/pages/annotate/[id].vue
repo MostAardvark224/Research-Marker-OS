@@ -715,6 +715,7 @@ const chatInput = ref("");
 const chatId = ref(null);
 const chatLoading = ref(false);
 const chatInputRef = ref(null);
+const chatMirrorRef = ref(null);
 const showAtMenu = ref(false);
 const chatScrollContainer = ref(null);
 const capturedSelection = ref("");
@@ -724,6 +725,8 @@ const {
   selectedAiProvider,
   selectedAiModel,
   selectedProviderModels,
+  selectedProviderModelHint,
+  selectedProviderHasModels,
   initializeAiModels,
 } = useAiModels();
 
@@ -753,7 +756,16 @@ const scrollChatToBottom = () => {
   });
 };
 
+const syncChatInputMirror = () => {
+  const input = chatInputRef.value;
+  const mirror = chatMirrorRef.value;
+  if (!input || !mirror) return;
+  mirror.scrollTop = input.scrollTop;
+  mirror.scrollLeft = input.scrollLeft;
+};
+
 const handleChatInput = () => {
+  syncChatInputMirror();
   const input = chatInput.value;
   const el = chatInputRef.value;
   const cursorPos = el ? el.selectionStart : input.length;
@@ -778,6 +790,7 @@ const insertAtTag = (tag) => {
     el?.focus();
     const newPos = before.length;
     el?.setSelectionRange(newPos, newPos);
+    syncChatInputMirror();
   });
 };
 
@@ -850,7 +863,7 @@ const buildContextFromInput = (rawInput) => {
 
 const sendChatMessage = async () => {
   const rawInput = chatInput.value.trim();
-  if (!rawInput || chatLoading.value) return;
+  if (!rawInput || chatLoading.value || !selectedProviderHasModels.value) return;
 
   const { prompt, usePaperIds } = buildContextFromInput(rawInput);
 
@@ -902,11 +915,14 @@ const clearChat = () => {
 };
 
 // Splits user message into plain text and @tag parts for display
-const parseUserMessage = (text) => {
+const parseChatInputParts = (text) => {
+  if (!text) return [{ type: "text", text: "" }];
+
   const parts = [];
-  const regex = /@\w+(?::\w+)?/g;
+  const regex = /@(?:page(?::\d+)?|paper|highlights|sticky|notepad|selection)\b/g;
   let lastIndex = 0;
   let match;
+
   while ((match = regex.exec(text)) !== null) {
     if (match.index > lastIndex) {
       parts.push({ type: "text", text: text.slice(lastIndex, match.index) });
@@ -914,10 +930,12 @@ const parseUserMessage = (text) => {
     parts.push({ type: "tag", text: match[0] });
     lastIndex = match.index + match[0].length;
   }
+
   if (lastIndex < text.length) {
     parts.push({ type: "text", text: text.slice(lastIndex) });
   }
-  return parts;
+
+  return parts.length ? parts : [{ type: "text", text: "" }];
 };
 
 // Sidebar functions
@@ -2067,8 +2085,16 @@ watch(currentPage, () => {
                 <Icon name="ph:chat-circle-dots" class="w-6 h-6 text-indigo-400" />
               </div>
               <p class="text-sm font-medium text-slate-200 mb-1">Ask about this paper</p>
-              <p class="text-[11px] text-slate-500 leading-relaxed max-w-[220px]">
-                Use <span class="font-mono text-indigo-300/80">@page</span>, <span class="font-mono text-indigo-300/80">@paper</span>, or other tags to give the assistant context.
+              <p class="text-[11px] text-slate-500 leading-relaxed max-w-[240px]">
+                Type
+                <span class="font-mono text-indigo-300/90">@…</span>
+                to send the model all of that context — e.g.
+                <span class="font-mono text-indigo-300/90">@sticky</span>
+                sends every sticky note,
+                <span class="font-mono text-indigo-300/90">@highlights</span>
+                all highlights, and
+                <span class="font-mono text-indigo-300/90">@paper</span>
+                the full PDF plus annotations.
               </p>
               <div class="mt-4 grid w-full grid-cols-2 gap-1.5">
                 <button
@@ -2113,10 +2139,10 @@ watch(currentPage, () => {
                   }"
                 >
                   <div v-if="msg.role === 'user'" class="whitespace-pre-wrap break-words">
-                    <template v-for="(part, i) in parseUserMessage(msg.content)" :key="i">
+                    <template v-for="(part, i) in parseChatInputParts(msg.content)" :key="i">
                       <span
                         v-if="part.type === 'tag'"
-                        class="inline-flex items-center px-1 py-0.5 rounded bg-white/15 text-[10px] font-mono mx-0.5"
+                        class="chat-input-tag chat-input-tag--sent"
                       >{{ part.text }}</span>
                       <span v-else>{{ part.text }}</span>
                     </template>
@@ -2140,23 +2166,35 @@ watch(currentPage, () => {
 
           <div class="shrink-0 border-t border-slate-800 bg-slate-900 p-2.5">
             <div class="rounded-xl border border-slate-700/80 bg-slate-950/80 overflow-hidden shadow-lg">
-              <div class="grid grid-cols-2 gap-2 px-2.5 py-2 border-b border-slate-800 bg-slate-900/60">
-                <select
-                  v-model="selectedAiProvider"
-                  class="min-w-0 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-[10px] text-slate-300 outline-none focus:border-indigo-500/50"
+              <div class="border-b border-slate-800 bg-slate-900/60">
+                <div class="grid grid-cols-2 gap-2 px-2.5 py-2">
+                  <select
+                    v-model="selectedAiProvider"
+                    class="ai-select min-w-0 rounded-lg border border-slate-700 px-2 py-1.5 text-[10px] outline-none focus:border-indigo-500/50"
+                  >
+                    <option v-for="provider in aiProviders" :key="provider.id" :value="provider.id">
+                      {{ provider.label }}
+                    </option>
+                  </select>
+                  <select
+                    v-model="selectedAiModel"
+                    :disabled="!selectedProviderHasModels"
+                    class="ai-select min-w-0 rounded-lg border border-slate-700 px-2 py-1.5 text-[10px] outline-none focus:border-indigo-500/50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <option v-if="!selectedProviderHasModels" value="" disabled>
+                      {{ selectedProviderModelHint || "No models available" }}
+                    </option>
+                    <option v-for="model in selectedProviderModels" :key="model" :value="model">
+                      {{ model }}
+                    </option>
+                  </select>
+                </div>
+                <p
+                  v-if="selectedProviderModelHint"
+                  class="px-2.5 pb-2 text-[10px] leading-relaxed text-amber-400/90"
                 >
-                  <option v-for="provider in aiProviders" :key="provider.id" :value="provider.id">
-                    {{ provider.label }}
-                  </option>
-                </select>
-                <select
-                  v-model="selectedAiModel"
-                  class="min-w-0 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-[10px] text-slate-300 outline-none focus:border-indigo-500/50"
-                >
-                  <option v-for="model in selectedProviderModels" :key="model" :value="model">
-                    {{ model }}
-                  </option>
-                </select>
+                  {{ selectedProviderModelHint }}
+                </p>
               </div>
 
               <div
@@ -2201,20 +2239,38 @@ watch(currentPage, () => {
                   <Icon name="ph:at" class="w-4 h-4" />
                 </button>
 
-                <textarea
-                  ref="chatInputRef"
-                  v-model="chatInput"
-                  @input="handleChatInput"
-                  @keydown.enter.exact.prevent="sendChatMessage"
-                  @keydown.escape="showAtMenu = false"
-                  rows="2"
-                  placeholder="Ask about this paper…"
-                  class="flex-1 min-h-[44px] max-h-28 resize-none border-0 bg-transparent px-1 py-2 text-xs text-slate-200 placeholder:text-slate-600 outline-none custom-scrollbar"
-                ></textarea>
+                <div class="relative flex-1 min-w-0">
+                  <div
+                    ref="chatMirrorRef"
+                    aria-hidden="true"
+                    class="chat-input-layer chat-input-mirror pointer-events-none absolute inset-0 overflow-hidden"
+                  >
+                    <template
+                      v-for="(part, partIndex) in parseChatInputParts(chatInput)"
+                      :key="partIndex"
+                    >
+                      <span v-if="part.type === 'tag'" class="chat-input-tag">{{
+                        part.text
+                      }}</span>
+                      <span v-else class="text-slate-200">{{ part.text }}</span>
+                    </template>
+                  </div>
+                  <textarea
+                    ref="chatInputRef"
+                    v-model="chatInput"
+                    @input="handleChatInput"
+                    @scroll="syncChatInputMirror"
+                    @keydown.enter.exact.prevent="sendChatMessage"
+                    @keydown.escape="showAtMenu = false"
+                    rows="2"
+                    placeholder="Ask about this paper… type @ for context tags"
+                    class="chat-input-layer chat-input-textarea relative w-full min-h-[44px] max-h-28 resize-none border-0 bg-transparent text-transparent caret-slate-200 placeholder:text-slate-600 outline-none custom-scrollbar"
+                  ></textarea>
+                </div>
 
                 <button
                   @click="sendChatMessage"
-                  :disabled="chatLoading || !chatInput.trim()"
+                  :disabled="chatLoading || !chatInput.trim() || !selectedProviderHasModels"
                   class="mb-0.5 shrink-0 rounded-lg bg-indigo-600 p-2 text-white transition-colors hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
                   title="Send"
                 >
@@ -2230,6 +2286,58 @@ watch(currentPage, () => {
 </template>
 
 <style scoped>
+.chat-input-layer {
+  padding: 0.5rem 0.25rem;
+  font-family: inherit;
+  font-size: 0.75rem;
+  line-height: 1.625;
+  letter-spacing: normal;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.chat-input-mirror {
+  color: transparent;
+}
+
+.chat-input-tag {
+  background: rgba(99, 102, 241, 0.28);
+  color: rgb(199 210 254);
+  border-radius: 0.125rem;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.chat-input-tag--sent {
+  display: inline-flex;
+  align-items: center;
+  margin: 0 1px;
+  padding: 0.1rem 0.45rem;
+  border-radius: 0.375rem;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.16);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.65rem;
+  line-height: 1.2rem;
+  color: #eef2ff;
+  vertical-align: baseline;
+}
+
+.chat-input-textarea::placeholder {
+  color: rgb(71 85 105);
+}
+
+.ai-select {
+  background-color: #0f172a;
+  color: #cbd5e1;
+}
+
+.ai-select option {
+  background-color: #0f172a;
+  color: #e2e8f0;
+}
+
 .icon-btn {
   border-radius: 0.25rem;
   padding: 0.5rem;

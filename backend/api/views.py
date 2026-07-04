@@ -8,7 +8,7 @@ import time
 from datetime import timedelta
 from pathlib import Path
 
-from django.db.models import Q
+from django.db.models import Q, Max
 from django.http import FileResponse
 from django.utils import timezone
 from django.core.files.uploadedfile import InMemoryUploadedFile
@@ -54,13 +54,29 @@ def to_bool(value):
             
     return bool(value) # fallback
 
+def _next_document_sort_order(folder_id):
+    max_order = models.Document.objects.filter(folder_id=folder_id).aggregate(
+        Max("sort_order")
+    )["sort_order__max"]
+    return (max_order if max_order is not None else -1) + 1
+
+def _next_folder_sort_order(parent_id):
+    max_order = models.Folder.objects.filter(parent_id=parent_id).aggregate(
+        Max("sort_order")
+    )["sort_order__max"]
+    return (max_order if max_order is not None else -1) + 1
+
 # View that returns folders, documents are nested within.
 class CompleteFetch(APIView):
     def get(self, request, format=None):
-        folders = models.Folder.objects.all().prefetch_related('documents')
-        folder_serializer = serializers.FolderSerializer(folders, many=True)
+        root_folders = models.Folder.objects.filter(parent__isnull=True).order_by(
+            "sort_order", "name"
+        )
+        folder_serializer = serializers.FolderSerializer(root_folders, many=True)
 
-        unassigned_docs = models.Document.objects.filter(folder__isnull=True)
+        unassigned_docs = models.Document.objects.filter(folder__isnull=True).order_by(
+            "sort_order", "id"
+        )
         unassigned_serializer = serializers.DocumentSerializer(unassigned_docs, many=True)
 
         return Response({
@@ -122,6 +138,22 @@ class DocumentsViewSet(viewsets.ModelViewSet):
 
         return super().create(request, *args, **kwargs)
 
+    def perform_create(self, serializer):
+        folder = serializer.validated_data.get("folder")
+        folder_id = folder.pk if folder else None
+        serializer.save(sort_order=_next_document_sort_order(folder_id))
+
+    def perform_update(self, serializer):
+        instance = serializer.instance
+        old_folder_id = instance.folder_id
+        folder = serializer.validated_data.get("folder", instance.folder)
+        folder_id = folder.pk if folder else None
+
+        extra = {}
+        if "folder" in serializer.validated_data and folder_id != old_folder_id:
+            extra["sort_order"] = _next_document_sort_order(folder_id)
+        serializer.save(**extra)
+
     def destroy(self, request, *args, **kwargs):
         # Overriding to delete the physical file in documents dir as well as the model obj.
         obj = self.get_object()
@@ -138,6 +170,65 @@ class DocumentsViewSet(viewsets.ModelViewSet):
 class FoldersViewSet(viewsets.ModelViewSet):
     queryset = models.Folder.objects.all()
     serializer_class = serializers.FolderSerializer
+
+    def perform_create(self, serializer):
+        parent = serializer.validated_data.get("parent")
+        parent_id = parent.pk if parent else None
+        serializer.save(sort_order=_next_folder_sort_order(parent_id))
+
+
+class ReorderDocumentsView(APIView):
+    def post(self, request):
+        folder_id = request.data.get("folder_id")
+        document_ids = request.data.get("document_ids", [])
+
+        if folder_id in ("", "null", "undefined"):
+            folder_id = None
+
+        if not isinstance(document_ids, list) or not document_ids:
+            return Response(
+                {"error": "document_ids must be a non-empty list."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        docs = models.Document.objects.filter(pk__in=document_ids, folder_id=folder_id)
+        if docs.count() != len(document_ids):
+            return Response(
+                {"error": "One or more documents do not belong to this folder."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        for index, doc_id in enumerate(document_ids):
+            models.Document.objects.filter(pk=doc_id).update(sort_order=index)
+
+        return Response({"message": "Documents reordered."}, status=status.HTTP_200_OK)
+
+
+class ReorderFoldersView(APIView):
+    def post(self, request):
+        parent_id = request.data.get("parent_id")
+        folder_ids = request.data.get("folder_ids", [])
+
+        if parent_id in ("", "null", "undefined"):
+            parent_id = None
+
+        if not isinstance(folder_ids, list) or not folder_ids:
+            return Response(
+                {"error": "folder_ids must be a non-empty list."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        folders = models.Folder.objects.filter(pk__in=folder_ids, parent_id=parent_id)
+        if folders.count() != len(folder_ids):
+            return Response(
+                {"error": "One or more folders do not belong to this parent."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        for index, folder_id in enumerate(folder_ids):
+            models.Folder.objects.filter(pk=folder_id).update(sort_order=index)
+
+        return Response({"message": "Folders reordered."}, status=status.HTTP_200_OK)
 
 # Get Paper for annotation (streams file as raw binary)
 class getPaper(APIView):
@@ -244,7 +335,11 @@ class FetchScholarInboxPapers(APIView):
 
         # Writing papers to "Scholar Inbox" folder
         # Making sure that a "Scholar Inbox" folder exists
-        folder, created = models.Folder.objects.get_or_create(name="Scholar Inbox")
+        folder, created = models.Folder.objects.get_or_create(
+            name="Scholar Inbox",
+            parent=None,
+            defaults={"sort_order": 0},
+        )
         folder_pk = folder.pk
 
         for paper in papers_dict: 

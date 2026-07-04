@@ -3,26 +3,61 @@ from rest_framework import serializers
 from django.db.models import Q
 
 
-# class FolderSerializer(serializers.ModelSerializer):
-
 class DocumentSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.Document
-        fields = '__all__'
+        fields = "__all__"
+
 
 class FolderSerializer(serializers.ModelSerializer):
-    documents = DocumentSerializer(many=True, read_only=True) 
+    documents = serializers.SerializerMethodField()
+    subfolders = serializers.SerializerMethodField()
 
     class Meta:
         model = models.Folder
-        fields = ['id', 'name', 'created_at', 'documents']
+        fields = [
+            "id",
+            "name",
+            "parent",
+            "sort_order",
+            "created_at",
+            "documents",
+            "subfolders",
+        ]
+
+    def get_documents(self, folder):
+        documents = folder.documents.order_by("sort_order", "id")
+        return DocumentSerializer(documents, many=True).data
+
+    def get_subfolders(self, folder):
+        children = folder.subfolders.order_by("sort_order", "name")
+        return FolderSerializer(children, many=True).data
+
+    def validate(self, attrs):
+        parent = attrs.get("parent", getattr(self.instance, "parent", None))
+        name = attrs.get("name", getattr(self.instance, "name", None))
+
+        if not name:
+            return attrs
+
+        qs = models.Folder.objects.filter(name=name, parent=parent)
+        if self.instance:
+            qs = qs.exclude(pk=self.instance.pk)
+        if qs.exists():
+            raise serializers.ValidationError(
+                {"name": "A folder with this name already exists at this level."}
+            )
+
+        return attrs
+
 
 class AnnotationSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.Annotations
-        fields = '__all__'
+        fields = "__all__"
 
-class GroupedAnnotationsSerializer(serializers.ModelSerializer): 
+
+class GroupedAnnotationsSerializer(serializers.ModelSerializer):
     document__title = serializers.CharField(source="title")
     document__pk = serializers.IntegerField(source="pk")
 
@@ -30,28 +65,29 @@ class GroupedAnnotationsSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = models.Document
-        fields = ('document__title', 'document__pk', 'annotations')
-        
+        fields = ("document__title", "document__pk", "annotations")
+
     def get_annotations(self, document_instance):
-        non_empty_q = (
-            Q(highlight_data__isnull=False) |
-            Q(sticky_note_data__isnull=False)
+        non_empty_q = Q(highlight_data__isnull=False) | Q(
+            sticky_note_data__isnull=False
         )
 
         filtered_annotations = models.Annotations.objects.filter(
             document=document_instance
         ).filter(non_empty_q)
-        
-        serializer = AnnotationSerializer(filtered_annotations, many=True)
-        
-        return serializer.data
-    
-class ChatLogSerializer(serializers.ModelSerializer): 
-    class Meta: 
-        model = models.ChatLogs
-        fields = '__all__'
 
-class SmartCollectionsSerializer(serializers.ModelSerializer): 
-    class Meta: 
+        serializer = AnnotationSerializer(filtered_annotations, many=True)
+
+        return serializer.data
+
+
+class ChatLogSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.ChatLogs
+        fields = "__all__"
+
+
+class SmartCollectionsSerializer(serializers.ModelSerializer):
+    class Meta:
         model = models.SmartCollections
-        fields = '__all__'
+        fields = "__all__"

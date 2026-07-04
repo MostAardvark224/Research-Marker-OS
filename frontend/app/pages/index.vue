@@ -158,6 +158,7 @@
               v-model="sortBy"
               :class="`${colorScheme.inputBg} border ${colorScheme.inputBorder} rounded-lg px-1 py-1.5 text-xs ${colorScheme.inputText} focus:outline-none focus:ring-1 ${colorScheme.inputFocusRing} ${colorScheme.inputFocusBorder}`"
             >
+              <option value="custom">Custom order</option>
               <option value="newest">Newest first</option>
               <option value="oldest">Oldest first</option>
               <option value="title">Title A–Z</option>
@@ -204,109 +205,60 @@
                 />
               </div>
 
-              <div
-                v-for="folder in allFolders"
-                :key="folder.id || 'unassigned'"
-                class="relative"
-              >
+              <FolderTreeItem
+                v-for="folder in folderList"
+                :key="folder.id"
+                :folder="folder"
+                :depth="0"
+              />
+
+              <div class="relative mt-1">
                 <div
-                  @click="activateFolder(folder.id)"
+                  @click="activateFolder(null)"
                   @dragover.prevent
-                  @dragenter.prevent="activeDropFolderId = folder.id"
+                  @dragenter.prevent="activeDropFolderId = null"
                   @dragleave="activeDropFolderId = null"
-                  @drop="onDrop($event, folder)"
+                  @drop="onDrop($event, unassignedFolder)"
                   :class="[
                     'group flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors',
-                    activeFolderId === folder.id
+                    activeFolderId === null
                       ? `${colorScheme.folderActive} ${colorScheme.folderActiveText}`
                       : `${colorScheme.sidebarText} ${colorScheme.folderHover} ${colorScheme.sidebarTextHover}`,
+                    activeDropFolderId === null && draggedDocSourceFolderId !== null
+                      ? 'ring-1 ring-blue-500/50'
+                      : '',
                   ]"
                 >
                   <div class="flex items-center gap-2 overflow-hidden flex-1">
                     <Icon
-                      :name="
-                        folder.id === null
-                          ? 'material-symbols:folder-off-outline'
-                          : 'material-symbols:folder-open-rounded'
-                      "
+                      name="material-symbols:folder-off-outline"
                       :class="[
                         'text-lg flex-shrink-0',
-                        activeFolderId === folder.id
+                        activeFolderId === null
                           ? colorScheme.folderIconActive
                           : `${colorScheme.folderIcon} ${colorScheme.folderIconHover}`,
                       ]"
                     />
-
-                    <template
-                      v-if="
-                        folder.id !== null && renamingFolderId === folder.id
-                      "
-                    >
-                      <input
-                        v-model="renamingFolderTitle"
-                        v-focus
-                        type="text"
-                        :class="`${colorScheme.inputBg} border ${colorScheme.inputFocusBorder} rounded px-1 py-0.5 text-sm ${colorScheme.inputText} w-full outline-none`"
-                        @click.stop
-                        @keydown.enter="finishRenamingFolder"
-                        @keydown.esc="cancelRenamingFolder"
-                        @blur="finishRenamingFolder"
-                      />
-                    </template>
-                    <template v-else>
-                      <span class="truncate text-sm font-medium select-none">
-                        {{ folder.name }}
-                      </span>
-                    </template>
+                    <span class="truncate text-sm font-medium select-none">
+                      Unassigned
+                    </span>
                   </div>
 
                   <div class="flex items-center gap-1">
                     <span
                       :class="`text-xs font-mono ${colorScheme.folderCountBg} px-1.5 py-0.5 rounded ${colorScheme.folderCount}`"
                     >
-                      {{ folder.documents.length }}
+                      {{ unassignedDocs.length }}
                     </span>
-
-                    <template v-if="folder.id !== null">
-                      <div
-                        :class="`relative h-6 w-6 flex items-center justify-center rounded ${colorScheme.folderHover} ml-1`"
-                        @click.stop="toggleFolderMenu(folder.id)"
-                      >
-                        <Icon
-                          name="material-symbols:more-horiz"
-                          class="text-lg"
-                        />
-
-                        <div
-                          v-if="activeMenuFolderId === folder.id"
-                          :class="`absolute right-0 top-full mt-1 z-50 w-32 rounded-md border ${colorScheme.containerBorder} ${colorScheme.containerBg} backdrop-blur-md shadow-xl py-1`"
-                        >
-                          <button
-                            @click.stop="startRenamingFolder(folder)"
-                            :class="`w-full text-left px-3 py-1.5 text-xs ${colorScheme.sidebarText} ${colorScheme.folderHover} ${colorScheme.folderIconActive} flex items-center gap-2`"
-                          >
-                            <Icon name="material-symbols:edit-outline" />
-                            Rename
-                          </button>
-                          <button
-                            @click.stop="promptDeleteFolder(folder)"
-                            :class="`w-full text-left px-3 py-1.5 text-xs ${colorScheme.sidebarText} ${colorScheme.folderHover} ${colorScheme.actionIconDeleteHover} flex items-center gap-2`"
-                          >
-                            <Icon name="material-symbols:delete-outline" />
-                            Delete
-                          </button>
-                        </div>
-                      </div>
-                    </template>
                     <div
                       :class="`h-6 w-6 flex items-center justify-center rounded ${colorScheme.folderHover} transition-colors`"
-                      @click.stop="toggleFolderExpanded(folder.id)"
+                      @click.stop="toggleFolderExpanded(null)"
                     >
                       <Icon
                         name="material-symbols:keyboard-arrow-down-rounded"
                         class="text-lg transition-transform duration-200"
                         :class="{
-                          '-rotate-90': !expandedFolderIds.includes(folder.id),
+                          '-rotate-90': !expandedFolderIds.includes(null),
                         }"
                       />
                     </div>
@@ -314,20 +266,23 @@
                 </div>
 
                 <div
-                  v-if="expandedFolderIds.includes(folder.id)"
+                  v-if="expandedFolderIds.includes(null)"
                   :class="`ml-3 pl-3 border-l ${colorScheme.sidebarBorder} overflow-hidden`"
                 >
                   <div
-                    v-if="folder.documents.length === 0"
+                    v-if="unassignedDocs.length === 0"
                     :class="`px-2 py-1.5 text-xs ${colorScheme.textMuted} italic`"
                   >
                     Empty folder
                   </div>
                   <div
-                    v-else
-                    v-for="doc in folder.documents"
+                    v-for="(doc, docIndex) in unassignedDocs"
+                    :key="doc.id"
                     draggable="true"
-                    @dragstart="onDragStart($event, doc)"
+                    @dragstart="onDragStart($event, doc, null)"
+                    @dragover.prevent="onDragOverDocument(null, docIndex)"
+                    @dragleave="onDragLeaveDocument"
+                    @drop.prevent="onDropOnDocument($event, unassignedFolder, docIndex)"
                     @dblclick="
                       navigateToAnnotate(
                         doc.id,
@@ -335,9 +290,17 @@
                         doc.zoom_level ? doc.zoom_level : 200,
                       )
                     "
-                    :key="doc.id"
-                    :class="`flex items-center gap-2 px-2 py-1.5 text-xs ${colorScheme.sidebarText} truncate ${colorScheme.sidebarTextHover} select-none`"
+                    :class="[
+                      `flex items-center gap-2 px-2 py-1.5 text-xs ${colorScheme.sidebarText} truncate select-none cursor-grab active:cursor-grabbing`,
+                      dragOverDoc?.folderId === null && dragOverDoc?.index === docIndex
+                        ? 'bg-blue-500/10 ring-1 ring-blue-500/30 rounded'
+                        : colorScheme.sidebarTextHover,
+                    ]"
                   >
+                    <Icon
+                      name="material-symbols:drag-indicator"
+                      class="text-sm flex-shrink-0 opacity-40"
+                    />
                     <Icon
                       name="material-symbols:description-outline"
                       class="text-sm flex-shrink-0"
@@ -417,6 +380,10 @@
                     <tr
                       v-for="(paper, index) in filteredPapers"
                       :key="paper.id"
+                      draggable="sortBy === 'custom' && !searchQuery.trim()"
+                      @dragstart="onTableDragStart($event, paper, index)"
+                      @dragover.prevent="onTableDragOver(index)"
+                      @drop.prevent="onTableDrop($event, index)"
                       @dblclick="
                         navigateToAnnotate(
                           paper.id,
@@ -425,10 +392,11 @@
                         )
                       "
                       :class="[
-                        `border-b ${colorScheme.tableRowBorder} ${colorScheme.tableRowHover} transition-colors`,
+                        `border-b ${colorScheme.tableRowBorder} ${colorScheme.tableRowHover} transition-colors cursor-grab active:cursor-grabbing`,
                         index % 2 === 0
                           ? `${colorScheme.tableRowEven}`
                           : `${colorScheme.tableRowOdd}`,
+                        tableDragOverIndex === index ? 'ring-1 ring-inset ring-blue-500/40' : '',
                       ]"
                     >
                       <td
@@ -686,7 +654,7 @@ const activeFolderId = ref(null);
 const uploadSkipOcr = ref(false);
 
 const searchQuery = ref("");
-const sortBy = ref("newest");
+const sortBy = ref("custom");
 
 const showDeleteModal = ref(false);
 const paperToDelete = ref(null);
@@ -696,6 +664,8 @@ const newPaperTitle = ref("");
 
 const isCreatingFolder = ref(false);
 const newFolderName = ref("");
+const creatingSubfolderParentId = ref(null);
+const newSubfolderName = ref("");
 
 const renamingFolderId = ref(null);
 const renamingFolderTitle = ref("");
@@ -707,32 +677,169 @@ const showDeleteFolderModal = ref(false);
 const folderToDelete = ref(null);
 
 const activeDropFolderId = ref(null);
+const draggedDocSourceFolderId = ref(null);
+const dragOverDoc = ref(null);
+const tableDragOverIndex = ref(null);
+const tableDragSourceIndex = ref(null);
+
+const unassignedFolder = computed(() => ({
+  id: null,
+  name: "Unassigned",
+  documents: unassignedDocs.value,
+}));
+
+function findFolderById(folders, folderId) {
+  for (const folder of folders) {
+    if (folder.id === folderId) return folder;
+    if (folder.subfolders?.length) {
+      const match = findFolderById(folder.subfolders, folderId);
+      if (match) return match;
+    }
+  }
+  return null;
+}
+
+function findFolderPath(folders, folderId, path = []) {
+  for (const folder of folders) {
+    const nextPath = [...path, folder.id];
+    if (folder.id === folderId) return nextPath;
+    if (folder.subfolders?.length) {
+      const match = findFolderPath(folder.subfolders, folderId, nextPath);
+      if (match) return match;
+    }
+  }
+  return null;
+}
+
+function expandFolderAncestors(folderId) {
+  if (folderId === null) return;
+  const path = findFolderPath(folderList.value, folderId) || [];
+  for (const id of path) {
+    if (!expandedFolderIds.value.includes(id)) {
+      expandedFolderIds.value.push(id);
+    }
+  }
+}
 
 // Funcs
 
 // Dragging Docs
 
-function onDragStart(event, doc) {
+function onDragStart(event, doc, sourceFolderId) {
+  draggedDocSourceFolderId.value = sourceFolderId;
   event.dataTransfer.dropEffect = "move";
   event.dataTransfer.effectAllowed = "move";
-  event.dataTransfer.setData("application/json", JSON.stringify(doc));
+  event.dataTransfer.setData(
+    "application/json",
+    JSON.stringify({ ...doc, _sourceFolderId: sourceFolderId }),
+  );
 }
 
-async function onDrop(event, targetFolder) {
+function onDragOverDocument(folderId, docIndex) {
+  dragOverDoc.value = { folderId, index: docIndex };
+}
+
+function onDragLeaveDocument() {
+  dragOverDoc.value = null;
+}
+
+async function reorderDocuments(folderId, documentIds) {
+  await $fetch(`${apiBaseURL}/documents/reorder/`, {
+    method: "POST",
+    body: {
+      folder_id: folderId,
+      document_ids: documentIds,
+    },
+  });
+  await fetchPastPapers();
+}
+
+async function onDropOnDocument(event, folder, targetIndex) {
+  dragOverDoc.value = null;
   activeDropFolderId.value = null;
 
   const data = event.dataTransfer.getData("application/json");
   if (!data) return;
 
   const doc = JSON.parse(data);
+  const sourceFolderId =
+    doc._sourceFolderId !== undefined
+      ? doc._sourceFolderId
+      : draggedDocSourceFolderId.value;
+  const targetFolderId = folder.id;
 
-  const isAlreadyInFolder = targetFolder.documents.some((d) => d.id === doc.id);
+  if (sourceFolderId === targetFolderId) {
+    const docs = [...(folder.documents || [])];
+    const fromIndex = docs.findIndex((item) => item.id === doc.id);
+    if (fromIndex === -1) return;
 
-  if (!isAlreadyInFolder) {
+    const [movedDoc] = docs.splice(fromIndex, 1);
+    const insertIndex = fromIndex < targetIndex ? targetIndex - 1 : targetIndex;
+    docs.splice(insertIndex, 0, movedDoc);
+
+    await reorderDocuments(targetFolderId, docs.map((item) => item.id));
+    return;
+  }
+
+  await updateDocumentFolder(doc, targetFolderId);
+  draggedDocSourceFolderId.value = null;
+}
+
+async function onDrop(event, targetFolder) {
+  activeDropFolderId.value = null;
+  dragOverDoc.value = null;
+
+  const data = event.dataTransfer.getData("application/json");
+  if (!data) return;
+
+  const doc = JSON.parse(data);
+  const sourceFolderId =
+    doc._sourceFolderId !== undefined
+      ? doc._sourceFolderId
+      : draggedDocSourceFolderId.value;
+
+  const isAlreadyInFolder = (targetFolder.documents || []).some(
+    (item) => item.id === doc.id,
+  );
+
+  if (!isAlreadyInFolder || sourceFolderId !== targetFolder.id) {
     await updateDocumentFolder(doc, targetFolder.id);
   }
 
   activeFolderId.value = targetFolder.id;
+  draggedDocSourceFolderId.value = null;
+}
+
+function onTableDragStart(event, paper, index) {
+  if (sortBy.value !== "custom") return;
+  tableDragSourceIndex.value = index;
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData("text/plain", String(paper.id));
+}
+
+function onTableDragOver(index) {
+  if (sortBy.value !== "custom") return;
+  tableDragOverIndex.value = index;
+}
+
+async function onTableDrop(event, targetIndex) {
+  if (sortBy.value !== "custom") return;
+
+  const sourceIndex = tableDragSourceIndex.value;
+  tableDragOverIndex.value = null;
+  tableDragSourceIndex.value = null;
+
+  if (sourceIndex === null || sourceIndex === targetIndex) return;
+
+  const docs = [...currentDocuments.value].sort(
+    (a, b) =>
+      (a.sort_order ?? 0) - (b.sort_order ?? 0) || (a.id ?? 0) - (b.id ?? 0),
+  );
+  const [movedDoc] = docs.splice(sourceIndex, 1);
+  const insertIndex = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex;
+  docs.splice(insertIndex, 0, movedDoc);
+
+  await reorderDocuments(activeFolderId.value, docs.map((item) => item.id));
 }
 
 // Main func that fetches all of user data, includes folders and documents
@@ -757,10 +864,14 @@ async function fetchPastPapers() {
       if (storedFolder === "unassigned" || !storedFolder) {
         activeFolderId.value = null;
       } else {
-        const existingFolder = folderList.value.find(
-          (f) => String(f.id) === storedFolder,
+        const existingFolder = findFolderById(
+          folderList.value,
+          Number(storedFolder),
         );
         activeFolderId.value = existingFolder ? existingFolder.id : null;
+        if (existingFolder) {
+          expandFolderAncestors(existingFolder.id);
+        }
       }
     }
   } catch (error) {
@@ -907,6 +1018,8 @@ function activateFolder(folderId) {
     toggleFolderExpanded(folderId);
   }
 
+  expandFolderAncestors(folderId);
+
   localStorage.setItem(
     "researchMarker_lastFolder",
     folderId === null ? "unassigned" : folderId,
@@ -939,18 +1052,65 @@ async function finishCreatingFolder() {
       headers: {
         "Content-Type": "application/json",
       },
-      body: { name: name },
+      body: { name: name, parent: null },
     });
     await fetchPastPapers();
   } catch (error) {
     if (error.response && error.response.status === 400) {
-      alert("You can't have two folders of the same name.");
+      alert("You can't have two folders of the same name at this level.");
     } else {
       console.error("Error creating folder:", error);
       alert("Folder Creation Failed.");
     }
   } finally {
     cancelCreatingFolder();
+  }
+}
+
+function startCreatingSubfolder(parentId) {
+  closeMenus();
+  creatingSubfolderParentId.value = parentId;
+  newSubfolderName.value = "";
+  if (!expandedFolderIds.value.includes(parentId)) {
+    expandedFolderIds.value.push(parentId);
+  }
+}
+
+function cancelCreatingSubfolder() {
+  creatingSubfolderParentId.value = null;
+  newSubfolderName.value = "";
+}
+
+async function finishCreatingSubfolder() {
+  if (creatingSubfolderParentId.value === null) return;
+
+  const name = newSubfolderName.value.trim();
+  const parentId = creatingSubfolderParentId.value;
+
+  if (name === "") {
+    cancelCreatingSubfolder();
+    return;
+  }
+
+  try {
+    await $fetch(`${apiBaseURL}/folders/`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: { name, parent: parentId },
+    });
+    await fetchPastPapers();
+    expandFolderAncestors(parentId);
+  } catch (error) {
+    if (error.response && error.response.status === 400) {
+      alert("You can't have two folders of the same name at this level.");
+    } else {
+      console.error("Error creating subfolder:", error);
+      alert("Subfolder Creation Failed.");
+    }
+  } finally {
+    cancelCreatingSubfolder();
   }
 }
 
@@ -988,10 +1148,10 @@ async function finishRenamingFolder() {
     await fetchPastPapers();
   } catch (error) {
     if (error.response && error.response.status === 400) {
-      alert("You can't have two folders of the same name.");
+      alert("You can't have two folders of the same name at this level.");
     } else {
-      console.error("Error creating folder:", error);
-      alert("Folder Creation Failed.");
+      console.error("Error renaming folder:", error);
+      alert("Folder Rename Failed.");
     }
   } finally {
     cancelRenamingFolder();
@@ -1058,6 +1218,7 @@ const allFolders = computed(() => {
     id: null,
     name: "Unassigned",
     documents: unassignedDocs.value,
+    subfolders: [],
   });
   return folders;
 });
@@ -1067,7 +1228,7 @@ const currentDocuments = computed(() => {
   if (activeFolderId.value === null) {
     return unassignedDocs.value;
   }
-  const folder = folderList.value.find((f) => f.id === activeFolderId.value);
+  const folder = findFolderById(folderList.value, activeFolderId.value);
   return folder ? folder.documents : [];
 });
 
@@ -1080,7 +1241,12 @@ const hasPapers = computed(() => {
 const filteredPapers = computed(() => {
   let list = [...currentDocuments.value];
 
-  if (sortBy.value === "newest") {
+  if (sortBy.value === "custom") {
+    list.sort(
+      (a, b) =>
+        (a.sort_order ?? 0) - (b.sort_order ?? 0) || (a.id ?? 0) - (b.id ?? 0),
+    );
+  } else if (sortBy.value === "newest") {
     list.sort((a, b) => new Date(b.uploaded_at) - new Date(a.uploaded_at));
   } else if (sortBy.value === "oldest") {
     list.sort((a, b) => new Date(a.uploaded_at) - new Date(b.uploaded_at));
@@ -1128,4 +1294,43 @@ function navigateToAnnotate(paperId, lastPage, zoom) {
     },
   });
 }
+
+const folderTreeState = reactive({
+  activeFolderId,
+  expandedFolderIds,
+  renamingFolderId,
+  renamingFolderTitle,
+  activeMenuFolderId,
+  activeDropFolderId,
+  creatingSubfolderParentId,
+  newSubfolderName,
+  dragOverDoc,
+});
+
+provide("colorScheme", colorScheme);
+provide("folderTreeState", folderTreeState);
+provide("folderActions", {
+  activateFolder,
+  toggleFolderExpanded,
+  toggleFolderMenu,
+  startRenamingFolder,
+  finishRenamingFolder,
+  cancelRenamingFolder,
+  startCreatingSubfolder,
+  finishCreatingSubfolder,
+  cancelCreatingSubfolder,
+  promptDeleteFolder,
+  onDragStart,
+  onDragOverDocument,
+  onDragLeaveDocument,
+  onDropOnDocument,
+  onDropOnFolder: onDrop,
+  setActiveDropFolderId: (folderId) => {
+    activeDropFolderId.value = folderId;
+  },
+  clearActiveDropFolderId: () => {
+    activeDropFolderId.value = null;
+  },
+  navigateToAnnotate,
+});
 </script>
