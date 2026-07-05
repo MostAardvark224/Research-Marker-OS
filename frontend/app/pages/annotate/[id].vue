@@ -17,6 +17,9 @@ const {
 // General States
 const route = useRoute();
 const id = route.params.id;
+const DEFAULT_ZOOM = 200;
+const MAX_CANVAS_DEVICE_PIXEL_RATIO = 2.25;
+const RENDERED_PAGE_BUFFER = 2;
 
 const loading = ref(true);
 const error = ref(null);
@@ -62,8 +65,8 @@ onMounted(() => {
 });
 
 const totalPages = ref(0);
-const zoomLevel = ref(200);
-const inputZoomLevel = ref(200);
+const zoomLevel = ref(DEFAULT_ZOOM);
+const inputZoomLevel = ref(DEFAULT_ZOOM);
 let zoomDebounce = null;
 const isAnnotationsHidden = ref(false);
 const isColorPickerOpen = ref(false);
@@ -72,6 +75,7 @@ const isResizing = ref(false);
 const isManualScrolling = ref(false);
 
 const renderTasks = {};
+const pageProxies = {};
 const activeRenderSignatures = new Map();
 const renderedPageSignatures = new Map();
 const queuedPageRenders = new Map();
@@ -105,6 +109,67 @@ const waitForFrame = () =>
     requestAnimationFrame(() => resolve());
   });
 
+const isPageNearViewport = (pageNum) =>
+  visiblePages.value.has(pageNum) ||
+  Math.abs(pageNum - currentPage.value) <= RENDERED_PAGE_BUFFER;
+
+const releasePageRender = (pageNum) => {
+  if (renderTasks[pageNum]) {
+    renderTasks[pageNum].cancel?.();
+    delete renderTasks[pageNum];
+  }
+
+  const canvas = canvasRefs.value[pageNum - 1];
+  if (canvas) {
+    const context = canvas.getContext("2d");
+    context?.clearRect(0, 0, canvas.width, canvas.height);
+    canvas.width = 0;
+    canvas.height = 0;
+    canvas.removeAttribute("style");
+  }
+
+  const textLayerDiv = textLayerRefs.value[pageNum - 1];
+  if (textLayerDiv) {
+    textLayerDiv.replaceChildren();
+    textLayerDiv.onclick = null;
+    textLayerDiv.removeAttribute("style");
+    textLayerDiv.removeAttribute("data-page-number");
+  }
+
+  // Release pdf.js internal per-page caches (operator lists, decoded images,
+  // glyph data). Without this, pdf.js retains this data for every page ever
+  // rendered even after the canvas bitmap is freed. The page re-parses on the
+  // next render, which already coincides with re-drawing its canvas.
+  const pageProxy = pageProxies[pageNum];
+  if (pageProxy) {
+    pageProxy.cleanup?.();
+    delete pageProxies[pageNum];
+  }
+
+  renderedPageSignatures.delete(pageNum);
+  activeRenderSignatures.delete(pageNum);
+};
+
+const cleanupRenderedPages = () => {
+  Array.from(renderedPageSignatures.keys()).forEach((pageNum) => {
+    if (!isPageNearViewport(pageNum)) {
+      releasePageRender(pageNum);
+    }
+  });
+};
+
+const releaseAllRenderedPages = () => {
+  Object.keys(renderTasks).forEach((pageNum) => releasePageRender(Number(pageNum)));
+  Array.from(renderedPageSignatures.keys()).forEach((pageNum) =>
+    releasePageRender(pageNum),
+  );
+  // Free any proxies that were fetched but not tracked by a render/signature.
+  Object.keys(pageProxies).forEach((pageNum) => {
+    pageProxies[pageNum]?.cleanup?.();
+    delete pageProxies[pageNum];
+  });
+};
+
 const processRenderQueue = async () => {
   if (isProcessingRenderQueue || isUserScrolling) return;
   isProcessingRenderQueue = true;
@@ -124,6 +189,7 @@ const processRenderQueue = async () => {
     }
   } finally {
     isProcessingRenderQueue = false;
+    cleanupRenderedPages();
   }
 
   if (!isUserScrolling && queuedPageRenders.size > 0) {
@@ -138,6 +204,7 @@ const handleMainScroll = () => {
   if (scrollEndDebounce) clearTimeout(scrollEndDebounce);
   scrollEndDebounce = setTimeout(() => {
     isUserScrolling = false;
+    cleanupRenderedPages();
     processRenderQueue();
   }, 80);
 };
@@ -1073,8 +1140,11 @@ const scrollToPage = (pageNumber) => {
     isManualScrolling.value = true;
     el.scrollIntoView({ behavior: "smooth", block: "start" });
     currentPage.value = pageNumber;
+    queuePageRender(pageNumber, true);
+    processRenderQueue();
     setTimeout(() => {
       isManualScrolling.value = false;
+      cleanupRenderedPages();
     }, 1000);
   }
 };
@@ -1107,10 +1177,14 @@ async function renderPage(pageNum, force = false) {
 
   try {
     const page = await pdfDoc.getPage(pageNum);
+    pageProxies[pageNum] = page;
     const scale = zoomLevel.value / 100;
     const viewport = page.getViewport({ scale });
 
-    const outputScale = window.devicePixelRatio || 1;
+    const outputScale = Math.min(
+      window.devicePixelRatio || 1,
+      MAX_CANVAS_DEVICE_PIXEL_RATIO,
+    );
 
     const context = canvas.getContext("2d");
 
@@ -1198,21 +1272,15 @@ async function renderPage(pageNum, force = false) {
     activeRenderSignatures.delete(pageNum);
   }
 }
-async function renderAllPages(force = false) {
-  if (!pdfDoc) return;
-  const promises = [];
-  for (let i = 1; i <= totalPages.value; i++) {
-    promises.push(renderPage(i, force));
-  }
-  await Promise.all(promises);
-}
-
 const pageSizes = ref([]);
 async function loadPdf(data) {
   try {
+    releaseAllRenderedPages();
     renderedPageSignatures.clear();
     activeRenderSignatures.clear();
     queuedPageRenders.clear();
+    visiblePages.value.clear();
+    pageTextContent.value = {};
     Object.values(renderTasks).forEach((task) => task.cancel?.());
     Object.keys(renderTasks).forEach((key) => delete renderTasks[key]);
 
@@ -1225,6 +1293,7 @@ async function loadPdf(data) {
       const page = await pdfDoc.getPage(i);
       const viewport = page.getViewport({ scale: 1 });
       sizes.push({ width: viewport.width, height: viewport.height });
+      page.cleanup?.();
     }
     pageSizes.value = sizes;
 
@@ -1235,7 +1304,6 @@ async function loadPdf(data) {
     if (currentPage.value > 1) {
       scrollToPage(currentPage.value);
     }
-    // await renderAllPages();
     setupIntersectionObserver();
     setTimeout(() => {
       setupCurrentPageObserver();
@@ -1273,6 +1341,7 @@ function setupIntersectionObserver() {
         processRenderQueue();
       } else {
         visiblePages.value.delete(pageNum);
+        cleanupRenderedPages();
       }
     });
   }, options);
@@ -1300,6 +1369,7 @@ function setupCurrentPageObserver() {
 
         if (pageIndex !== -1) {
           currentPage.value = pageIndex + 1;
+          cleanupRenderedPages();
         }
       }
     });
@@ -1401,8 +1471,20 @@ onUnmounted(() => {
   document.removeEventListener("keydown", handleKeyboardShortcuts);
   mainScrollContainer.value?.removeEventListener("scroll", handleMainScroll);
   if (scrollEndDebounce) clearTimeout(scrollEndDebounce);
+  if (zoomDebounce) clearTimeout(zoomDebounce);
+  if (searchDebounce) clearTimeout(searchDebounce);
+  if (pageUpdateDebounce) clearTimeout(pageUpdateDebounce);
+  if (saveNotepadDebounce) clearTimeout(saveNotepadDebounce);
+  if (saveStickyDebounce) clearTimeout(saveStickyDebounce);
   if (observer) observer.disconnect();
   if (pageTrackingObserver) pageTrackingObserver.disconnect();
+  releaseAllRenderedPages();
+  pdfDoc?.destroy?.().catch((err) => {
+    console.warn("Failed to destroy PDF document", err);
+  });
+  pdfDoc = null;
+  pdfBytes = null;
+  factory = null;
 });
 
 // Search Func
@@ -1423,6 +1505,13 @@ async function extractAllText() {
       const textContent = await page.getTextContent();
       const pageStr = textContent.items.map((item) => item.str).join(" ");
       pageTextContent.value[i] = pageStr;
+
+      // Text extraction touches every page; release the parse data for pages
+      // that aren't near the viewport so it doesn't stay resident. Visible
+      // pages keep their proxy (tracked in pageProxies) for rendering.
+      if (!isPageNearViewport(i) && !pageProxies[i]) {
+        page.cleanup?.();
+      }
     } catch (e) {
       console.warn(`Could not extract text for page ${i}`);
     }
@@ -1436,7 +1525,6 @@ function performSearch() {
   currentMatchIndex.value = -1;
 
   if (!query) {
-    // renderAllPages();
     Array.from(visiblePages.value).forEach((pageNum) => {
       queuePageRender(pageNum, true);
     });
@@ -1460,7 +1548,11 @@ function performSearch() {
     scrollToPage(searchResults.value[0].page);
   }
 
-  renderAllPages(true);
+  Array.from(visiblePages.value).forEach((pageNum) => {
+    queuePageRender(pageNum, true);
+  });
+  queuePageRender(currentPage.value, true);
+  processRenderQueue();
   isSearching.value = false;
 }
 

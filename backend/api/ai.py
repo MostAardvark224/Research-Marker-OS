@@ -26,6 +26,11 @@ env_vars = load_env_vars()
 MODELS_CACHE_TTL_SECONDS = 3600
 _models_cache = {"fetched_at": 0, "providers": None}
 
+MAX_AI_PDFS_PER_PROMPT = 2
+MAX_AI_PDF_BYTES = 25 * 1024 * 1024
+EMBEDDING_BATCH_SIZE = 50
+SMART_COLLECTION_MAX_ANNOTATIONS = 2000
+
 MAX_MODELS_PER_PROVIDER = 30
 MAX_MODELS_BY_PROVIDER = {
     "gemini": 40,
@@ -35,6 +40,30 @@ MAX_MODELS_BY_PROVIDER = {
 }
 
 backup_gemini_key = env_vars.get("GEMINI_API_KEY", "")
+
+
+def filter_pdf_paths_for_ai(pdf_paths):
+    filtered = []
+
+    for path in pdf_paths or []:
+        path = pathlib.Path(path)
+        if len(filtered) >= MAX_AI_PDFS_PER_PROMPT:
+            print(f"Skipping PDF for AI context due to count limit: {path}")
+            continue
+
+        try:
+            if not path.exists():
+                continue
+            if path.stat().st_size > MAX_AI_PDF_BYTES:
+                print(f"Skipping PDF for AI context due to size limit: {path}")
+                continue
+        except OSError as e:
+            print(f"Skipping PDF for AI context due to file error: {path} ({e})")
+            continue
+
+        filtered.append(path)
+
+    return filtered
 
 AI_PROVIDER_CONFIG = {
     "gemini": {
@@ -547,41 +576,27 @@ def embedding_search_rankings(query, annot_objs):
     # getting annotation model object rankings based on cos similarity 
     # must be above threshold of 0.6 to be included in the ranking
 
-    data = annot_objs.values_list("id", "embedding_binary")
+    thresh = 0.6
+    rankings = []
 
-    if data: 
-        thresh = 0.6
+    for annot_id, binary in annot_objs.values_list("id", "embedding_binary").iterator(chunk_size=500):
+        if not binary:
+            continue
 
-        ids, binaries = zip(*data)
+        vector = np.frombuffer(binary, dtype=np.float32)
+        norm = np.linalg.norm(vector)
+        if norm <= 0:
+            continue
 
-        flat_array = np.frombuffer(b''.join(binaries), dtype=np.float32)
+        similarity = float((vector / norm) @ query_emb)
+        if similarity >= thresh:
+            rankings.append((annot_id, similarity))
 
-        dimensions = len(flat_array) // len(ids)
+    if not rankings:
+        return None
 
-        matrix = flat_array.reshape(len(ids), dimensions) # matrix of all embeddings for annot model objs
-
-        norms = np.linalg.norm(matrix, axis=1, keepdims=True)
-
-        # normalizing the matrix
-        matrix = matrix / (norms + 1e-10) # prevents div by zero
-
-        # keeping ids (for the annot model) that are above the threshold
-        # ranking them by similarity to highest similarity comes first
-        similarities = matrix @ query_emb
-
-        valid_indices = np.where(similarities >= thresh)[0]
-
-        if len(valid_indices) == 0:
-            return None 
-
-        # Extract valid ids and Scores
-        valid_ids = [ids[i] for i in valid_indices]
-        valid_scores = similarities[valid_indices]
-
-        # can zip because idx of ids and matrix match up
-        emb_rankings = sorted(zip(valid_ids, valid_scores), key=lambda x: x[1], reverse=True)
-        emb_rankings = [t[0] for t in emb_rankings] # list of ranked ids
-        return emb_rankings
+    rankings.sort(key=lambda x: x[1], reverse=True)
+    return [annot_id for annot_id, _score in rankings]
     
 # function that does BM25 rankings 
 def bm25_search_rankings(query, annot_objs): 
@@ -754,7 +769,8 @@ def send_prompt(
     if not api_key:
         raise ValueError(f"Missing API key for {AI_PROVIDER_CONFIG[provider]['label']}")
 
-    pdf_paths = pdf_paths or []
+    pdf_paths = filter_pdf_paths_for_ai(pdf_paths)
+    pdf_count = len(pdf_paths)
 
     if provider == "gemini":
         return send_prompt_gemini(
@@ -952,56 +968,68 @@ def embed_annotations():
     print(f"embedding {len(annots_to_embed)} notes.")
     client = genai.Client(api_key=backup_gemini_key) 
 
-    ordered_notes_content = []
-    
-    # droppping noise from annots obj, only want to embed useful stuff
-    for a in annots_to_embed: 
-        title = a.document.title
+    embedded_count = 0
+
+    for batch_start in range(0, len(annots_to_embed), EMBEDDING_BATCH_SIZE):
+        batch = annots_to_embed[batch_start:batch_start + EMBEDDING_BATCH_SIZE]
+        ordered_notes_content = []
         
-        # extract sticky note text only
-        sticky_text = ""
-        data = a.sticky_note_data
-        if isinstance(data, list):
-            extracted_texts = [str(item.get("content", "")) for item in data] # type: ignore
-            sticky_text = "".join(extracted_texts)
+        # droppping noise from annots obj, only want to embed useful stuff
+        for a in batch: 
+            title = a.document.title
+            
+            # extract sticky note text only
+            sticky_text = ""
+            data = a.sticky_note_data
+            if isinstance(data, list):
+                extracted_texts = [str(item.get("content", "")) for item in data] # type: ignore
+                sticky_text = "".join(extracted_texts)
 
-        notepad_content = a.notepad or ""
+            notepad_content = a.notepad or ""
 
-        content_string = f"{title}|{sticky_text}|{notepad_content}" # formatted content string
-        ordered_notes_content.append(content_string)
+            content_string = f"{title}|{sticky_text}|{notepad_content}" # formatted content string
+            ordered_notes_content.append(content_string)
 
-    # NOTE: I think that gemini might have a limit on how many indiviudal strings u can send at once 
-    # if embedding is erroring this might be the issue, you might have to change it to chunk the requests
-    # but this is prob only an issue if u have 100+ notes in a single session (very unlikely)
-    result = client.models.embed_content(
-        model="text-embedding-004", 
-        contents=ordered_notes_content,
-        config=types.EmbedContentConfig(
-            output_dimensionality=512
+        result = client.models.embed_content(
+            model="text-embedding-004", 
+            contents=ordered_notes_content,
+            config=types.EmbedContentConfig(
+                output_dimensionality=512
+            )
         )
-    )
 
-    to_update = []
+        to_update = []
+        
+        # converting embedding to binary and setting other fields
+        # not gonna use the given method on the annot model because bulk update is faster
+        # can zip bc gemini gurantees they come back in same order
+        for obj, embedding in zip(batch, result.embeddings):  # type: ignore
+            obj.embedding_binary = np.array(embedding.values, dtype=np.float32).tobytes()
+            obj.needs_embedding = False
+            to_update.append(obj)
+        
+        models.Annotations.objects.bulk_update(to_update, ['embedding_binary', 'needs_embedding'])
+        embedded_count += len(to_update)
     
-    # converting embedding to binary and setting other fields
-    # not gonna use the given method on the annot model because bulk update is faster
-    # can zip bc gemini gurantees they come back in same order
-    for obj, embedding in zip(annots_to_embed, result.embeddings):  # type: ignore
-        obj.embedding_binary = np.array(embedding.values, dtype=np.float32).tobytes()
-        obj.needs_embedding = False
-        to_update.append(obj)
-    
-    models.Annotations.objects.bulk_update(to_update, ['embedding_binary', 'needs_embedding'])
-    
-    print(f"Successfully embedded {len(to_update)} annotations.")
+    print(f"Successfully embedded {embedded_count} annotations.")
 
 # clusters embeddings into major and sub clusters for the creation of a smart collection
 def cluster_embeddings(): 
     # creating clusters using hbdscan
     # uses all notes that have embeddings
+    total_embeddings = models.Annotations.objects.filter(
+        embedding_binary__isnull=False
+    ).count()
+
+    if total_embeddings > SMART_COLLECTION_MAX_ANNOTATIONS:
+        print(
+            f"Smart Collection limited to {SMART_COLLECTION_MAX_ANNOTATIONS} "
+            f"of {total_embeddings} embedded annotations to bound memory use."
+        )
+
     annotations = models.Annotations.objects.filter(
         embedding_binary__isnull = False
-    ).values('id', 'embedding_binary')
+    ).order_by("-updated_at").values('id', 'embedding_binary')[:SMART_COLLECTION_MAX_ANNOTATIONS]
 
     ids = [] # specifically annot ids
     vectors = []
@@ -1017,9 +1045,16 @@ def cluster_embeddings():
         print("No valid vectors found.")
         return None, None, None
 
-    X = np.array(vectors)
+    X = np.stack(vectors).astype(np.float32, copy=False)
     
     n_samples = X.shape[0]
+    if n_samples < 4:
+        results_map = {
+            annot_id: {'major_topic': -1, 'sub_topic': None}
+            for annot_id in ids
+        }
+        return results_map, ids, vectors
+
     min_cluster_size = max(4, int(n_samples / 10))
     major_clusterer = hdbscan.HDBSCAN(min_cluster_size=min_cluster_size, min_samples=4, metric='euclidean')
     major_labels = major_clusterer.fit_predict(X)
@@ -1361,18 +1396,16 @@ def generate_colors(topics):
 # not running constantly, only running for testing
 def test_cos_sim():
     # If your dataset is small (<5k), you can use the whole matrix.
-    data = models.Annotations.objects.filter(
+    data = list(models.Annotations.objects.filter(
         embedding_binary__isnull=False
-    ).values_list('id', 'embedding_binary')
+    ).order_by("-updated_at").values_list('id', 'embedding_binary')[:SMART_COLLECTION_MAX_ANNOTATIONS])
 
     # ids will be a tuple of all ids
     # binaries will be a tuple of all byte strings
     ids, binaries = zip(*data)
 
-    flat_array = np.frombuffer(b''.join(binaries), dtype=np.float32)
-
-    dimensions = len(flat_array) // len(ids) # should be 512 but doing this instead of hardcoding
-    matrix = flat_array.reshape(len(ids), dimensions)
+    vectors = [np.frombuffer(binary, dtype=np.float32) for binary in binaries]
+    matrix = np.stack(vectors).astype(np.float32, copy=False)
     norms = np.linalg.norm(matrix, axis=1, keepdims=True)
     matrix = matrix / (norms + 1e-5)
 
@@ -1388,30 +1421,27 @@ def test_cos_sim():
 
 # cos similarity to find similar papers
 def find_similar_papers(): 
-    data = models.Annotations.objects.filter(
+    data = list(models.Annotations.objects.filter(
         embedding_binary__isnull=False
-    ).values_list('id', 'embedding_binary')
+    ).order_by("-updated_at").values_list('id', 'embedding_binary')[:SMART_COLLECTION_MAX_ANNOTATIONS])
 
     if data:
         # ids will be a tuple of all ids
         # binaries will be a tuple of all byte strings
         ids, binaries = zip(*data)
 
-        flat_array = np.frombuffer(b''.join(binaries), dtype=np.float32)
-
-        dimensions = len(flat_array) // len(ids) # should be 512 but doing this instead of hardcoding
-        matrix = flat_array.reshape(len(ids), dimensions)
+        vectors = [np.frombuffer(binary, dtype=np.float32) for binary in binaries]
+        matrix = np.stack(vectors).astype(np.float32, copy=False)
         norms = np.linalg.norm(matrix, axis=1, keepdims=True)
         matrix = matrix / (norms + 1e-5) # Prevent divide by zero
 
-        similarity_matrix = np.dot(matrix, matrix.T)
         # thresh is 0.6 based on testing, but this can change as my dataset grows
         thresh = 0.6
         updates = []
         
-        similar_papers = {}
-        for i, row_scores in enumerate(similarity_matrix):
+        for i in range(len(ids)):
             current_id = ids[i]
+            row_scores = matrix @ matrix[i]
 
             valid_indices = np.where(row_scores >= thresh)[0] # type: ignore
 

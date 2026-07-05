@@ -154,7 +154,7 @@
           actions.navigateToAnnotate(
             doc.id,
             doc.last_page,
-            doc.zoom_level ? doc.zoom_level : 200,
+            doc.zoom_level ? doc.zoom_level : 100,
           )
         "
         :class="[

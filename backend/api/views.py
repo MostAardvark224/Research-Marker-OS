@@ -1,17 +1,18 @@
 # pyright: reportAttributeAccessIssue=false
 
 import asyncio
-import io
 import json
 import os
-import time
+import tempfile
 from datetime import timedelta
 from pathlib import Path
 
+import requests
+from django.core.files import File
 from django.db.models import Q, Max
 from django.http import FileResponse
+from django.utils.text import get_valid_filename
 from django.utils import timezone
-from django.core.files.uploadedfile import InMemoryUploadedFile
 from django_q.tasks import async_task, fetch
 from rest_framework import status, viewsets
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
@@ -19,7 +20,6 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from api import models, serializers
-from api.OCR import create_searchable_pdf
 from api.ai import (
     AI_PROVIDER_CONFIG,
     add_message_to_chat,
@@ -39,6 +39,8 @@ from api.utils import (
     load_env_vars,
     write_env_vars,
 )
+
+MAX_SCHOLAR_PDF_BYTES = 100 * 1024 * 1024
 
 # to bool helper method for flag parsing
 def to_bool(value):
@@ -65,6 +67,43 @@ def _next_folder_sort_order(parent_id):
         Max("sort_order")
     )["sort_order__max"]
     return (max_order if max_order is not None else -1) + 1
+
+
+def _stream_pdf_to_document(pdf_url, title, folder):
+    temp_path = None
+    safe_filename = get_valid_filename(f"{title}.pdf") or "paper.pdf"
+
+    try:
+        with requests.get(pdf_url, stream=True, timeout=(10, 120)) as response:
+            response.raise_for_status()
+            content_length = response.headers.get("content-length")
+            if content_length and int(content_length) > MAX_SCHOLAR_PDF_BYTES:
+                raise ValueError(f"PDF is larger than {MAX_SCHOLAR_PDF_BYTES} bytes")
+
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
+                temp_path = temp_file.name
+                bytes_written = 0
+                for chunk in response.iter_content(chunk_size=1024 * 1024):
+                    if chunk:
+                        bytes_written += len(chunk)
+                        if bytes_written > MAX_SCHOLAR_PDF_BYTES:
+                            raise ValueError(f"PDF exceeded {MAX_SCHOLAR_PDF_BYTES} bytes")
+                        temp_file.write(chunk)
+
+        folder_id = folder.pk if folder else None
+        document = models.Document(
+            title=title,
+            folder=folder,
+            sort_order=_next_document_sort_order(folder_id),
+        )
+
+        with open(temp_path, "rb") as file_handle:
+            document.file.save(safe_filename, File(file_handle), save=True)
+
+        return document
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
 
 # View that returns folders, documents are nested within.
 class CompleteFetch(APIView):
@@ -113,26 +152,12 @@ class DocumentsViewSet(viewsets.ModelViewSet):
                 self.perform_create(serializer)
 
                 if not skip_ocr: 
-                    start_time = time.time()
-                    # Performing OCR, overwriting input file to not cause storage bloat
-                    input_path = serializer.instance.file.path
-                    output_path = input_path
+                    async_task(
+                        "api.OCR.create_searchable_document_pdf",
+                        serializer.instance.pk,
+                    )
 
-                    try: 
-                        ocr_result = create_searchable_pdf(input_path, output_path)
-
-                        instance = serializer.instance
-                        instance.searchable = True
-                        instance.save()
-                    
-                    except Exception as e:
-                        print("ERROR")
-                        print(e)
-
-                    uploaded_documents.append(serializer.data)
-                    
-                    end_time = time.time()
-                    print(f"OCR Processing Time for {file.name}: {end_time - start_time} seconds")
+                uploaded_documents.append(serializer.data)
 
             return Response(uploaded_documents, status=status.HTTP_201_CREATED)
 
@@ -340,35 +365,16 @@ class FetchScholarInboxPapers(APIView):
             parent=None,
             defaults={"sort_order": 0},
         )
-        folder_pk = folder.pk
-
         for paper in papers_dict: 
-            pdf_content = paper.get('pdf_content', None)
+            pdf_url = paper.get('pdf_url', None)
             title = paper.get('title', 'Untitled Paper')
 
-            if pdf_content is None:
-                print(f"Skipping {title} due to missing PDF content.")
+            if not pdf_url:
+                print(f"Skipping {title} due to missing PDF URL.")
                 continue
-
-            pdf_file = InMemoryUploadedFile(
-                file=io.BytesIO(pdf_content),
-                field_name='file',
-                name=f"{title}.pdf",
-                content_type='application/pdf',
-                size=len(pdf_content),
-                charset=None
-            )
-
-            data = {
-                'file': pdf_file, 
-                'title': title, 
-                'folder': folder_pk 
-            }
             
             try:
-                serializer = serializers.DocumentSerializer(data=data)
-                serializer.is_valid(raise_exception=True)
-                serializer.save()
+                _stream_pdf_to_document(pdf_url, title, folder)
             except Exception as e: 
                 print(f"Issue with saving Scholar Inbox pdf file to storage: {e}")
                 print("Skipping this file for now.")

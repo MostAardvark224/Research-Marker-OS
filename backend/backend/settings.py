@@ -161,10 +161,12 @@ STORAGES = {
         },
     }   
 
+Q_WORKERS = int(os.getenv("DJANGO_Q_WORKERS", "1" if IS_FROZEN else "2"))
+
 # Django Q config
 Q_CLUSTER = {
     'name': 'DjangORM',
-    'workers': 4 if not IS_FROZEN else 1, # conservative in prod
+    'workers': Q_WORKERS,
     'sync': False,
     'recycle': 500,
     'timeout': 600, 

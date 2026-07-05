@@ -287,7 +287,7 @@
                       navigateToAnnotate(
                         doc.id,
                         doc.last_page,
-                        doc.zoom_level ? doc.zoom_level : 200,
+                        doc.zoom_level ? doc.zoom_level : 100,
                       )
                     "
                     :class="[
@@ -388,7 +388,7 @@
                         navigateToAnnotate(
                           paper.id,
                           paper.last_page,
-                          paper.zoom_level ? paper.zoom_level : 200,
+                          paper.zoom_level ? paper.zoom_level : 100,
                         )
                       "
                       :class="[

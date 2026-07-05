@@ -4,7 +4,6 @@ import re
 import urllib.parse
 import urllib.request
 import feedparser
-import aiohttp
 from bs4 import BeautifulSoup
 
 # DEBUGGING: If scraping isn't working, first suspect is the CSS selectors or Regex used to find elements.
@@ -174,31 +173,7 @@ async def fetch_scholar_inbox_papers(env_vars, amount_of_papers=None):
             except Exception as e:
                 print(f"Error querying arXiv for '{paper['title']}': {e}")
 
-        # 7. Download PDFs asynchronously
-        print(f"Starting API fetch and download for {len(arxiv_links)} matched papers...")
-
-        async with aiohttp.ClientSession() as session:
-            for paper in arxiv_links:
-                pdf_url = paper.get("pdf_url")
-                if not pdf_url:
-                    continue
-
-                try:
-                    async with session.get(pdf_url) as resp:
-                        if resp.status == 200:
-                            paper["pdf_content"] = await resp.read()
-                        else:
-                            print(f"Failed to download {paper['id']} (Status: {resp.status})")
-                            paper["pdf_content"] = None
-                except Exception as e:
-                    print(f"Error downloading {paper.get('id', 'unknown')}: {e}")
-                    paper["pdf_content"] = None
-
-        cleaned_arxiv_links = [
-            paper for paper in arxiv_links if paper.get("pdf_content") is not None
-        ]
-
-        print(f"Returning {len(cleaned_arxiv_links)} papers with downloaded PDFs.")
-        return cleaned_arxiv_links
+        print(f"Returning {len(arxiv_links)} papers with PDF URLs.")
+        return arxiv_links
     finally:
         _close_mail_connection(mail)

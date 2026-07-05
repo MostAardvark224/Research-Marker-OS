@@ -5,8 +5,10 @@ from rapidocr_onnxruntime import RapidOCR
 from django.conf import settings
 import sys
 from pathlib import Path
+import gc
 
 _OCR_ENGINE = None
+OCR_RENDER_SCALE = 2
 
 def get_model_path(filename):
     if getattr(sys, 'frozen', False):
@@ -31,43 +33,55 @@ def create_searchable_pdf(input_path, output_path):
     ocr_engine = get_ocr_engine()
     
     temp_output_path = output_path + ".tmp"
+    doc = None
+    output_doc = None
 
     try:
         doc = fitz.open(input_path)
         output_doc = fitz.open()
 
         for page_num, page in enumerate(doc): # type: ignore
-            pix = page.get_pixmap(matrix=fitz.Matrix(3, 3))
-            img_bytes = pix.tobytes("png")
-            
-            # Run OCR using the shared engine
-            ocr_result, _ = ocr_engine(img_bytes)
-            
-            new_page = output_doc.new_page(width=page.rect.width, height=page.rect.height)
-            new_page.show_pdf_page(new_page.rect, doc, page_num)
+            pix = None
+            img_bytes = None
+            try:
+                pix = page.get_pixmap(matrix=fitz.Matrix(OCR_RENDER_SCALE, OCR_RENDER_SCALE))
+                img_bytes = pix.tobytes("png")
+                
+                # Run OCR using the shared engine
+                ocr_result, _ = ocr_engine(img_bytes)
+                
+                new_page = output_doc.new_page(width=page.rect.width, height=page.rect.height)
+                new_page.show_pdf_page(new_page.rect, doc, page_num)
 
-            if ocr_result:
-                scale_x = page.rect.width / pix.width
-                scale_y = page.rect.height / pix.height
+                if ocr_result:
+                    scale_x = page.rect.width / pix.width
+                    scale_y = page.rect.height / pix.height
 
-                for item in ocr_result:
-                    box_points, text, confidence = item
-                    xs = [pt[0] for pt in box_points]
-                    ys = [pt[1] for pt in box_points]
-                    
-                    x_min, y_min = min(xs) * scale_x, min(ys) * scale_y
-                    x_max, y_max = max(xs) * scale_x, max(ys) * scale_y
-                    
-                    new_page.insert_text(
-                        fitz.Rect(x_min, y_min, x_max, y_max).tl, 
-                        text,
-                        fontsize=(y_max - y_min), 
-                        render_mode=3
-                    )
+                    for item in ocr_result:
+                        box_points, text, confidence = item
+                        xs = [pt[0] for pt in box_points]
+                        ys = [pt[1] for pt in box_points]
+                        
+                        x_min, y_min = min(xs) * scale_x, min(ys) * scale_y
+                        x_max, y_max = max(xs) * scale_x, max(ys) * scale_y
+                        
+                        new_page.insert_text(
+                            fitz.Rect(x_min, y_min, x_max, y_max).tl, 
+                            text,
+                            fontsize=(y_max - y_min), 
+                            render_mode=3
+                        )
+            finally:
+                del img_bytes
+                del pix
+                page.clean_contents()
+                gc.collect()
 
         output_doc.save(temp_output_path)
         output_doc.close()
+        output_doc = None
         doc.close()
+        doc = None
 
         shutil.move(temp_output_path, output_path)
         return "success"
@@ -77,5 +91,32 @@ def create_searchable_pdf(input_path, output_path):
         if os.path.exists(temp_output_path):
             os.remove(temp_output_path)
         return "failed"
-    
-get_ocr_engine()  # Preload the OCR engine at module load time
+    finally:
+        if output_doc is not None:
+            output_doc.close()
+        if doc is not None:
+            doc.close()
+        gc.collect()
+
+
+def create_searchable_document_pdf(document_id):
+    from api import models
+
+    try:
+        document = models.Document.objects.get(pk=document_id)
+    except models.Document.DoesNotExist:
+        print(f"OCR skipped: document {document_id} no longer exists.")
+        return "missing"
+
+    if not document.file:
+        print(f"OCR skipped: document {document_id} has no file.")
+        return "missing-file"
+
+    input_path = document.file.path
+    result = create_searchable_pdf(input_path, input_path)
+
+    if result == "success":
+        document.searchable = True
+        document.save(update_fields=["searchable"])
+
+    return result
