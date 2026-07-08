@@ -20,6 +20,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from api import models, serializers
+from api.arxiv import fetch_arxiv_metadata, parse_arxiv_id
 from api.OCR import OCRError, get_ocr_providers, normalize_ocr_provider
 from api.ai import (
     AI_PROVIDER_CONFIG,
@@ -75,7 +76,12 @@ def _stream_pdf_to_document(pdf_url, title, folder):
     safe_filename = get_valid_filename(f"{title}.pdf") or "paper.pdf"
 
     try:
-        with requests.get(pdf_url, stream=True, timeout=(10, 120)) as response:
+        with requests.get(
+            pdf_url,
+            stream=True,
+            timeout=(10, 120),
+            headers={"User-Agent": "Research-Marker-OS/1.0"},
+        ) as response:
             response.raise_for_status()
             content_length = response.headers.get("content-length")
             if content_length and int(content_length) > MAX_SCHOLAR_PDF_BYTES:
@@ -105,6 +111,131 @@ def _stream_pdf_to_document(pdf_url, title, folder):
     finally:
         if temp_path and os.path.exists(temp_path):
             os.remove(temp_path)
+
+
+def _apply_ocr_settings_to_document(document, skip_ocr, ocr_provider):
+    if skip_ocr:
+        document.ocr_provider = ocr_provider
+        document.ocr_status = models.Document.OcrStatus.NOT_STARTED
+        document.ocr_error = ""
+        document.save(update_fields=["ocr_provider", "ocr_status", "ocr_error"])
+        return
+
+    document.ocr_provider = ocr_provider
+    document.ocr_status = models.Document.OcrStatus.QUEUED
+    document.ocr_error = ""
+    document.save(update_fields=["ocr_provider", "ocr_status", "ocr_error"])
+    async_task(
+        "api.OCR.create_searchable_document_pdf",
+        document.pk,
+        ocr_provider,
+    )
+
+
+class ArxivPaperMetadataView(APIView):
+    def post(self, request):
+        arxiv_input = request.data.get("arxiv_url") or request.data.get("arxiv_id")
+        arxiv_id = parse_arxiv_id(str(arxiv_input or ""))
+
+        if not arxiv_id:
+            return Response(
+                {"error": "Could not parse a valid arXiv link or ID."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            metadata = fetch_arxiv_metadata(arxiv_id)
+        except Exception as exc:
+            print(f"Failed to fetch arXiv metadata for {arxiv_id}: {exc}")
+            return Response(
+                {"error": "Failed to fetch paper metadata from arXiv."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        if not metadata:
+            return Response(
+                {"error": "No paper found for that arXiv link."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return Response(metadata, status=status.HTTP_200_OK)
+
+
+class ImportArxivPaperView(APIView):
+    def post(self, request):
+        arxiv_input = request.data.get("arxiv_url") or request.data.get("arxiv_id")
+        arxiv_id = parse_arxiv_id(str(arxiv_input or ""))
+
+        if not arxiv_id:
+            return Response(
+                {"error": "Could not parse a valid arXiv link or ID."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        skip_ocr = to_bool(request.data.get("skip_ocr", "true"))
+        ocr_provider = normalize_ocr_provider(request.data.get("ocr_provider", "paddleocr"))
+
+        if not skip_ocr:
+            provider_config = next(
+                (item for item in get_ocr_providers(load_env_vars()) if item["id"] == ocr_provider),
+                None,
+            )
+            if provider_config and provider_config["kind"] == "byok" and not provider_config["has_api_key"]:
+                return Response(
+                    {"error": f"{provider_config['label']} API key is not configured in Settings."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        try:
+            metadata = fetch_arxiv_metadata(arxiv_id)
+        except Exception as exc:
+            print(f"Failed to fetch arXiv metadata for {arxiv_id}: {exc}")
+            return Response(
+                {"error": "Failed to fetch paper metadata from arXiv."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        if not metadata or not metadata.get("pdf_url"):
+            return Response(
+                {"error": "No paper found for that arXiv link."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        use_arxiv_title = to_bool(request.data.get("use_arxiv_title", "false"))
+        custom_title = str(request.data.get("title", "")).strip()
+        title = metadata["title"] if use_arxiv_title or not custom_title else custom_title
+
+        if not title:
+            return Response(
+                {"error": "A paper title is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        folder = None
+        folder_id = request.data.get("folder_id")
+        if folder_id not in (None, "", "null", "undefined"):
+            try:
+                folder = models.Folder.objects.get(pk=folder_id)
+            except models.Folder.DoesNotExist:
+                return Response(
+                    {"error": "Selected folder was not found."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        try:
+            document = _stream_pdf_to_document(metadata["pdf_url"], title, folder)
+        except Exception as exc:
+            print(f"Failed to import arXiv paper {arxiv_id}: {exc}")
+            return Response(
+                {"error": "Failed to download or save the arXiv PDF."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        _apply_ocr_settings_to_document(document, skip_ocr, ocr_provider)
+
+        serializer = serializers.DocumentSerializer(document)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
 
 # View that returns folders, documents are nested within.
 class CompleteFetch(APIView):
@@ -445,7 +576,10 @@ class FetchScholarInboxPapers(APIView):
         loop.close()
 
         if (papers_dict is None) or (len(papers_dict) == 0):    
-            return Response({'message': 'No new papers found in Scholar Inbox.'}, status=status.HTTP_200_OK)
+            return Response(
+                {'message': 'No new papers found in Scholar Inbox.', 'imported': 0, 'skipped': 0},
+                status=status.HTTP_200_OK,
+            )
 
         # Writing papers to "Scholar Inbox" folder
         # Making sure that a "Scholar Inbox" folder exists
@@ -454,22 +588,45 @@ class FetchScholarInboxPapers(APIView):
             parent=None,
             defaults={"sort_order": 0},
         )
+
+        existing_titles = set(
+            models.Document.objects.filter(folder=folder).values_list('title', flat=True)
+        )
+
+        imported_count = 0
+        skipped_count = 0
         for paper in papers_dict: 
             pdf_url = paper.get('pdf_url', None)
             title = paper.get('title', 'Untitled Paper')
 
             if not pdf_url:
                 print(f"Skipping {title} due to missing PDF URL.")
+                skipped_count += 1
+                continue
+
+            if title in existing_titles:
+                print(f"Skipping duplicate paper: {title}")
+                skipped_count += 1
                 continue
             
             try:
                 _stream_pdf_to_document(pdf_url, title, folder)
+                existing_titles.add(title)
+                imported_count += 1
             except Exception as e: 
                 print(f"Issue with saving Scholar Inbox pdf file to storage: {e}")
                 print("Skipping this file for now.")
+                skipped_count += 1
                 continue
         
-        return Response({'message': 'Papers fetched'}, status=status.HTTP_200_OK)
+        return Response(
+            {
+                'message': f'Imported {imported_count} paper(s) from Scholar Inbox.',
+                'imported': imported_count,
+                'skipped': skipped_count,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 """
 Knowledge Index idea dump: (hopefully this should help anyone reading this understand my thoughts about the knowledge index so that you can tweak however you like)

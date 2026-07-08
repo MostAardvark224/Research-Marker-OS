@@ -10,7 +10,7 @@ def intitial_user_prefs():
             "general": {},
             "scholar_inbox": {
             "auto_import": False,
-            "last_import_date": "null",
+            "last_import_date": null,
             "amount_to_import": 0
             },
             "ai": {

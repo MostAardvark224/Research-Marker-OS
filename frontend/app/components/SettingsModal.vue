@@ -157,8 +157,8 @@
                   class="text-indigo-400 text-lg flex-shrink-0"
                 />
                 <p class="text-xs text-indigo-200/80 leading-relaxed">
-                  Configure sources for your automated research feed. Make sure
-                  to set your scholar inbox login environment variable in the
+                  Configure automated imports from your Scholar Inbox Alert
+                  Digest emails. Set your Gmail address and app password in the
                   General tab.
                 </p>
               </div>

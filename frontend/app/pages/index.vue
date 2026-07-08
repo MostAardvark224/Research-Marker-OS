@@ -121,12 +121,12 @@
                 type="button"
                 @click="showScholarInbox = true"
                 :class="[
-                  'group flex items-center gap-2 rounded-lg transition-all duration-200 mr-2',
+                  'group flex items-center gap-2 rounded-lg transition-all duration-200',
                   'p-2 sm:px-3 sm:py-2',
                   colorScheme.btnTertiary,
                   colorScheme.btnTertiaryHover,
                 ]"
-                aria-label="Upload Papers"
+                aria-label="Scholar Inbox"
               >
                 <Icon
                   name="material-symbols:school"
@@ -142,6 +142,34 @@
                   ]"
                 >
                   Scholar Inbox
+                </span>
+              </button>
+
+              <button
+                type="button"
+                @click="showArxivImport = true"
+                :class="[
+                  'group flex items-center gap-2 rounded-lg transition-all duration-200 mr-2',
+                  'p-2 sm:px-3 sm:py-2',
+                  colorScheme.btnArxiv,
+                  colorScheme.btnArxivHover,
+                ]"
+                aria-label="Import from arXiv"
+              >
+                <Icon
+                  name="academicons:arxiv"
+                  :class="[
+                    'text-2xl flex-shrink-0',
+                    colorScheme.btnPrimaryText,
+                  ]"
+                />
+                <span
+                  :class="[
+                    'hidden md:inline text-xs font-semibold leading-none',
+                    colorScheme.btnPrimaryText,
+                  ]"
+                >
+                  From arXiv
                 </span>
               </button>
             </div>
@@ -523,6 +551,14 @@
     <ScholarInboxModal
       v-if="showScholarInbox"
       @close="showScholarInbox = false"
+      @imported="onScholarInboxImported"
+    />
+
+    <ArxivUploadModal
+      v-if="showArxivImport"
+      :folders="folderList"
+      @close="showArxivImport = false"
+      @imported="onArxivImported"
     />
 
     <SettingsModal v-if="showSettings" @close="showSettings = false" />
@@ -580,6 +616,9 @@ const colorScheme = ref({
 
   btnTertiary: "bg-black",
   btnTertiaryHover: "hover:bg-gray-800",
+
+  btnArxiv: "bg-red-800",
+  btnArxivHover: "hover:bg-red-900",
 
   inputBg: "bg-slate-900",
   inputBorder: "border-slate-700",
@@ -644,7 +683,18 @@ const vFocus = {
 const isUploading = ref(false);
 const showUpload = ref(false);
 const showScholarInbox = ref(false);
+const showArxivImport = ref(false);
 const showSettings = ref(false);
+
+async function onScholarInboxImported() {
+  showScholarInbox.value = false;
+  await fetchPastPapers();
+}
+
+async function onArxivImported() {
+  showArxivImport.value = false;
+  await fetchPastPapers();
+}
 
 const filesToUpload = ref([]);
 const folderList = ref([]);

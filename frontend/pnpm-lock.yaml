@@ -15,6 +15,9 @@ importers:
         specifier: ^6.7.3
         version: 6.7.3
     devDependencies:
+      '@iconify-json/academicons':
+        specifier: ^1.2.4
+        version: 1.2.4
       '@iconify-json/carbon':
         specifier: ^1.2.24
         version: 1.2.24
@@ -723,6 +726,9 @@ packages:
 
   '@hapi/topo@6.0.2':
     resolution: {integrity: sha512-KR3rD5inZbGMrHmgPxsJ9dbi6zEK+C3ZwUwTa+eMwWLz7oijWUTWD2pMSNNYJAU6Qq+65NkxXjqHr/7LM2Xkqg==}
+
+  '@iconify-json/academicons@1.2.4':
+    resolution: {integrity: sha512-rYCV0AzKJjFwweoZmYymS3YUnke35UpqLC/6x59T96SnfD+vvi3eBjqs24RVIR10PJnANF+GhuliIFb2t9EaFw==}
 
   '@iconify-json/carbon@1.2.24':
     resolution: {integrity: sha512-b7u/eTWE3xFa7UXlRJBSEm6At1y6+F0P3imBEip5/8QeRzouxVjBf80Y2xnu1GYsFo9MYlHA0bZfxxMd5givfw==}
@@ -7387,6 +7393,10 @@ snapshots:
   '@hapi/topo@6.0.2':
     dependencies:
       '@hapi/hoek': 11.0.7
+
+  '@iconify-json/academicons@1.2.4':
+    dependencies:
+      '@iconify/types': 2.0.0
 
   '@iconify-json/carbon@1.2.24':
     dependencies:

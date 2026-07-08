@@ -36,6 +36,7 @@
     "electron-updater": "^6.7.3"
   },
   "devDependencies": {
+    "@iconify-json/academicons": "^1.2.4",
     "@iconify-json/carbon": "^1.2.24",
     "@iconify-json/eos-icons": "^1.2.4",
     "@iconify-json/heroicons": "^1.2.3",

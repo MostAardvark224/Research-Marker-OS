@@ -30,12 +30,22 @@ def _close_mail_connection(mail):
 
 
 def _normalize_amount(amount_of_papers):
-    if amount_of_papers in (None, "all", ""):
+    """Return a positive int limit, or None to import all papers in the digest."""
+    if amount_of_papers is None:
         return None
+
+    if isinstance(amount_of_papers, str):
+        normalized = amount_of_papers.strip().lower()
+        if normalized in ("all", ""):
+            return None
+        if normalized.isdigit():
+            value = int(normalized)
+            return value if value > 0 else None
+        return None
+
     if isinstance(amount_of_papers, int) and amount_of_papers > 0:
         return amount_of_papers
-    if isinstance(amount_of_papers, str) and amount_of_papers.isdigit():
-        return int(amount_of_papers)
+
     return None
 
 

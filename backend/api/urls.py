@@ -25,6 +25,8 @@ urlpatterns = [
     path('ocr-providers/', views.OCRProvidersView.as_view(), name='ocr-providers'),
     path('documents/<int:pk>/ocr/', views.DocumentOCRView.as_view(), name='document-ocr'),
     path('fetch-scholar-inbox-papers/', views.FetchScholarInboxPapers.as_view(), name='fetch-scholar-inbox-papers'),
+    path('arxiv-paper-metadata/', views.ArxivPaperMetadataView.as_view(), name='arxiv-paper-metadata'),
+    path('import-arxiv-paper/', views.ImportArxivPaperView.as_view(), name='import-arxiv-paper'),
     path('search-notes/', views.SearchNotesView.as_view(), name=
          'search-notes'), 
     path('ask-ai/', views.AIChatView.as_view(), name='ask-ai'), 

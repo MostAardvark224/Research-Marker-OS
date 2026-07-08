@@ -29,12 +29,7 @@
         </button>
       </header>
 
-      <div class="relative">
-        <div
-          class="opacity-35 pointer-events-none select-none blur-[1px] saturate-50"
-          aria-hidden="true"
-        >
-          <main class="p-4 space-y-4">
+      <main class="p-4 space-y-4">
         <div
           class="p-3 rounded-lg border border-indigo-500/20 bg-indigo-500/5 relative overflow-hidden group"
         >
@@ -75,36 +70,51 @@
             </div>
             <h3 class="text-sm font-medium text-slate-200">Ready to read?</h3>
             <p class="text-xs text-slate-400 leading-snug">
-              This will trigger a manual fetch for your scholar-inbox daily
-              digest. The fetch may take a couple minutes.
+              Fetches your latest Scholar Inbox Alert Digest email and imports
+              the top papers into your library. This may take a couple minutes.
             </p>
           </div>
 
-          <div class="w-full max-w-[240px] space-y-2">
-            <div class="flex justify-between items-center px-1">
-              <span class="text-xs font-medium text-slate-400"
-                >Papers to fetch</span
-              >
-              <span
-                class="text-xs font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20"
-              >
-                {{ paperCount }}
-              </span>
-            </div>
-            <input
-              v-model.number="paperCount"
-              type="range"
-              min="0"
-              max="10"
-              step="1"
-              class="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-indigo-500 hover:bg-white/20 transition-colors"
-            />
-            <div
-              class="flex justify-between text-[10px] text-slate-600 font-medium px-1"
+          <div class="w-full max-w-[240px] space-y-3">
+            <label
+              class="flex items-center justify-between gap-3 px-1 cursor-pointer"
             >
-              <span>0</span>
-              <span>5</span>
-              <span>10</span>
+              <span class="text-xs font-medium text-slate-400"
+                >Import all papers</span
+              >
+              <input
+                v-model="importAll"
+                type="checkbox"
+                class="accent-indigo-500 w-4 h-4 rounded border-white/20 bg-white/5"
+              />
+            </label>
+
+            <div v-if="!importAll" class="space-y-2">
+              <div class="flex justify-between items-center px-1">
+                <span class="text-xs font-medium text-slate-400"
+                  >Top papers to fetch</span
+                >
+                <span
+                  class="text-xs font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20"
+                >
+                  {{ paperCount }}
+                </span>
+              </div>
+              <input
+                v-model.number="paperCount"
+                type="range"
+                min="1"
+                max="10"
+                step="1"
+                class="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-indigo-500 hover:bg-white/20 transition-colors"
+              />
+              <div
+                class="flex justify-between text-[10px] text-slate-600 font-medium px-1"
+              >
+                <span>1</span>
+                <span>5</span>
+                <span>10</span>
+              </div>
             </div>
           </div>
 
@@ -129,80 +139,89 @@
               }}</span>
             </button>
             <p class="text-[10px] text-slate-500 leading-tight">
-              This will trigger a fetch even if you have auto-imported your
-              daily digest.
+              Uses your Gmail app password to read the latest Alert Digest
+              email. Defaults match your Scholar Inbox settings.
             </p>
           </div>
         </div>
-          </main>
+      </main>
 
-          <footer class="px-6 py-3 border-t border-white/5 bg-white/[0.02]">
-            <div class="flex items-center justify-center gap-2 text-slate-300">
-              <Icon name="uil:layer-group" class="text-sm" />
-              <span class="text-[10px] font-medium uppercase tracking-widest">
-                More fine-grained control features coming soon
-              </span>
-            </div>
-          </footer>
+      <footer class="px-6 py-3 border-t border-white/5 bg-white/[0.02]">
+        <div class="flex items-center justify-center gap-2 text-slate-300">
+          <Icon name="uil:layer-group" class="text-sm" />
+          <span class="text-[10px] font-medium uppercase tracking-widest">
+            Papers are saved to the Scholar Inbox folder
+          </span>
         </div>
-
-        <div
-          class="absolute inset-0 z-10 flex items-center justify-center bg-[#020204]/75 backdrop-blur-sm p-6"
-        >
-          <div
-            class="max-w-xs text-center space-y-4 rounded-xl border border-amber-500/20 bg-[#0A0A0C]/90 px-6 py-8 shadow-2xl"
-          >
-            <div
-              class="mx-auto w-12 h-12 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center"
-            >
-              <Icon
-                name="material-symbols:construction"
-                class="text-2xl text-amber-400"
-              />
-            </div>
-            <div class="space-y-2">
-              <h3 class="text-base font-semibold text-white tracking-tight">
-                Under Construction
-              </h3>
-              <p class="text-xs text-slate-400 leading-relaxed">
-                Scholar Inbox features are being rebuilt right now. Manual
-                fetch and auto-import will be back soon.
-              </p>
-            </div>
-            <button
-              @click="$emit('close')"
-              class="w-full px-4 py-2 rounded-lg text-sm font-medium bg-white/10 text-slate-200 hover:bg-white/15 hover:text-white transition-colors border border-white/10"
-            >
-              Got it
-            </button>
-          </div>
-        </div>
-      </div>
+      </footer>
     </div>
   </div>
 </template>
 
 <script setup>
-const emit = defineEmits(["close"]);
+const emit = defineEmits(["close", "imported"]);
 const isLoading = ref(false);
+const importAll = ref(false);
 const paperCount = ref(5);
 
 const {
   public: { apiBaseURL },
 } = useRuntimeConfig();
 
+function applyScholarPrefs(scholarPrefs) {
+  if (!scholarPrefs) return;
+
+  if (scholarPrefs.amount_to_import === "All") {
+    importAll.value = true;
+    return;
+  }
+
+  importAll.value = false;
+  if (typeof scholarPrefs.amount_to_import === "number" && scholarPrefs.amount_to_import > 0) {
+    paperCount.value = scholarPrefs.amount_to_import;
+  }
+}
+
+onMounted(async () => {
+  try {
+    const res = await $fetch(`${apiBaseURL}/user-preferences/`);
+    applyScholarPrefs(res.user_preferences?.scholar_inbox);
+  } catch (error) {
+    console.error("Failed to load Scholar Inbox preferences:", error);
+  }
+});
+
 const fetchDigest = async () => {
   if (isLoading.value) return;
   isLoading.value = true;
 
   try {
+    const amount_to_import = importAll.value ? "All" : paperCount.value;
     const res = await $fetch(`${apiBaseURL}/fetch-scholar-inbox-papers/`, {
       method: "POST",
-      body: { amount_to_import: paperCount.value },
+      body: { amount_to_import },
     });
+
+    const imported = res?.imported ?? 0;
+    const skipped = res?.skipped ?? 0;
+    const message = res?.message || "Scholar Inbox fetch completed.";
+
+    if (imported > 0) {
+      alert(`${message}\n${skipped > 0 ? `${skipped} skipped (duplicates or errors).` : ""}`);
+      emit("imported");
+      emit("close");
+      return;
+    }
+
+    alert(message);
     emit("close");
   } catch (error) {
+    const message =
+      error?.data?.error ||
+      error?.data?.message ||
+      "Failed to fetch Scholar Inbox digest.";
     console.error("Error fetching digest:", error);
+    alert(message);
   } finally {
     isLoading.value = false;
   }
