@@ -3,6 +3,7 @@
   "exclude": ["**/migrations", "**/__pycache__", "venv", "dist", "build"],
   "venvPath": ".",
   "venv": "venv",
+  "stubPath": "typings",
   "extraPaths": ["."],
   "pythonVersion": "3.12",
   "typeCheckingMode": "basic"

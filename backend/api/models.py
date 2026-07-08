@@ -31,12 +31,28 @@ class Folder(models.Model):
         return self.name
 
 class Document(models.Model):
+    class OcrStatus(models.TextChoices):
+        NOT_STARTED = "not_started", "Not Started"
+        QUEUED = "queued", "Queued"
+        PROCESSING = "processing", "Processing"
+        SUCCEEDED = "succeeded", "Succeeded"
+        FAILED = "failed", "Failed"
+
     title = models.CharField(max_length=255)
     uploaded_at = models.DateField(auto_now_add=True)
     file = models.FileField(upload_to='documents/', max_length=255)
     folder = models.ForeignKey(Folder, related_name='documents', on_delete=models.SET_NULL, null=True)
     sort_order = models.IntegerField(default=0)
     searchable = models.BooleanField(default=False)
+    ocr_provider = models.CharField(max_length=64, blank=True, default="paddleocr")
+    ocr_status = models.CharField(
+        max_length=32,
+        choices=OcrStatus.choices,
+        default=OcrStatus.NOT_STARTED,
+    )
+    ocr_error = models.TextField(blank=True, default="")
+    ocr_started_at = models.DateTimeField(blank=True, null=True)
+    ocr_completed_at = models.DateTimeField(blank=True, null=True)
     last_page = models.IntegerField(blank=True, null=True)
     zoom_level = models.IntegerField(blank=True, null=True)
 

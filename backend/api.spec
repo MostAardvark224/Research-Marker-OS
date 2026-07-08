@@ -26,7 +26,7 @@ def force_load(package_name):
     all_binaries += b
     hidden_imports += h
 
-force_load('rapidocr_onnxruntime')
+force_load('rapidocr_onnxruntime')  # PaddleOCR PP-OCRv4 ONNX inference engine
 force_load('playwright')
 force_load('setuptools')
 

@@ -36,6 +36,14 @@
     "electron-updater": "^6.7.3"
   },
   "devDependencies": {
+    "@iconify-json/carbon": "^1.2.24",
+    "@iconify-json/eos-icons": "^1.2.4",
+    "@iconify-json/heroicons": "^1.2.3",
+    "@iconify-json/line-md": "^1.2.16",
+    "@iconify-json/material-symbols": "^1.2.83",
+    "@iconify-json/mdi": "^1.2.3",
+    "@iconify-json/ph": "^1.2.2",
+    "@iconify-json/svg-spinners": "^1.2.4",
     "@iconify-json/uil": "^1.2.3",
     "@nuxt/hints": "1.0.0-alpha.1",
     "@nuxt/icon": "2.1.0",
@@ -55,10 +63,10 @@
     "electron-builder": "^26.4.0",
     "electron-icon-builder": "^2.0.1",
     "katex": "^0.16.27",
-    "marked": "^17.0.1",
-    "marked-katex-extension": "^5.1.6",
     "markdown-it": "^14.1.0",
     "markdown-it-katex": "^2.0.3",
+    "marked": "^17.0.1",
+    "marked-katex-extension": "^5.1.6",
     "nuxt": "^4.2.1",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^5.4.449",
@@ -99,7 +107,10 @@
       "icon": "app/assets/icons"
     },
     "mac": {
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "icon": "app/assets/icons/icon.icns",
       "identity": null
     },

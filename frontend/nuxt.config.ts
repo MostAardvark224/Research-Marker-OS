@@ -15,6 +15,16 @@ export default defineNuxtConfig({
   ],
   ssr: false,
 
+  icon: {
+    provider: "none",
+    fallbackToApi: false,
+    serverBundle: false,
+    clientBundle: {
+      scan: true,
+      sizeLimitKb: 512,
+    },
+  },
+
   runtimeConfig: {
     urlToProxy: process.env.URL_TO_PROXY,
     public: {

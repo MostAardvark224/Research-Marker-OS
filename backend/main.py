@@ -1,5 +1,6 @@
 import os
 import sys
+import threading
 import uvicorn
 from pathlib import Path
 from django.core.management import call_command
@@ -23,5 +24,15 @@ if __name__ == "__main__":
         print("Migrations applied successfully.")
     except Exception as e:
         print(f"Error applying migrations: {e}")
+
+    def run_qcluster():
+        try:
+            print("Starting background task worker (qcluster)...")
+            call_command('qcluster')
+        except Exception as e:
+            print(f"Q Cluster Error: {e}")
+
+    q_thread = threading.Thread(target=run_qcluster, daemon=True)
+    q_thread.start()
 
     uvicorn.run(application, host="127.0.0.1", port=0)

@@ -4,6 +4,15 @@ export default defineNuxtConfig({
   devtools: { enabled: true },
   modules: ["@nuxtjs/tailwindcss", "@nuxt/icon"],
   ssr: false,
+  icon: {
+    provider: "none",
+    fallbackToApi: false,
+    serverBundle: false,
+    clientBundle: {
+      scan: true,
+      sizeLimitKb: 256,
+    },
+  },
   app: {
     head: {
       link: [{ rel: "icon", type: "image/svg+xml", href: "/logo.svg" }],

@@ -1,9 +1,35 @@
 <script setup>
 const emit = defineEmits(["files-selected", "close"]);
 
+const {
+  ocrProviders,
+  ocrProvidersError,
+  localProviders,
+  byokProviders,
+  fetchOcrProviders,
+  isProviderAvailable,
+} = useOcrProviders();
+
 const fileInput = ref(null);
 const selectedFiles = ref([]);
 const skipOcr = ref(true);
+const ocrMode = ref("local");
+const selectedByokProvider = ref("mistral");
+
+const activeOcrProvider = computed(() =>
+  ocrMode.value === "local" ? "paddleocr" : selectedByokProvider.value
+);
+
+const selectedProviderUnavailable = computed(
+  () => !skipOcr.value && !isProviderAvailable(activeOcrProvider.value)
+);
+
+onMounted(async () => {
+  await fetchOcrProviders();
+  if (byokProviders.value.length && !byokProviders.value.some((p) => p.id === selectedByokProvider.value)) {
+    selectedByokProvider.value = byokProviders.value[0].id;
+  }
+});
 
 const triggerFileDialog = () => {
   fileInput.value?.click();
@@ -14,7 +40,6 @@ const handleFileChange = (event) => {
   if (target.files && target.files.length > 0) {
     const filesArray = Array.from(target.files);
 
-    // Filter for PDFs only
     const validPdfs = filesArray.filter(
       (file) => file.type === "application/pdf"
     );
@@ -34,7 +59,12 @@ const uploadSelectedFiles = () => {
     alert("Please browse and select a PDF first.");
     return;
   }
-  emit("files-selected", selectedFiles.value, skipOcr.value);
+  if (selectedProviderUnavailable.value) {
+    const provider = ocrProviders.value.find((p) => p.id === activeOcrProvider.value);
+    alert(`Add your ${provider?.label || "cloud OCR"} API key in Settings before using this OCR provider.`);
+    return;
+  }
+  emit("files-selected", selectedFiles.value, skipOcr.value, activeOcrProvider.value);
 };
 
 const clearFile = (event) => {
@@ -166,6 +196,61 @@ const displayText = computed(() => {
         </span>
       </div>
 
+      <div
+        v-if="!skipOcr"
+        class="w-full px-2 flex flex-col gap-2 text-black text-[12px]"
+      >
+        <div class="rounded-lg border border-gray-200 p-1 flex">
+          <button
+            type="button"
+            class="flex-1 rounded-md px-2 py-1.5 text-[11px] font-medium transition-colors"
+            :class="ocrMode === 'local' ? 'bg-royalblue text-white' : 'text-gray-600'"
+            @click="ocrMode = 'local'"
+          >
+            Local
+          </button>
+          <button
+            type="button"
+            class="flex-1 rounded-md px-2 py-1.5 text-[11px] font-medium transition-colors"
+            :class="ocrMode === 'byok' ? 'bg-royalblue text-white' : 'text-gray-600'"
+            @click="ocrMode = 'byok'"
+          >
+            Cloud (BYOK)
+          </button>
+        </div>
+
+        <div v-if="ocrMode === 'local'">
+          <p class="font-semibold">{{ localProviders[0]?.label || "PaddleOCR Local" }}</p>
+          <p class="text-gray-600">
+            {{ localProviders[0]?.description || "Bundled on-device OCR." }}
+          </p>
+        </div>
+
+        <div v-else class="flex flex-col gap-1">
+          <label for="ocrProvider" class="font-semibold">Cloud OCR Provider</label>
+          <select
+            id="ocrProvider"
+            v-model="selectedByokProvider"
+            class="w-full rounded border border-gray-300 px-2 py-1 text-[12px]"
+          >
+            <option
+              v-for="provider in byokProviders"
+              :key="provider.id"
+              :value="provider.id"
+            >
+              {{ provider.label }}
+            </option>
+          </select>
+        </div>
+
+        <p v-if="selectedProviderUnavailable" class="text-red-600">
+          Add API key in Settings first.
+        </p>
+        <p v-else-if="ocrProvidersError" class="text-red-600">
+          {{ ocrProvidersError }}
+        </p>
+      </div>
+
       <button class="upload-btn" @click="uploadSelectedFiles">Upload</button>
 
       <ClientOnly>
@@ -227,7 +312,7 @@ const displayText = computed(() => {
 
 .container {
   position: relative;
-  height: 400px;
+  min-height: 400px;
   width: 300px;
   border-radius: 10px;
   box-shadow: 4px 4px 30px rgba(0, 0, 0, 0.2);
@@ -328,5 +413,9 @@ const displayText = computed(() => {
 
 .upload-btn:active {
   transform: scale(0.98);
+}
+
+.bg-royalblue {
+  background-color: royalblue;
 }
 </style>

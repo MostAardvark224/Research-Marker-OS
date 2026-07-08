@@ -59,7 +59,7 @@ PyMuPDF==1.27.2.3
 pynndescent==0.6.0
 python-dateutil==2.9.0.post0
 PyYAML==6.0.3
-rapidocr-onnxruntime==1.2.3
+rapidocr-onnxruntime==1.4.4  # PaddleOCR PP-OCRv4 ONNX inference (no PaddlePaddle required)
 redis==3.5.3
 requests==2.34.2
 scikit-learn==1.8.0

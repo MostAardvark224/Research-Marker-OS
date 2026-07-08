@@ -20,6 +20,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from api import models, serializers
+from api.OCR import OCRError, get_ocr_providers, normalize_ocr_provider
 from api.ai import (
     AI_PROVIDER_CONFIG,
     add_message_to_chat,
@@ -136,6 +137,18 @@ class DocumentsViewSet(viewsets.ModelViewSet):
             uploaded_documents = []
 
             skip_ocr = request.data.get("skip_ocr", "false").lower() == "true"
+            ocr_provider = normalize_ocr_provider(request.data.get("ocr_provider", "paddleocr"))
+
+            if not skip_ocr:
+                provider_config = next(
+                    (item for item in get_ocr_providers(load_env_vars()) if item["id"] == ocr_provider),
+                    None,
+                )
+                if provider_config and provider_config["kind"] == "byok" and not provider_config["has_api_key"]:
+                    return Response(
+                        {"error": f"{provider_config['label']} API key is not configured in Settings."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
             
             # Extra handling for folder assignment
             folder_pk = request.data.get('folder_id', None)
@@ -151,13 +164,23 @@ class DocumentsViewSet(viewsets.ModelViewSet):
                 serializer.is_valid(raise_exception=True)
                 self.perform_create(serializer)
 
-                if not skip_ocr: 
+                if not skip_ocr:
+                    serializer.instance.ocr_provider = ocr_provider
+                    serializer.instance.ocr_status = models.Document.OcrStatus.QUEUED
+                    serializer.instance.ocr_error = ""
+                    serializer.instance.save(update_fields=["ocr_provider", "ocr_status", "ocr_error"])
                     async_task(
                         "api.OCR.create_searchable_document_pdf",
                         serializer.instance.pk,
+                        ocr_provider,
                     )
+                else:
+                    serializer.instance.ocr_provider = ocr_provider
+                    serializer.instance.ocr_status = models.Document.OcrStatus.NOT_STARTED
+                    serializer.instance.ocr_error = ""
+                    serializer.instance.save(update_fields=["ocr_provider", "ocr_status", "ocr_error"])
 
-                uploaded_documents.append(serializer.data)
+                uploaded_documents.append(self.get_serializer(serializer.instance).data)
 
             return Response(uploaded_documents, status=status.HTTP_201_CREATED)
 
@@ -337,6 +360,72 @@ class AIModelsView(APIView):
         force_refresh = to_bool(request.query_params.get("refresh", False))
         providers = get_all_provider_models(load_env_vars(), force_refresh=force_refresh)
         return Response({"providers": providers}, status=status.HTTP_200_OK)
+
+
+class OCRProvidersView(APIView):
+    def get(self, request):
+        return Response({"providers": get_ocr_providers(load_env_vars())}, status=status.HTTP_200_OK)
+
+
+class DocumentOCRView(APIView):
+    def post(self, request, pk):
+        try:
+            document = models.Document.objects.get(pk=pk)
+        except models.Document.DoesNotExist:
+            return Response({"error": "Document not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if not document.file:
+            return Response({"error": "Document has no file to OCR."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if document.ocr_status in (
+            models.Document.OcrStatus.QUEUED,
+            models.Document.OcrStatus.PROCESSING,
+        ):
+            return Response(
+                {
+                    "error": "OCR is already in progress for this document.",
+                    "document": serializers.DocumentSerializer(document).data,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        provider = normalize_ocr_provider(request.data.get("ocr_provider") or document.ocr_provider)
+        model = request.data.get("model") or None
+
+        provider_config = next((item for item in get_ocr_providers(load_env_vars()) if item["id"] == provider), None)
+        if not provider_config:
+            return Response(
+                {"error": f"Unknown OCR provider: {provider}"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if provider_config["kind"] == "byok" and not provider_config["has_api_key"]:
+            return Response(
+                {"error": f"{provider_config['label']} API key is not configured in Settings."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        document.ocr_provider = provider
+        document.ocr_status = models.Document.OcrStatus.QUEUED
+        document.ocr_error = ""
+        document.searchable = False
+        document.ocr_started_at = None
+        document.ocr_completed_at = None
+        document.save(
+            update_fields=[
+                "ocr_provider",
+                "ocr_status",
+                "ocr_error",
+                "searchable",
+                "ocr_started_at",
+                "ocr_completed_at",
+            ]
+        )
+
+        async_task("api.OCR.create_searchable_document_pdf", document.pk, provider, model)
+        return Response(
+            {"message": "OCR queued.", "document": serializers.DocumentSerializer(document).data},
+            status=status.HTTP_202_ACCEPTED,
+        )
 
 
 # Runs fetch from scholar inbox and uplaods papers to "Scholar Inbox" folder

@@ -526,7 +526,7 @@ const envFormValues = ref({});
 const envMetadata = {
   GEMINI_API_KEY: {
     description:
-      "Used for Gemini chat models and required for embeddings / Smart Collections.",
+      "Used for Gemini chat, embeddings / Smart Collections, and Gemini Vision OCR.",
     type: "password",
   },
   ANTHROPIC_API_KEY: {
@@ -534,11 +534,15 @@ const envMetadata = {
     type: "password",
   },
   OPENAI_API_KEY: {
-    description: "Used for OpenAI chat models.",
+    description: "Used for OpenAI chat models and OpenAI Vision OCR.",
     type: "password",
   },
   OPENROUTER_API_KEY: {
     description: "Used for OpenRouter chat models.",
+    type: "password",
+  },
+  MISTRAL_API_KEY: {
+    description: "Used for Mistral OCR in the OCR tab.",
     type: "password",
   },
   scholar_inbox_email: {

@@ -1057,15 +1057,18 @@ const deleteStickyNote = async (noteId) => {
 
 // For border transition when switching tabs
 const sliderStyle = computed(() => {
-  if (sidebarActiveTab.value === "stickyNotes") {
-    return { left: "0%", width: "33.333%" };
-  } else if (sidebarActiveTab.value === "notepad") {
-    return { left: "33.333%", width: "33.333%" };
-  } else if (sidebarActiveTab.value === "chat") {
-    return { left: "66.666%", width: "33.334%" };
-  }
-  return { left: "0%", width: "33.333%" };
+  const tabIndex = {
+    stickyNotes: 0,
+    notepad: 1,
+    chat: 2,
+    ocr: 3,
+  }[sidebarActiveTab.value] ?? 0;
+  return { left: `${tabIndex * 25}%`, width: "25%" };
 });
+
+async function handleOcrCompleted() {
+  await fetchPaper();
+}
 
 // Color wheel in tool bar
 const colors = [
@@ -1984,6 +1987,18 @@ watch(currentPage, () => {
               <Icon name="ph:arrow-counter-clockwise" class="w-3 h-3" />
             </button>
           </div>
+          <div
+            @click="changeSidebarTab('ocr')"
+            class="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium transition-colors z-10 cursor-pointer"
+            :class="{
+              'text-slate-200': sidebarActiveTab === 'ocr',
+              'text-slate-500 hover:text-slate-300':
+                sidebarActiveTab !== 'ocr',
+            }"
+          >
+            <Icon name="ph:text-aa" class="w-3.5 h-3.5" />
+            OCR
+          </div>
         </div>
 
         <div
@@ -2159,6 +2174,13 @@ watch(currentPage, () => {
             </span>
           </div>
         </div>
+
+        <!-- OCR Tab -->
+        <OcrPanel
+          v-show="sidebarActiveTab === 'ocr'"
+          :document-id="id"
+          @ocr-completed="handleOcrCompleted"
+        />
 
         <!-- Chat Tab -->
         <div
