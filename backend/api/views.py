@@ -28,6 +28,7 @@ from api.ai import (
     generate_reading_recommendations,
     get_all_provider_models,
     get_provider_api_key,
+    get_provider_base_url,
     name_chat,
     normalize_provider,
     rag_context_injection,
@@ -735,7 +736,13 @@ class AIChatView(APIView):
             return Response({"error": "AI model not set. See Settings."}, status=status.HTTP_400_BAD_REQUEST)
 
         api_key = get_provider_api_key(provider, current_env_vars)
-        if not api_key:
+        if provider == "custom":
+            if not get_provider_base_url(provider, current_env_vars):
+                return Response(
+                    {"error": "Custom server base URL not set. See Settings."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        elif not api_key:
             return Response(
                 {"error": f"{provider_config['label']} API key not set. See Settings."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -752,7 +759,7 @@ class AIChatView(APIView):
         # means that this is a new chat
         if not chat_id:
             # using a model to create a new chat name based on input prompt
-            chat_name = name_chat(provider, api_key, prompt)
+            chat_name = name_chat(provider, api_key, prompt, model=model)
             chatlog_obj = models.ChatLogs.objects.create(
                 name=chat_name,
             )

@@ -31,6 +31,8 @@ def get_env_vars_potential_list():
         "ANTHROPIC_API_KEY",
         "OPENAI_API_KEY",
         "OPENROUTER_API_KEY",
+        "CUSTOM_AI_BASE_URL",
+        "CUSTOM_AI_API_KEY",
         "MISTRAL_API_KEY",
         "scholar_inbox_email",
         "gmail_app_password",

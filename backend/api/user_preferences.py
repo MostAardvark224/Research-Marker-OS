@@ -19,7 +19,8 @@ def intitial_user_prefs():
                     "gemini": "gemini-3-flash-preview",
                     "claude": "claude-sonnet-4-5",
                     "openai": "gpt-5.1",
-                    "openrouter": "openai/gpt-5.1"
+                    "openrouter": "openai/gpt-5.1",
+                    "custom": ""
                 }
             }
         }

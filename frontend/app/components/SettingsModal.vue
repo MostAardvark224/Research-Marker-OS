@@ -379,9 +379,9 @@
                   </span>
                 </div>
                 <select
+                  v-if="provider.models?.length"
                   v-model="aiModels[provider.id]"
                   class="w-full bg-[#0A0A0C] border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 outline-none"
-                  :disabled="!provider.models?.length"
                 >
                   <option
                     v-for="model in provider.models"
@@ -394,7 +394,11 @@
                 <input
                   v-model="aiModels[provider.id]"
                   class="w-full bg-[#0A0A0C] border border-white/10 rounded-lg px-4 py-2 text-xs text-slate-300 placeholder-slate-700 focus:border-indigo-500/50 outline-none font-mono"
-                  :placeholder="`Custom ${provider.label} model id...`"
+                  :placeholder="
+                    provider.id === 'custom'
+                      ? 'Model id your server expects (e.g. llama3.2)...'
+                      : `Custom ${provider.label} model id...`
+                  "
                   spellcheck="false"
                 />
               </div>
@@ -539,6 +543,19 @@ const envMetadata = {
   },
   OPENROUTER_API_KEY: {
     description: "Used for OpenRouter chat models.",
+    type: "password",
+  },
+  CUSTOM_AI_BASE_URL: {
+    label: "Custom Server Base URL",
+    description:
+      "OpenAI-compatible API root for a local or self-hosted model server (Ollama, LM Studio, vLLM, etc.). Examples: http://localhost:11434/v1 or http://127.0.0.1:1234/v1.",
+    placeholder: "http://localhost:11434/v1",
+    type: "text",
+  },
+  CUSTOM_AI_API_KEY: {
+    label: "Custom Server API Key",
+    description:
+      "Optional Bearer token for your custom server. Leave blank if the server does not require authentication.",
     type: "password",
   },
   MISTRAL_API_KEY: {

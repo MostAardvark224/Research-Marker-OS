@@ -37,6 +37,7 @@ MAX_MODELS_BY_PROVIDER = {
     "claude": 40,
     "openai": 60,
     "openrouter": 500,
+    "custom": 100,
 }
 
 backup_gemini_key = env_vars.get("GEMINI_API_KEY", "")
@@ -89,6 +90,13 @@ AI_PROVIDER_CONFIG = {
         "api_key_env": "OPENROUTER_API_KEY",
         "default_chat_model": "openai/gpt-4.1",
         "default_naming_model": "openai/gpt-4.1-mini",
+    },
+    "custom": {
+        "label": "Custom Server",
+        "api_key_env": "CUSTOM_AI_API_KEY",
+        "base_url_env": "CUSTOM_AI_BASE_URL",
+        "default_chat_model": "",
+        "default_naming_model": "",
     },
 }
 
@@ -164,13 +172,39 @@ def normalize_provider(provider):
     normalized = str(provider).strip().lower()
     if normalized == "anthropic":
         return "claude"
+    if normalized in ("local", "custom_server", "openai_compatible", "openai-compatible"):
+        return "custom"
 
     return normalized if normalized in AI_PROVIDER_CONFIG else "gemini"
 
 def get_provider_api_key(provider, env_vars_override=None):
     env_source = env_vars_override if env_vars_override is not None else load_env_vars()
     provider_config = AI_PROVIDER_CONFIG[normalize_provider(provider)]
-    return env_source.get(provider_config["api_key_env"], "")
+    return env_source.get(provider_config["api_key_env"], "") or ""
+
+def normalize_openai_compatible_base_url(base_url):
+    """Normalize user input to an OpenAI-compatible /v1 root."""
+    url = (base_url or "").strip().rstrip("/")
+    if not url:
+        return ""
+
+    if url.endswith("/chat/completions"):
+        url = url[: -len("/chat/completions")].rstrip("/")
+
+    if not url.endswith("/v1"):
+        url = f"{url}/v1"
+
+    return url
+
+def get_provider_base_url(provider, env_vars_override=None):
+    provider = normalize_provider(provider)
+    provider_config = AI_PROVIDER_CONFIG[provider]
+    env_key = provider_config.get("base_url_env")
+    if not env_key:
+        return ""
+
+    env_source = env_vars_override if env_vars_override is not None else load_env_vars()
+    return normalize_openai_compatible_base_url(env_source.get(env_key, ""))
 
 def _limit_models(models, provider="gemini"):
     limit = MAX_MODELS_BY_PROVIDER.get(provider, MAX_MODELS_PER_PROVIDER)
@@ -362,27 +396,69 @@ def fetch_openrouter_models(api_key=None):
     models = [model_id for _, _, model_id in scored]
     return _limit_models(models, "openrouter"), None
 
+def fetch_custom_models(api_key=None, base_url=""):
+    base_url = normalize_openai_compatible_base_url(base_url)
+    if not base_url:
+        return [], "Base URL not configured"
+
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    response = requests.get(
+        f"{base_url}/models",
+        headers=headers,
+        timeout=20,
+    )
+    response.raise_for_status()
+    payload = response.json()
+
+    models = []
+    for item in payload.get("data", []) or payload.get("models", []) or []:
+        if isinstance(item, str):
+            model_id = item
+        else:
+            model_id = item.get("id") or item.get("name") or ""
+            if isinstance(model_id, str) and model_id.startswith("models/"):
+                model_id = model_id.replace("models/", "", 1)
+
+        if model_id:
+            models.append(model_id)
+
+    # Preserve server order when present; otherwise sort for stability.
+    if not models:
+        return [], "No models returned by custom server"
+
+    return _limit_models(models, "custom"), None
+
 def fetch_provider_models(provider, env_vars_override=None):
     provider = normalize_provider(provider)
     config = AI_PROVIDER_CONFIG[provider]
     api_key = get_provider_api_key(provider, env_vars_override)
-
-    fetchers = {
-        "gemini": fetch_gemini_models,
-        "claude": fetch_claude_models,
-        "openai": fetch_openai_models,
-        "openrouter": fetch_openrouter_models,
-    }
+    base_url = get_provider_base_url(provider, env_vars_override)
 
     try:
         if provider == "openrouter":
             models, error = fetch_openrouter_models(api_key)
+        elif provider == "custom":
+            models, error = fetch_custom_models(api_key, base_url)
+        elif provider == "gemini":
+            models, error = fetch_gemini_models(api_key)
+        elif provider == "claude":
+            models, error = fetch_claude_models(api_key)
+        elif provider == "openai":
+            models, error = fetch_openai_models(api_key)
         else:
-            models, error = fetchers[provider](api_key)
+            models, error = [], f"Unsupported provider: {provider}"
     except Exception as exc:
         print(f"Failed fetching models for {provider}: {exc}")
         models = []
         error = str(exc)
+
+    if provider == "custom":
+        is_configured = bool(base_url)
+    else:
+        is_configured = bool(api_key) or provider == "openrouter"
 
     return {
         "id": provider,
@@ -390,7 +466,8 @@ def fetch_provider_models(provider, env_vars_override=None):
         "models": models,
         "default_chat_model": _pick_chat_model(models, provider),
         "default_naming_model": _pick_naming_model(models, provider),
-        "has_api_key": bool(api_key) or provider == "openrouter",
+        "has_api_key": is_configured,
+        "base_url": base_url if provider == "custom" else None,
         "error": error,
     }
 
@@ -764,9 +841,10 @@ def send_prompt(
     chat_id=None,
     system_prompt=SYSTEM_PROMPT,
     temperature=0.7,
+    base_url=None,
 ):
     provider = normalize_provider(provider)
-    if not api_key:
+    if not api_key and provider != "custom":
         raise ValueError(f"Missing API key for {AI_PROVIDER_CONFIG[provider]['label']}")
 
     pdf_paths = filter_pdf_paths_for_ai(pdf_paths)
@@ -816,6 +894,21 @@ def send_prompt(
                 "X-Title": "Research Marker",
             },
         )
+    if provider == "custom":
+        resolved_base = normalize_openai_compatible_base_url(
+            base_url if base_url is not None else get_provider_base_url("custom")
+        )
+        if not resolved_base:
+            raise ValueError("Custom server base URL not set. See Settings.")
+        return send_prompt_openai_compatible(
+            api_key=api_key,
+            model=model,
+            prompt=prompt,
+            chat_id=chat_id,
+            system_prompt=system_prompt,
+            temperature=temperature,
+            base_url=f"{resolved_base}/chat/completions",
+        )
 
     raise ValueError(f"Unsupported model provider: {provider}")
 
@@ -854,9 +947,10 @@ def send_prompt_openai_compatible(api_key, model, prompt, chat_id=None, system_p
     messages.append({"role": "user", "content": prompt})
 
     headers = {
-        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
     if extra_headers:
         headers.update(extra_headers)
 

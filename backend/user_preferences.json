@@ -12,7 +12,8 @@
                 "gemini": "gemini-3-flash-preview",
                 "claude": "claude-sonnet-4-5",
                 "openai": "gpt-5.1",
-                "openrouter": "openai/gpt-5.1"
+                "openrouter": "openai/gpt-5.1",
+                "custom": "Jan-v3.5-4B-Q4_K_XL"
             }
         }
     }

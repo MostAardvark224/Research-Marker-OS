@@ -561,17 +561,10 @@
                     </option>
                   </select>
                   <select
+                    v-if="selectedProviderModels.length"
                     v-model="selectedAiModel"
-                    :disabled="!selectedProviderHasModels"
-                    class="ai-select flex-[1.4] min-w-0 rounded-lg border border-white/10 px-2 py-1.5 text-[11px] focus:border-indigo-500/40 outline-none truncate disabled:cursor-not-allowed disabled:opacity-60"
+                    class="ai-select flex-[1.4] min-w-0 rounded-lg border border-white/10 px-2 py-1.5 text-[11px] focus:border-indigo-500/40 outline-none truncate"
                   >
-                    <option
-                      v-if="!selectedProviderHasModels"
-                      value=""
-                      disabled
-                    >
-                      {{ selectedProviderModelHint || "No models available" }}
-                    </option>
                     <option
                       v-for="model in selectedProviderModels"
                       :key="model"
@@ -580,6 +573,19 @@
                       {{ model }}
                     </option>
                   </select>
+                  <input
+                    v-else
+                    v-model="selectedAiModel"
+                    type="text"
+                    :disabled="!selectedProvider?.has_api_key"
+                    :placeholder="
+                      selectedAiProvider === 'custom'
+                        ? 'Model id (e.g. llama3.2)'
+                        : selectedProviderModelHint || 'No models available'
+                    "
+                    class="ai-select flex-[1.4] min-w-0 rounded-lg border border-white/10 px-2 py-1.5 text-[11px] focus:border-indigo-500/40 outline-none font-mono disabled:cursor-not-allowed disabled:opacity-60"
+                    spellcheck="false"
+                  />
                 </div>
                 <p
                   v-if="selectedProviderModelHint"
@@ -1126,6 +1132,7 @@ const {
   aiProviders,
   selectedAiProvider,
   selectedAiModel,
+  selectedProvider,
   selectedProviderModels,
   selectedProviderModelHint,
   selectedProviderHasModels,

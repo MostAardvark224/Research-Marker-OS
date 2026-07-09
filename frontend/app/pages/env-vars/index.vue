@@ -196,6 +196,19 @@ const envMetadata = {
     description: "Used for OpenRouter chat models.",
     type: "password",
   },
+  CUSTOM_AI_BASE_URL: {
+    label: "Custom Server Base URL",
+    description:
+      "OpenAI-compatible API root for a local or self-hosted model server (Ollama, LM Studio, vLLM, etc.). Examples: http://localhost:11434/v1 or http://127.0.0.1:1234/v1.",
+    placeholder: "http://localhost:11434/v1",
+    type: "text",
+  },
+  CUSTOM_AI_API_KEY: {
+    label: "Custom Server API Key",
+    description:
+      "Optional Bearer token for your custom server. Leave blank if the server does not require authentication.",
+    type: "password",
+  },
   MISTRAL_API_KEY: {
     description: "Used for Mistral OCR in the OCR tab.",
     type: "password",

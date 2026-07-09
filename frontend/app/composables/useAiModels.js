@@ -24,9 +24,30 @@ export function useAiModels() {
 
   const selectedProviderModels = computed(() => selectedProvider.value?.models || []);
 
+  const selectedAiModel = computed({
+    get: () => aiModels.value[selectedAiProvider.value] || "",
+    set: (value) => {
+      aiModels.value[selectedAiProvider.value] = value;
+    },
+  });
+
+  const selectedProviderAllowsCustomModel = computed(
+    () => selectedProvider.value?.id === "custom" || !selectedProviderModels.value.length
+  );
+
   const selectedProviderModelHint = computed(() => {
     const provider = selectedProvider.value;
     if (!provider) return null;
+
+    if (provider.id === "custom") {
+      if (!provider.has_api_key) {
+        return "Add your Custom Server base URL in Settings → General.";
+      }
+      if (!selectedAiModel.value?.trim()) {
+        return "Enter the model id your local server expects (e.g. llama3.2).";
+      }
+      return null;
+    }
 
     if (!provider.models?.length) {
       if (!provider.has_api_key) {
@@ -38,15 +59,16 @@ export function useAiModels() {
     return null;
   });
 
-  const selectedProviderHasModels = computed(
-    () => selectedProviderModels.value.length > 0
-  );
-
-  const selectedAiModel = computed({
-    get: () => aiModels.value[selectedAiProvider.value] || "",
-    set: (value) => {
-      aiModels.value[selectedAiProvider.value] = value;
-    },
+  const selectedProviderHasModels = computed(() => {
+    if (!selectedProvider.value?.has_api_key) return false;
+    if (selectedProviderModels.value.length > 0) {
+      return Boolean(selectedAiModel.value?.trim());
+    }
+    // Custom / local servers often need a manually typed model id.
+    return (
+      selectedProvider.value?.id === "custom" &&
+      Boolean(selectedAiModel.value?.trim())
+    );
   });
 
   function applyProviderCatalog(providers = []) {
@@ -55,10 +77,9 @@ export function useAiModels() {
     const nextModels = { ...aiModels.value };
     for (const provider of providers) {
       const current = nextModels[provider.id];
-      if (!current || !provider.models?.includes(current)) {
-        nextModels[provider.id] =
-          provider.default_chat_model || provider.models?.[0] || "";
-      }
+      if (current) continue;
+      nextModels[provider.id] =
+        provider.default_chat_model || provider.models?.[0] || "";
     }
     aiModels.value = nextModels;
 
@@ -118,6 +139,7 @@ export function useAiModels() {
     selectedAiModel,
     selectedProvider,
     selectedProviderModels,
+    selectedProviderAllowsCustomModel,
     selectedProviderModelHint,
     selectedProviderHasModels,
     defaultModelByProvider,
