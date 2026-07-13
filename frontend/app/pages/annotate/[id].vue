@@ -772,9 +772,59 @@ function changeActiveTool(newToolButton) {
 
 // Sidebar state
 const sidebarActiveTab = ref("stickyNotes");
+const sidebarTabs = [
+  { id: "stickyNotes", label: "Sticky Notes", icon: "ph:note" },
+  { id: "notepad", label: "Notepad", icon: "ph:notebook" },
+  { id: "chat", label: "Chat", icon: "ph:chat-circle-dots" },
+  { id: "ocr", label: "OCR", icon: "ph:text-aa" },
+];
 function changeSidebarTab(tabName) {
   sidebarActiveTab.value = tabName;
+  if (tabName !== "chat") showChatHistory.value = false;
 }
+const activeSidebarTabLabel = computed(
+  () => sidebarTabs.find((t) => t.id === sidebarActiveTab.value)?.label ?? "",
+);
+
+// Sidebar font size (scales content proportionally; headers stay larger than body)
+const SIDEBAR_FONT_MIN = 0.85;
+const SIDEBAR_FONT_MAX = 1.4;
+const SIDEBAR_FONT_STEP = 0.1;
+const storedSidebarFont = (() => {
+  try {
+    const v = parseFloat(localStorage.getItem("annotateSidebarFontScale") || "");
+    return Number.isFinite(v) ? v : 1;
+  } catch {
+    return 1;
+  }
+})();
+const sidebarFontScale = ref(
+  Math.min(SIDEBAR_FONT_MAX, Math.max(SIDEBAR_FONT_MIN, storedSidebarFont)),
+);
+const persistSidebarFontScale = () => {
+  try {
+    localStorage.setItem(
+      "annotateSidebarFontScale",
+      String(sidebarFontScale.value),
+    );
+  } catch {
+    /* ignore */
+  }
+};
+const increaseSidebarFont = () => {
+  sidebarFontScale.value = Math.min(
+    SIDEBAR_FONT_MAX,
+    Math.round((sidebarFontScale.value + SIDEBAR_FONT_STEP) * 10) / 10,
+  );
+  persistSidebarFontScale();
+};
+const decreaseSidebarFont = () => {
+  sidebarFontScale.value = Math.max(
+    SIDEBAR_FONT_MIN,
+    Math.round((sidebarFontScale.value - SIDEBAR_FONT_STEP) * 10) / 10,
+  );
+  persistSidebarFontScale();
+};
 
 // --- Chat Tab ---
 const chatMessages = ref([]);
@@ -786,6 +836,9 @@ const chatMirrorRef = ref(null);
 const showAtMenu = ref(false);
 const chatScrollContainer = ref(null);
 const capturedSelection = ref("");
+const showChatHistory = ref(false);
+const savedChats = ref([]);
+const isDeletingChat = ref(false);
 
 const {
   aiProviders,
@@ -982,6 +1035,67 @@ const clearChat = () => {
   chatId.value = null;
 };
 
+const fetchSavedChats = async () => {
+  try {
+    const res = await $fetch(`${apiBaseURL}/chatlogs/`, { method: "GET" });
+    savedChats.value = res.sort((a, b) => b.id - a.id);
+  } catch (error) {
+    console.error("Error fetching chats:", error);
+  }
+};
+
+const toggleChatHistory = () => {
+  showChatHistory.value = !showChatHistory.value;
+  if (showChatHistory.value) fetchSavedChats();
+};
+
+const loadChat = async (idToLoad) => {
+  try {
+    chatLoading.value = true;
+    const res = await $fetch(`${apiBaseURL}/chatlogs/${idToLoad}/`, {
+      method: "GET",
+    });
+    chatId.value = res.id;
+    chatMessages.value = (res.content || []).map((msg) => ({
+      role: msg.role,
+      content: msg.content,
+      timestamp: msg.timestamp,
+    }));
+    showChatHistory.value = false;
+    scrollChatToBottom();
+  } catch (error) {
+    console.error("Error loading chat:", error);
+  } finally {
+    chatLoading.value = false;
+  }
+};
+
+const deleteChat = async (idToDelete, event) => {
+  if (event) event.stopPropagation();
+  if (!confirm("Are you sure you want to delete this chat log?")) return;
+
+  try {
+    isDeletingChat.value = true;
+    await $fetch(`${apiBaseURL}/chatlogs/${idToDelete}/`, {
+      method: "DELETE",
+    });
+    savedChats.value = savedChats.value.filter((c) => c.id !== idToDelete);
+    if (chatId.value === idToDelete) {
+      clearChat();
+    }
+  } catch (error) {
+    console.error("Error deleting chat:", error);
+  } finally {
+    isDeletingChat.value = false;
+  }
+};
+
+const startNewChat = () => {
+  clearChat();
+  showChatHistory.value = false;
+  nextTick(() => chatInputRef.value?.focus());
+};
+
 // Splits user message into plain text and @tag parts for display
 const parseChatInputParts = (text) => {
   if (!text) return [{ type: "text", text: "" }];
@@ -1055,17 +1169,6 @@ const deleteStickyNote = async (noteId) => {
 
   await saveAnnotationsToBackend();
 };
-
-// For border transition when switching tabs
-const sliderStyle = computed(() => {
-  const tabIndex = {
-    stickyNotes: 0,
-    notepad: 1,
-    chat: 2,
-    ocr: 3,
-  }[sidebarActiveTab.value] ?? 0;
-  return { left: `${tabIndex * 25}%`, width: "25%" };
-});
 
 async function handleOcrCompleted() {
   await fetchPaper();
@@ -1927,80 +2030,111 @@ watch(currentPage, () => {
         :style="{ width: isSidebarOpen ? `${sidebarWidth}px` : '0px' }"
         :class="{ 'border-none opacity-0 overflow-hidden': !isSidebarOpen }"
       >
-        <div
-          class="relative h-12 border-b border-slate-800 flex items-center px-2 shrink-0"
-        >
-          <div
-            class="absolute bottom-0 h-0.5 bg-indigo-500 transition-all duration-300 ease-in-out"
-            :style="sliderStyle"
-          ></div>
+        <div class="flex flex-1 min-h-0 h-full">
+          <!-- Compact vertical tab rail -->
+          <nav
+            class="w-9 shrink-0 border-r border-slate-800 bg-slate-950/90 flex flex-col items-center py-1.5 gap-0.5"
+          >
+            <button
+              v-for="tab in sidebarTabs"
+              :key="tab.id"
+              type="button"
+              @click="changeSidebarTab(tab.id)"
+              class="relative w-7 h-7 rounded-md flex items-center justify-center transition-colors"
+              :class="
+                sidebarActiveTab === tab.id
+                  ? 'bg-indigo-500/15 text-indigo-300'
+                  : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/80'
+              "
+              :title="tab.label"
+            >
+              <span
+                v-if="sidebarActiveTab === tab.id"
+                class="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-r bg-indigo-400"
+              ></span>
+              <Icon :name="tab.icon" class="w-3.5 h-3.5" />
+            </button>
 
-          <div
-            @click="changeSidebarTab('stickyNotes')"
-            class="flex-1 text-center py-2 text-xs font-medium transition-colors z-10 cursor-pointer"
-            :class="{
-              'text-slate-200': sidebarActiveTab === 'stickyNotes',
-              'text-slate-500 hover:text-slate-300':
-                sidebarActiveTab !== 'stickyNotes',
-            }"
-          >
-            Sticky Notes
-          </div>
-          <div
-            @click="changeSidebarTab('notepad')"
-            class="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium transition-colors z-10 cursor-pointer"
-            :class="{
-              'text-slate-200': sidebarActiveTab === 'notepad',
-              'text-slate-500 hover:text-slate-300':
-                sidebarActiveTab !== 'notepad',
-            }"
-          >
-            Notepad
+            <div class="flex-1"></div>
+
             <button
-              v-if="sidebarActiveTab === 'notepad'"
-              @click.stop="isNotepadPreview = !isNotepadPreview"
-              class="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
-              :title="isNotepadPreview ? 'Switch to Edit Mode' : 'Switch to Preview Mode'"
+              type="button"
+              @click="decreaseSidebarFont"
+              :disabled="sidebarFontScale <= SIDEBAR_FONT_MIN"
+              class="w-7 h-7 rounded-md flex items-center justify-center text-slate-500 hover:text-slate-200 hover:bg-slate-800/80 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Decrease font size"
             >
-              <Icon
-                :name="isNotepadPreview ? 'ph:pencil-simple' : 'ph:eye'"
-                class="w-3 h-3"
-              />
+              <span class="text-[10px] font-semibold leading-none">A−</span>
             </button>
-          </div>
-          <div
-            @click="changeSidebarTab('chat')"
-            class="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium transition-colors z-10 cursor-pointer"
-            :class="{
-              'text-slate-200': sidebarActiveTab === 'chat',
-              'text-slate-500 hover:text-slate-300':
-                sidebarActiveTab !== 'chat',
-            }"
-          >
-            <Icon name="ph:chat-circle-dots" class="w-3.5 h-3.5" />
-            Chat
             <button
-              v-if="sidebarActiveTab === 'chat' && chatMessages.length > 0"
-              @click.stop="clearChat"
-              class="p-1 rounded hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
-              title="New chat"
+              type="button"
+              @click="increaseSidebarFont"
+              :disabled="sidebarFontScale >= SIDEBAR_FONT_MAX"
+              class="w-7 h-7 rounded-md flex items-center justify-center text-slate-500 hover:text-slate-200 hover:bg-slate-800/80 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              title="Increase font size"
             >
-              <Icon name="ph:arrow-counter-clockwise" class="w-3 h-3" />
+              <span class="text-[12px] font-semibold leading-none">A+</span>
             </button>
-          </div>
+          </nav>
+
+          <!-- Panel content (font scale applied here so hierarchy stays intact) -->
           <div
-            @click="changeSidebarTab('ocr')"
-            class="flex-1 flex items-center justify-center gap-1.5 py-2 text-xs font-medium transition-colors z-10 cursor-pointer"
-            :class="{
-              'text-slate-200': sidebarActiveTab === 'ocr',
-              'text-slate-500 hover:text-slate-300':
-                sidebarActiveTab !== 'ocr',
-            }"
+            class="flex-1 flex flex-col min-w-0 min-h-0"
+            :style="{ zoom: sidebarFontScale }"
           >
-            <Icon name="ph:text-aa" class="w-3.5 h-3.5" />
-            OCR
-          </div>
-        </div>
+            <div
+              class="h-9 border-b border-slate-800 flex items-center justify-between px-3 shrink-0 bg-slate-900/80"
+            >
+              <span class="text-xs font-medium text-slate-300 truncate">{{
+                activeSidebarTabLabel
+              }}</span>
+              <div class="flex items-center gap-1 shrink-0">
+                <button
+                  v-if="sidebarActiveTab === 'notepad'"
+                  type="button"
+                  @click="isNotepadPreview = !isNotepadPreview"
+                  class="p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+                  :title="
+                    isNotepadPreview
+                      ? 'Switch to Edit Mode'
+                      : 'Switch to Preview Mode'
+                  "
+                >
+                  <Icon
+                    :name="isNotepadPreview ? 'ph:pencil-simple' : 'ph:eye'"
+                    class="w-3.5 h-3.5"
+                  />
+                </button>
+                <template v-if="sidebarActiveTab === 'chat'">
+                  <button
+                    type="button"
+                    @click="startNewChat"
+                    class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-slate-400 hover:text-white hover:bg-slate-700 transition-colors"
+                    title="New chat"
+                  >
+                    <Icon name="ph:plus" class="w-3.5 h-3.5" />
+                    New
+                  </button>
+                  <button
+                    type="button"
+                    @click="toggleChatHistory"
+                    class="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors"
+                    :class="
+                      showChatHistory
+                        ? 'bg-indigo-500/20 text-indigo-300'
+                        : 'text-slate-400 hover:text-white hover:bg-slate-700'
+                    "
+                    title="Chat History"
+                  >
+                    <Icon
+                      :name="showChatHistory ? 'uil:times' : 'uil:history'"
+                      class="w-3.5 h-3.5"
+                    />
+                    History
+                  </button>
+                </template>
+              </div>
+            </div>
 
         <div
           v-show="sidebarActiveTab === 'stickyNotes'"
@@ -2186,7 +2320,7 @@ watch(currentPage, () => {
         <!-- Chat Tab -->
         <div
           v-show="sidebarActiveTab === 'chat'"
-          class="flex-1 flex flex-col overflow-hidden bg-slate-900/40"
+          class="flex-1 flex flex-col overflow-hidden bg-slate-900/40 relative min-h-0"
         >
           <div
             ref="chatScrollContainer"
@@ -2221,6 +2355,14 @@ watch(currentPage, () => {
                   <p class="text-[10px] font-mono text-indigo-300">{{ opt.tag }}</p>
                 </button>
               </div>
+              <button
+                type="button"
+                @click="toggleChatHistory"
+                class="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-slate-700/70 bg-slate-800/40 px-3 py-2 text-[11px] text-slate-400 hover:text-white hover:border-indigo-500/40 transition-colors"
+              >
+                <Icon name="uil:history" class="w-3.5 h-3.5" />
+                Open chat history
+              </button>
             </div>
 
             <template v-else>
@@ -2277,6 +2419,60 @@ watch(currentPage, () => {
                 </div>
               </div>
             </template>
+          </div>
+
+          <!-- Chat history overlay (same /chatlogs/ API as knowledge-base) -->
+          <div
+            v-if="showChatHistory"
+            class="absolute inset-0 bg-slate-950/98 backdrop-blur-sm z-40 flex flex-col"
+          >
+            <div class="p-3 border-b border-slate-800">
+              <button
+                type="button"
+                @click="startNewChat"
+                class="w-full py-2.5 rounded-xl border border-dashed border-slate-700 text-slate-400 hover:text-white hover:border-indigo-500/50 hover:bg-indigo-500/10 transition-all flex items-center justify-center gap-2 text-xs font-medium"
+              >
+                <Icon name="ph:plus" class="w-3.5 h-3.5" />
+                Start New Chat
+              </button>
+            </div>
+
+            <div class="flex-1 overflow-y-auto p-2 custom-scrollbar">
+              <div v-if="savedChats.length === 0" class="text-center py-10">
+                <p class="text-slate-500 text-xs">No saved chats found.</p>
+              </div>
+
+              <div
+                v-for="chat in savedChats"
+                :key="chat.id"
+                @click="loadChat(chat.id)"
+                class="group p-2.5 rounded-xl hover:bg-white/5 cursor-pointer transition-colors border border-transparent hover:border-white/5 flex justify-between items-center mb-1"
+                :class="{
+                  'bg-white/5 border-white/10': chat.id === chatId,
+                }"
+              >
+                <div class="flex-1 min-w-0 pr-2">
+                  <h4
+                    class="text-xs text-slate-300 truncate group-hover:text-white transition-colors"
+                  >
+                    {{ chat.name }}
+                  </h4>
+                  <p class="text-[10px] text-slate-600 truncate mt-0.5">
+                    {{ new Date(chat.updated_at).toLocaleDateString() }}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  @click="deleteChat(chat.id, $event)"
+                  class="p-1.5 rounded text-slate-600 hover:text-red-400 hover:bg-red-400/10 opacity-0 group-hover:opacity-100 transition-all"
+                  title="Delete Chat"
+                  :disabled="isDeletingChat"
+                >
+                  <Icon name="ph:trash" class="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
           </div>
 
           <div class="shrink-0 border-t border-slate-800 bg-slate-900 p-2.5">
@@ -2403,6 +2599,8 @@ watch(currentPage, () => {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
           </div>
         </div>
       </aside>
