@@ -12,6 +12,7 @@ from collections import defaultdict
 import random
 import umap
 import json
+import base64
 import re
 import colorsys
 import math
@@ -28,6 +29,8 @@ _models_cache = {"fetched_at": 0, "providers": None}
 
 MAX_AI_PDFS_PER_PROMPT = 2
 MAX_AI_PDF_BYTES = 25 * 1024 * 1024
+MAX_AI_PDF_IMAGES_PER_PROMPT = 8
+AI_PDF_RENDER_SCALE = 2.0
 EMBEDDING_BATCH_SIZE = 50
 SMART_COLLECTION_MAX_ANNOTATIONS = 2000
 
@@ -522,6 +525,70 @@ def extract_pdf_text(pdf_paths, word_limit=7000):
 
     return "\n\n".join(chunks)
 
+
+def normalize_page_numbers(pages):
+    """Normalize request page numbers to a de-duplicated list of positive ints (1-indexed)."""
+    if pages is None:
+        return []
+    if isinstance(pages, (str, int)):
+        pages = [pages]
+
+    normalized = []
+    seen = set()
+    for value in pages:
+        try:
+            page_num = int(value)
+        except (TypeError, ValueError):
+            continue
+        if page_num < 1 or page_num in seen:
+            continue
+        seen.add(page_num)
+        normalized.append(page_num)
+    return normalized
+
+
+def extract_pdf_pages(pdf_paths, page_numbers, output_dir):
+    """
+    Build single-page PDFs for the given 1-indexed page numbers.
+    Returns a list of Paths to the extracted page files.
+    """
+    page_numbers = normalize_page_numbers(page_numbers)
+    if not page_numbers:
+        return []
+
+    output_dir = pathlib.Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    extracted = []
+
+    for path in pdf_paths or []:
+        path = pathlib.Path(path)
+        if not path.exists():
+            continue
+
+        doc = None
+        try:
+            doc = fitz.open(path)
+            for page_num in page_numbers:
+                if page_num > doc.page_count:
+                    print(f"Skipping page {page_num} for {path.name}: only {doc.page_count} pages")
+                    continue
+
+                page_doc = fitz.open()
+                try:
+                    page_doc.insert_pdf(doc, from_page=page_num - 1, to_page=page_num - 1)
+                    out_path = output_dir / f"{path.stem}_page_{page_num}.pdf"
+                    page_doc.save(out_path)
+                    extracted.append(out_path)
+                finally:
+                    page_doc.close()
+        except Exception as e:
+            print(f"Failed extracting page PDF(s) from {path}: {e}")
+        finally:
+            if doc is not None:
+                doc.close()
+
+    return extracted
+
 # names the AI chat based on the user prompt
 def name_chat(provider, api_key, user_prompt, model=None):
     provider = normalize_provider(provider)
@@ -831,6 +898,112 @@ def rag_context_injection(original_prompt):
             return
 
 # main function that sends prompt and context to model and returns a response
+def _pdf_paths_with_bytes(pdf_paths):
+    """Return existing PDF paths that can be read as bytes."""
+    ready = []
+    for path in pdf_paths or []:
+        path = pathlib.Path(path)
+        try:
+            if path.exists() and path.is_file() and path.stat().st_size > 0:
+                ready.append(path)
+        except OSError:
+            continue
+    return ready
+
+
+def _encode_pdf_base64(path):
+    return base64.standard_b64encode(path.read_bytes()).decode("ascii")
+
+
+def _openai_user_content_with_pdfs(prompt, pdf_paths):
+    """Build OpenAI/OpenRouter chat.completions multimodal user content with PDF file parts."""
+    content = []
+    for path in _pdf_paths_with_bytes(pdf_paths):
+        content.append({
+            "type": "file",
+            "file": {
+                "filename": path.name,
+                "file_data": f"data:application/pdf;base64,{_encode_pdf_base64(path)}",
+            },
+        })
+    content.append({"type": "text", "text": prompt})
+    return content
+
+
+def _render_pdf_pages_as_png_base64(pdf_paths, scale=AI_PDF_RENDER_SCALE):
+    """Rasterize PDF pages to PNG base64 strings for local/vision OpenAI-compatible servers."""
+    images = []
+    for path in _pdf_paths_with_bytes(pdf_paths):
+        doc = None
+        try:
+            doc = fitz.open(path)
+            for page_index, page in enumerate(doc):
+                if len(images) >= MAX_AI_PDF_IMAGES_PER_PROMPT:
+                    break
+                pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
+                png_bytes = pix.tobytes("png")
+                images.append({
+                    "name": f"{path.stem}_p{page_index + 1}.png",
+                    "data": base64.standard_b64encode(png_bytes).decode("ascii"),
+                    "bytes": len(png_bytes),
+                })
+        except Exception as e:
+            print(f"Failed rendering PDF pages from {path}: {e}")
+        finally:
+            if doc is not None:
+                doc.close()
+    return images
+
+
+def _openai_user_content_with_pdf_images(prompt, pdf_paths):
+    """
+    Build OpenAI-compatible multimodal content using rendered page images.
+    Local servers (Ollama, LM Studio, etc.) generally reject PDF file parts but accept image_url.
+    """
+    images = _render_pdf_pages_as_png_base64(pdf_paths)
+    if not images:
+        return None
+
+    content = [{
+        "type": "text",
+        "text": (
+            f"{prompt}\n\n"
+            f"[Attached {len(images)} rendered PDF page image(s). "
+            "Use the visual page content to answer.]"
+        ),
+    }]
+    for image in images:
+        print(f"Local/OpenAI-compatible image part: {image['name']} ({image['bytes']} bytes)")
+        content.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/png;base64,{image['data']}"},
+        })
+    return content
+
+
+def _claude_user_content_with_pdfs(prompt, pdf_paths):
+    """Build Anthropic Messages API user content with native PDF document blocks."""
+    content = []
+    for path in _pdf_paths_with_bytes(pdf_paths):
+        content.append({
+            "type": "document",
+            "source": {
+                "type": "base64",
+                "media_type": "application/pdf",
+                "data": _encode_pdf_base64(path),
+            },
+        })
+    content.append({"type": "text", "text": prompt})
+    return content
+
+
+def _prompt_with_extracted_pdf_text(prompt, pdf_paths):
+    pdf_context = extract_pdf_text(pdf_paths)
+    if pdf_context:
+        return f"{prompt}\n\n[PDF TEXT CONTEXT]\n{pdf_context}"
+    return prompt
+
+
 def send_prompt(
     provider,
     api_key,
@@ -848,7 +1021,11 @@ def send_prompt(
         raise ValueError(f"Missing API key for {AI_PROVIDER_CONFIG[provider]['label']}")
 
     pdf_paths = filter_pdf_paths_for_ai(pdf_paths)
+    pdf_paths = _pdf_paths_with_bytes(pdf_paths)
     pdf_count = len(pdf_paths)
+    if pdf_count > 0:
+        sizes = ", ".join(f"{p.name}={p.stat().st_size}B" for p in pdf_paths)
+        print(f"send_prompt attaching {pdf_count} PDF(s) to {provider}/{model}: {sizes}")
 
     if provider == "gemini":
         return send_prompt_gemini(
@@ -862,14 +1039,16 @@ def send_prompt(
             temperature=temperature,
         )
 
-    # Gemini accepts native PDF parts. Other providers receive extracted text.
-    if pdf_count > 0:
-        pdf_context = extract_pdf_text(pdf_paths)
-        if pdf_context:
-            prompt = f"{prompt}\n\n[PDF TEXT CONTEXT]\n{pdf_context}"
-
     if provider == "claude":
-        return send_prompt_claude(api_key, model, prompt, chat_id, system_prompt, temperature)
+        return send_prompt_claude(
+            api_key=api_key,
+            model=model,
+            prompt=prompt,
+            chat_id=chat_id,
+            system_prompt=system_prompt,
+            temperature=temperature,
+            pdf_paths=pdf_paths,
+        )
     if provider == "openai":
         return send_prompt_openai_compatible(
             api_key=api_key,
@@ -879,6 +1058,7 @@ def send_prompt(
             system_prompt=system_prompt,
             temperature=temperature,
             base_url="https://api.openai.com/v1/chat/completions",
+            pdf_paths=pdf_paths,
         )
     if provider == "openrouter":
         return send_prompt_openai_compatible(
@@ -893,6 +1073,7 @@ def send_prompt(
                 "HTTP-Referer": "https://researchmarker.local",
                 "X-Title": "Research Marker",
             },
+            pdf_paths=pdf_paths,
         )
     if provider == "custom":
         resolved_base = normalize_openai_compatible_base_url(
@@ -908,6 +1089,8 @@ def send_prompt(
             system_prompt=system_prompt,
             temperature=temperature,
             base_url=f"{resolved_base}/chat/completions",
+            pdf_paths=pdf_paths,
+            prefer_pdf_images=True,
         )
 
     raise ValueError(f"Unsupported model provider: {provider}")
@@ -925,26 +1108,60 @@ def send_prompt_gemini(api_key, model, prompt, pdf_count=0, pdf_paths=None, chat
     )
 
     message_contents = []
-    if pdf_count > 0:
-        for path in pdf_paths or []:
-            if path.exists():
-                message_contents.append(
-                    types.Part.from_bytes(
-                        data=path.read_bytes(),
-                        mime_type='application/pdf',
-                    )
-                )
+    for path in _pdf_paths_with_bytes(pdf_paths):
+        pdf_bytes = path.read_bytes()
+        print(f"Gemini PDF part: {path.name} ({len(pdf_bytes)} bytes)")
+        message_contents.append(
+            types.Part.from_bytes(
+                data=pdf_bytes,
+                mime_type='application/pdf',
+            )
+        )
 
     message_contents.append(prompt)
     response = chat.send_message(message=message_contents)
     return response.text
 
-def send_prompt_openai_compatible(api_key, model, prompt, chat_id=None, system_prompt=SYSTEM_PROMPT, temperature=0.7, base_url="", extra_headers=None):
+def send_prompt_openai_compatible(
+    api_key,
+    model,
+    prompt,
+    chat_id=None,
+    system_prompt=SYSTEM_PROMPT,
+    temperature=0.7,
+    base_url="",
+    extra_headers=None,
+    pdf_paths=None,
+    prefer_pdf_images=False,
+):
     messages = [{"role": "system", "content": system_prompt}]
     for msg in get_chat_history(chat_id):
         role = "assistant" if msg["role"] == "model" else msg["role"]
         messages.append({"role": role, "content": msg["content"]})
-    messages.append({"role": "user", "content": prompt})
+
+    ready_pdfs = _pdf_paths_with_bytes(pdf_paths)
+
+    def _history_messages():
+        out = [{"role": "system", "content": system_prompt}]
+        for msg in get_chat_history(chat_id):
+            role = "assistant" if msg["role"] == "model" else msg["role"]
+            out.append({"role": role, "content": msg["content"]})
+        return out
+
+    def _post(payload_messages):
+        response = requests.post(
+            base_url,
+            headers=headers,
+            json={
+                "model": model,
+                "messages": payload_messages,
+                "temperature": temperature,
+            },
+            timeout=120,
+        )
+        response.raise_for_status()
+        data = response.json()
+        return data["choices"][0]["message"]["content"]
 
     headers = {
         "Content-Type": "application/json",
@@ -954,50 +1171,95 @@ def send_prompt_openai_compatible(api_key, model, prompt, chat_id=None, system_p
     if extra_headers:
         headers.update(extra_headers)
 
-    response = requests.post(
-        base_url,
-        headers=headers,
-        json={
-            "model": model,
-            "messages": messages,
-            "temperature": temperature,
-        },
-        timeout=120,
-    )
-    response.raise_for_status()
-    data = response.json()
-    return data["choices"][0]["message"]["content"]
+    if not ready_pdfs:
+        messages.append({"role": "user", "content": prompt})
+        return _post(messages)
 
-def send_prompt_claude(api_key, model, prompt, chat_id=None, system_prompt=SYSTEM_PROMPT, temperature=0.7):
+    # Local/custom servers: send rendered page images (vision). Cloud OpenAI-style: try PDF file parts first.
+    attempts = []
+    if prefer_pdf_images:
+        attempts.append(("images", lambda: _openai_user_content_with_pdf_images(prompt, ready_pdfs)))
+        attempts.append(("file", lambda: _openai_user_content_with_pdfs(prompt, ready_pdfs)))
+    else:
+        attempts.append(("file", lambda: _openai_user_content_with_pdfs(prompt, ready_pdfs)))
+        attempts.append(("images", lambda: _openai_user_content_with_pdf_images(prompt, ready_pdfs)))
+    attempts.append(("text", lambda: _prompt_with_extracted_pdf_text(prompt, ready_pdfs)))
+
+    last_error = None
+    for mode, builder in attempts:
+        content = builder()
+        if not content:
+            continue
+        payload = _history_messages()
+        payload.append({"role": "user", "content": content})
+        try:
+            print(f"OpenAI-compatible PDF attach mode={mode} model={model}")
+            return _post(payload)
+        except requests.HTTPError as e:
+            status = e.response.status_code if e.response is not None else None
+            last_error = e
+            if status in (400, 404, 415, 422):
+                print(f"OpenAI-compatible PDF attach mode={mode} failed ({status}); trying next fallback")
+                continue
+            raise
+
+    if last_error is not None:
+        raise last_error
+    raise ValueError("Failed to attach PDF context for OpenAI-compatible provider")
+
+def send_prompt_claude(api_key, model, prompt, chat_id=None, system_prompt=SYSTEM_PROMPT, temperature=0.7, pdf_paths=None):
     messages = []
     for msg in get_chat_history(chat_id):
         role = "assistant" if msg["role"] == "model" else "user"
         messages.append({"role": role, "content": msg["content"]})
-    messages.append({"role": "user", "content": prompt})
 
-    response = requests.post(
-        "https://api.anthropic.com/v1/messages",
-        headers={
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-            "Content-Type": "application/json",
-        },
-        json={
-            "model": model,
-            "max_tokens": 4096,
-            "temperature": temperature,
-            "system": system_prompt,
-            "messages": messages,
-        },
-        timeout=120,
-    )
-    response.raise_for_status()
-    data = response.json()
-    return "".join(
-        block.get("text", "")
-        for block in data.get("content", [])
-        if block.get("type") == "text"
-    )
+    ready_pdfs = _pdf_paths_with_bytes(pdf_paths)
+    if ready_pdfs:
+        user_content = _claude_user_content_with_pdfs(prompt, ready_pdfs)
+    else:
+        user_content = prompt
+    messages.append({"role": "user", "content": user_content})
+
+    def _post(payload_messages):
+        response = requests.post(
+            "https://api.anthropic.com/v1/messages",
+            headers={
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": model,
+                "max_tokens": 4096,
+                "temperature": temperature,
+                "system": system_prompt,
+                "messages": payload_messages,
+            },
+            timeout=120,
+        )
+        response.raise_for_status()
+        data = response.json()
+        return "".join(
+            block.get("text", "")
+            for block in data.get("content", [])
+            if block.get("type") == "text"
+        )
+
+    try:
+        return _post(messages)
+    except requests.HTTPError as e:
+        if ready_pdfs and e.response is not None and e.response.status_code in (400, 415, 422):
+            print(f"Claude PDF attach failed ({e.response.status_code}); falling back to extracted text")
+            fallback_messages = []
+            for msg in get_chat_history(chat_id):
+                role = "assistant" if msg["role"] == "model" else "user"
+                fallback_messages.append({"role": role, "content": msg["content"]})
+            fallback_messages.append({
+                "role": "user",
+                "content": _prompt_with_extracted_pdf_text(prompt, ready_pdfs),
+            })
+            return _post(fallback_messages)
+        raise
 
 # NOTE: following is specifically for Smart Collections
 

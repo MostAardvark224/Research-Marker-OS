@@ -20,6 +20,7 @@ django-cors-headers==4.9.0
 django-picklefield==3.4.0
 django-q2==1.10.0
 django-storages==1.14.6
+django-types==0.24.0
 djangorestframework==3.17.1
 feedparser==6.0.12
 flatbuffers==25.12.19
@@ -74,6 +75,7 @@ sqlparse==0.5.5
 tenacity==9.1.4
 threadpoolctl==3.6.0
 tqdm==4.67.3
+types-psycopg2==2.9.21.20260712
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 tzdata==2026.2

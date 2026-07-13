@@ -852,7 +852,7 @@ const {
 } = useAiModels();
 
 const atMenuOptions = [
-  { tag: "@page", label: "Current Page", desc: "Inject text from the current page", icon: "ph:book-open" },
+  { tag: "@page", label: "Current Page", desc: "Send this page's PDF to the model", icon: "ph:book-open" },
   { tag: "@paper", label: "This Paper", desc: "Include full PDF + all annotations", icon: "ph:file-pdf" },
   { tag: "@highlights", label: "Highlights", desc: "All highlights in this paper", icon: "ph:highlighter" },
   { tag: "@sticky", label: "Sticky Notes", desc: "All sticky notes in this paper", icon: "ph:note" },
@@ -919,21 +919,25 @@ const buildContextFromInput = (rawInput) => {
   let prompt = rawInput;
   const contextParts = [];
   let usePaperIds = false;
+  let pageNumbers = [];
 
-  // @page or @page:N
+  // @page or @page:N → send that page's PDF bytes via backend
   const pageMatches = [...rawInput.matchAll(/@page(?::(\d+))?/g)];
   for (const m of pageMatches) {
-    const pageNum = m[1] ? parseInt(m[1]) : currentPage.value;
-    const pageText = pageTextContent.value[pageNum];
-    if (pageText) {
-      contextParts.push(`--- Page ${pageNum} Text ---\n${pageText}\n---`);
+    const pageNum = m[1] ? parseInt(m[1], 10) : currentPage.value;
+    if (Number.isFinite(pageNum) && pageNum >= 1 && !pageNumbers.includes(pageNum)) {
+      pageNumbers.push(pageNum);
     }
     prompt = prompt.replace(m[0], "");
   }
+  if (pageNumbers.length > 0) {
+    usePaperIds = true;
+  }
 
-  // @paper → send paper_ids to backend which loads full PDF + annotations
+  // @paper → send full PDF + annotations (overrides page-only filter)
   if (/@paper\b/.test(rawInput)) {
     usePaperIds = true;
+    pageNumbers = [];
     prompt = prompt.replace(/@paper\b/g, "");
   }
 
@@ -979,14 +983,14 @@ const buildContextFromInput = (rawInput) => {
     prompt += `\n\n[Context from PDF viewer]\n${contextParts.join("\n\n")}`;
   }
 
-  return { prompt, usePaperIds };
+  return { prompt, usePaperIds, pageNumbers };
 };
 
 const sendChatMessage = async () => {
   const rawInput = chatInput.value.trim();
   if (!rawInput || chatLoading.value || !selectedProviderHasModels.value) return;
 
-  const { prompt, usePaperIds } = buildContextFromInput(rawInput);
+  const { prompt, usePaperIds, pageNumbers } = buildContextFromInput(rawInput);
 
   chatMessages.value.push({ role: "user", content: rawInput, timestamp: new Date().toISOString() });
   chatInput.value = "";
@@ -1000,7 +1004,8 @@ const sendChatMessage = async () => {
     const body = {
       prompt,
       ...(chatId.value ? { chat_id: chatId.value } : {}),
-      ...(usePaperIds ? { paper_ids: [id] } : {}),
+      ...(usePaperIds ? { paper_ids: [Number(id)] } : {}),
+      ...(pageNumbers.length > 0 ? { pages: pageNumbers } : {}),
       model_provider: selectedAiProvider.value,
       model: selectedAiModel.value,
     };

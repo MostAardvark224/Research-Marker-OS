@@ -3,6 +3,7 @@
 import asyncio
 import json
 import os
+import shutil
 import tempfile
 from datetime import timedelta
 from pathlib import Path
@@ -25,11 +26,13 @@ from api.OCR import OCRError, get_ocr_providers, normalize_ocr_provider
 from api.ai import (
     AI_PROVIDER_CONFIG,
     add_message_to_chat,
+    extract_pdf_pages,
     generate_reading_recommendations,
     get_all_provider_models,
     get_provider_api_key,
     get_provider_base_url,
     name_chat,
+    normalize_page_numbers,
     normalize_provider,
     rag_context_injection,
     send_prompt,
@@ -842,42 +845,69 @@ class AIChatView(APIView):
                 "chat_name": chatlog_obj.name},  
             status=status.HTTP_200_OK)
 
-        # handles @paper
+        # handles @paper (full PDF) and @page (single-page PDF via pages=[...])
         elif paper_ids:
             papers = models.Document.objects.filter(pk__in = paper_ids)
             pdf_paths = [Path(p.file.path) for p in papers if p.file]
+            pages = normalize_page_numbers(request.data.get("pages", None))
 
-            # Getting annotations
-            annot_serializer = serializers.GroupedAnnotationsSerializer(papers, many=True)
-            annot_data = annot_serializer.data
-            try: 
-                annot_data = json.dumps(annot_data)
-            except Exception as e: 
-                print(f"error with converting @paper data to JSON {e}")
-                pass
+            temp_dir = None
+            try:
+                if pages:
+                    temp_dir = tempfile.mkdtemp(prefix="ai_page_pdf_")
+                    page_pdf_paths = extract_pdf_pages(pdf_paths, pages, temp_dir)
+                    if not page_pdf_paths:
+                        return Response(
+                            {"error": f"Could not extract requested page(s): {pages}"},
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+                    pdf_paths = page_pdf_paths
+                    page_label = ", ".join(str(p) for p in pages)
+                    print(
+                        "AIChatView @page extracted PDFs: "
+                        + ", ".join(f"{p.name}={p.stat().st_size}B" for p in pdf_paths)
+                    )
+                    new_prompt = (
+                        prompt
+                        + f"\n\n[Attached PDF page(s): {page_label}. "
+                        "A real application/pdf file attachment for these page(s) is included "
+                        "in this request (not plain text).]"
+                    )
+                else:
+                    # Getting annotations for full-paper context
+                    annot_serializer = serializers.GroupedAnnotationsSerializer(papers, many=True)
+                    annot_data = annot_serializer.data
+                    try:
+                        annot_data = json.dumps(annot_data)
+                    except Exception as e:
+                        print(f"error with converting @paper data to JSON {e}")
+                        pass
 
-            context_block = context_template.format(annot_data=annot_data)
-            new_prompt = prompt +  "\n\n" + context_block    
+                    context_block = context_template.format(annot_data=annot_data)
+                    new_prompt = prompt + "\n\n" + context_block
 
-            model_response = send_prompt(
-                provider = provider,
-                api_key = api_key,
-                model = model,
-                prompt = new_prompt, 
-                pdf_count=len(pdf_paths), 
-                pdf_paths = pdf_paths,
-                chat_id = chat_id
-                )
-            
+                model_response = send_prompt(
+                    provider = provider,
+                    api_key = api_key,
+                    model = model,
+                    prompt = new_prompt,
+                    pdf_count=len(pdf_paths),
+                    pdf_paths = pdf_paths,
+                    chat_id = chat_id
+                    )
+            finally:
+                if temp_dir:
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+
             # saving prompt to chatlogs (only original user question)
             add_message_to_chat(chat_id, "user", prompt)
 
             # Save and return model response
             add_message_to_chat(chat_id, "model", model_response)
             return Response({
-                "model_response": model_response, 
-                "chat_id": chat_id, 
-                "chat_name": chatlog_obj.name}, 
+                "model_response": model_response,
+                "chat_id": chat_id,
+                "chat_name": chatlog_obj.name},
             status=status.HTTP_200_OK)
             
 
