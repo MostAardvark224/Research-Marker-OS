@@ -33,7 +33,7 @@
 
 ## Why Research Marker?
 
-Modern research is fragmented: PDFs in local folders, citations in browser tabs, notes in separate apps. Research Marker unifies the workflow so you can:
+Modern research is scattered across local PDFs, open browser tabs, and disconnected note-taking apps. Research Marker brings everything into one streamlined workflow, enabling you to:
 
 - **Centralize** every paper you read in one library
 - **Annotate** directly on documents without modifying the source file
