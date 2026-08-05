@@ -52,7 +52,7 @@ OCR_PROVIDER_CONFIG: dict[str, dict[str, Any]] = {
         "kind": "byok",
         "description": "Gemini vision OCR over rendered PDF pages.",
         "api_key_env": "GEMINI_API_KEY",
-        "default_model": "gemini-2.5-flash",
+        "default_model": "gemini-flash-latest",
     },
 }
 

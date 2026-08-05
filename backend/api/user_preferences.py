@@ -38,7 +38,7 @@ def intitial_user_prefs():
                         "custom": ""
                     },
                     "generation_provider": "gemini",
-                    "generation_model": "gemini-2.5-flash"
+                    "generation_model": "gemini-flash-latest"
                 },
             }
         }

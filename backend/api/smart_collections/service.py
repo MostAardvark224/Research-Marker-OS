@@ -191,7 +191,8 @@ def embed_pending_annotations(
     if config is None:
         from .config import get_smart_collection_config
 
-        config = get_smart_collection_config()
+        # Background embed worker only needs embedding credentials.
+        config = get_smart_collection_config(require_generation=False)
     annotations = list(
         models.Annotations.objects.select_related("document").order_by("id")
     )
@@ -360,6 +361,10 @@ def _representative_content(
 
 
 def _retryable_generation_error(exc: BaseException) -> bool:
+    from api.errors import ProviderRateLimited
+
+    if isinstance(exc, ProviderRateLimited):
+        return True
     if isinstance(exc, (requests.Timeout, requests.ConnectionError)):
         return True
     if isinstance(exc, requests.HTTPError) and exc.response is not None:
@@ -369,13 +374,23 @@ def _retryable_generation_error(exc: BaseException) -> bool:
 
 
 def _generate(config: SmartCollectionConfig, prompt: str, system_prompt: str) -> str:
-    env = load_env_vars()
     retryer = Retrying(
         retry=retry_if_exception(_retryable_generation_error),
         wait=wait_random_exponential(multiplier=1, max=15),
         stop=stop_after_attempt(3),
         reraise=True,
     )
+    if config.generation_provider == "codex":
+        from api.providers.codex import get_codex_provider
+
+        return retryer(
+            get_codex_provider().generate_text,
+            prompt,
+            system_prompt=system_prompt,
+            model=config.generation_model,
+        )
+
+    env = load_env_vars()
     return retryer(
         send_prompt,
         provider=config.generation_provider,

@@ -475,6 +475,12 @@
                       placeholder="Generation model ID"
                       class="w-full bg-[#0A0A0C] border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-purple-500/50 font-mono"
                     />
+                    <p
+                      v-if="smartCollectionGenerationProvider === 'codex' && !selectedGenerationProvider?.ready"
+                      class="text-[11px] text-amber-300/90"
+                    >
+                      Connect Codex above before using it for Smart Collection labels.
+                    </p>
                   </label>
                 </div>
               </div>
@@ -651,15 +657,13 @@ const smartCollectionEmbeddingModels = ref({
   custom: "",
 });
 const smartCollectionGenerationProvider = ref("gemini");
-const smartCollectionGenerationModel = ref("gemini-2.5-flash");
+const smartCollectionGenerationModel = ref("gemini-flash-latest");
 const selectedEmbeddingProvider = computed(() =>
   embeddingProviders.value.find(
     (provider) => provider.id === smartCollectionEmbeddingProvider.value,
   ),
 );
-const smartCollectionGenerationProviders = computed(() =>
-  aiProviders.value.filter((provider) => provider.id !== "codex"),
-);
+const smartCollectionGenerationProviders = computed(() => aiProviders.value);
 const selectedGenerationProvider = computed(() =>
   smartCollectionGenerationProviders.value.find(
     (provider) => provider.id === smartCollectionGenerationProvider.value,
@@ -1039,8 +1043,16 @@ async function loadUserPreferences() {
       };
       smartCollectionGenerationProvider.value =
         smartCollections.generation_provider || smartCollectionGenerationProvider.value;
-      smartCollectionGenerationModel.value =
+      const legacyGeminiModels = {
+        "gemini-2.5-flash": "gemini-flash-latest",
+        "gemini-2.5-flash-lite": "gemini-flash-lite-latest",
+        "gemini-2.0-flash": "gemini-flash-latest",
+        "gemini-2.0-flash-001": "gemini-flash-latest",
+      };
+      const savedGenerationModel =
         smartCollections.generation_model || smartCollectionGenerationModel.value;
+      smartCollectionGenerationModel.value =
+        legacyGeminiModels[savedGenerationModel] || savedGenerationModel;
     }
   } catch (error) {
     console.error("Failed to load user preferences:", error);

@@ -73,8 +73,8 @@ AI_PROVIDER_CONFIG = {
     "gemini": {
         "label": "Gemini",
         "api_key_env": "GEMINI_API_KEY",
-        "default_chat_model": "gemini-2.5-flash",
-        "default_naming_model": "gemini-2.5-flash-lite",
+        "default_chat_model": "gemini-flash-latest",
+        "default_naming_model": "gemini-flash-lite-latest",
     },
     "claude": {
         "label": "Claude",
@@ -178,13 +178,21 @@ def normalize_provider(provider):
         return "claude"
     if normalized in ("local", "custom_server", "openai_compatible", "openai-compatible"):
         return "custom"
+    if normalized == "codex":
+        return "codex"
 
     return normalized if normalized in AI_PROVIDER_CONFIG else "gemini"
 
 def get_provider_api_key(provider, env_vars_override=None):
     env_source = env_vars_override if env_vars_override is not None else load_env_vars()
-    provider_config = AI_PROVIDER_CONFIG[normalize_provider(provider)]
-    return env_source.get(provider_config["api_key_env"], "") or ""
+    normalized = normalize_provider(provider)
+    if normalized == "codex":
+        return ""
+    provider_config = AI_PROVIDER_CONFIG[normalized]
+    env_key = provider_config.get("api_key_env") or ""
+    if not env_key:
+        return ""
+    return env_source.get(env_key, "") or ""
 
 def normalize_openai_compatible_base_url(base_url):
     """Normalize user input to an OpenAI-compatible /v1 root."""
@@ -202,6 +210,8 @@ def normalize_openai_compatible_base_url(base_url):
 
 def get_provider_base_url(provider, env_vars_override=None):
     provider = normalize_provider(provider)
+    if provider == "codex" or provider not in AI_PROVIDER_CONFIG:
+        return ""
     provider_config = AI_PROVIDER_CONFIG[provider]
     env_key = provider_config.get("base_url_env")
     if not env_key:
@@ -487,6 +497,7 @@ def get_all_provider_models(env_vars_override=None, force_refresh=False):
     providers = [
         fetch_provider_models(provider_id, env_vars_override)
         for provider_id in AI_PROVIDER_CONFIG.keys()
+        if provider_id != "codex"
     ]
 
     _models_cache["providers"] = providers
@@ -593,7 +604,12 @@ def extract_pdf_pages(pdf_paths, page_numbers, output_dir):
 # names the AI chat based on the user prompt
 def name_chat(provider, api_key, user_prompt, model=None):
     provider = normalize_provider(provider)
-    model = model or AI_PROVIDER_CONFIG[provider]["default_naming_model"]
+    if provider == "codex":
+        from api.providers.codex import get_codex_provider
+
+        model = model or get_codex_provider().default_model()
+    else:
+        model = model or AI_PROVIDER_CONFIG[provider]["default_naming_model"]
     prompt = f"""### Role
     You are a Chat Naming Specialist for a research application.
 
@@ -704,7 +720,7 @@ def embedding_search_rankings(query, annot_objs):
     )
     from api.smart_collections.config import get_smart_collection_config
 
-    config = get_smart_collection_config()
+    config = get_smart_collection_config(require_generation=False)
     query_emb = build_embedding_provider(config.embedding).embed_texts([query])[0]
 
     # getting annotation model object rankings based on cos similarity 
@@ -1016,6 +1032,14 @@ def send_prompt(
     base_url=None,
 ):
     provider = normalize_provider(provider)
+    if provider == "codex":
+        from api.providers.codex import get_codex_provider
+
+        return get_codex_provider().generate_text(
+            prompt,
+            system_prompt=system_prompt,
+            model=model,
+        )
     if not api_key and provider != "custom":
         raise ValueError(f"Missing API key for {AI_PROVIDER_CONFIG[provider]['label']}")
 
@@ -1431,7 +1455,7 @@ def get_representative_samples(cluster_results, max_major=7, max_sub=3):
 # takes pks from Annotation model, formats those rows to be sent to the model, gets back label for cluster
 def label_cluster(pks_to_use):
     client = genai.Client(api_key=backup_gemini_key) 
-    model = "gemini-2.5-flash" # need a half-decent model for this task
+    model = "gemini-flash-latest"
 
     annot_model_objs = models.Annotations.objects.filter(
         pk__in = pks_to_use

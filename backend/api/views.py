@@ -557,6 +557,7 @@ class AIModelsView(APIView):
                     "requires_active_document": True,
                     "streaming": True,
                     "subscription_auth": True,
+                    "smart_collection_labels": True,
                 },
                 "error": None,
             }

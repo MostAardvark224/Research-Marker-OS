@@ -58,6 +58,11 @@ Do not run shell commands, inspect files, edit files, or use external network re
 Do not ask for permissions. The context and any page images are already attached.
 Follow the citation and evidence rules in the supplied paper instructions."""
 
+SMART_COLLECTION_INSTRUCTIONS = """You label and advise on research-note clusters.
+Return exactly what the user asks for. Prefer valid JSON when requested.
+Do not run shell commands, inspect files, edit files, or use external network resources.
+Do not ask for permissions."""
+
 READ_ONLY_SANDBOX_POLICY = {
     "type": "readOnly",
     "networkAccess": False,
@@ -533,6 +538,87 @@ class CodexProvider(AIProvider):
         thread_id, turn_id = active
         sdk = self._require_sdk()
         sdk._client.turn_interrupt(thread_id, turn_id)
+
+    def generate_text(
+        self,
+        prompt: str,
+        *,
+        system_prompt: str = "",
+        model: str | None = None,
+    ) -> str:
+        """One-shot text generation for background jobs (Smart Collections, etc.)."""
+        self._ensure_chatgpt_account()
+        sdk = self._require_sdk()
+        client = getattr(sdk, "_client", None)
+        if client is None:
+            raise ProviderUnavailable("The installed Codex SDK does not expose a turn transport.")
+
+        session_dir = Path(get_app_data_dir()) / "ai_sessions" / f"sc-{uuid4()}"
+        session_dir.mkdir(parents=True, exist_ok=True)
+        resolved_model = model or self.default_model()
+        developer = (system_prompt or "").strip() or SMART_COLLECTION_INSTRUCTIONS
+        try:
+            thread = sdk.thread_start(
+                approval_mode=ApprovalMode.deny_all,
+                cwd=str(session_dir.resolve()),
+                developer_instructions=developer,
+                model=resolved_model,
+                sandbox=Sandbox.read_only,
+                service_name="research_marker",
+            )
+            turn_params: dict[str, Any] = {
+                "cwd": str(session_dir.resolve()),
+                "approvalPolicy": "never",
+                "sandboxPolicy": READ_ONLY_SANDBOX_POLICY,
+            }
+            if resolved_model:
+                turn_params["model"] = resolved_model
+            started = client.turn_start(
+                thread.id,
+                [{"type": "text", "text": prompt}],
+                params=turn_params,
+            )
+            turn_id = started.turn.id
+            client.register_turn_notifications(turn_id)
+            answer_parts: list[str] = []
+            try:
+                while True:
+                    notification = client.next_turn_notification(turn_id)
+                    if notification.method == "item/agentMessage/delta":
+                        answer_parts.append(notification.payload.delta)
+                    elif notification.method == "turn/completed":
+                        status = str(notification.payload.turn.status.value)
+                        if status == "interrupted":
+                            raise GenerationCancelled("Codex generation was cancelled.")
+                        if status == "failed":
+                            error = notification.payload.turn.error
+                            message = _codex_error_message(error) or "Codex generation failed."
+                            if "rate" in message.lower() and "limit" in message.lower():
+                                raise ProviderRateLimited(message)
+                            raise ProviderUnavailable(message)
+                        break
+            finally:
+                client.unregister_turn_notifications(turn_id)
+
+            answer = "".join(answer_parts).strip()
+            if not answer:
+                raise ProviderUnavailable("Codex returned an empty response.")
+            return answer
+        except (GenerationCancelled, ProviderRateLimited, ProviderUnavailable):
+            raise
+        except Exception as exc:
+            lowered = str(exc).lower()
+            if "rate limit" in lowered or "usage limit" in lowered:
+                raise ProviderRateLimited(
+                    "Your Codex allowance is temporarily exhausted."
+                ) from exc
+            if "unauthorized" in lowered or "authentication" in lowered:
+                raise ProviderAuthenticationExpired(
+                    "Codex authentication expired. Sign in again."
+                ) from exc
+            raise ProviderUnavailable(f"Codex generation failed: {exc}") from exc
+        finally:
+            shutil.rmtree(session_dir, ignore_errors=True)
 
     def list_conversations(self) -> list[dict[str, Any]]:
         return [

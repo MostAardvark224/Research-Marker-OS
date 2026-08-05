@@ -212,11 +212,24 @@ class GeminiEmbeddingProvider(EmbeddingProvider):
             ),
         )
 
+    @staticmethod
+    def _as_contents(texts: list[str]) -> list[types.Content]:
+        # gemini-embedding-2 runs list[str] through t_contents(), which merges
+        # every string into one multi-part Content and returns a single vector.
+        # Pass one Content per text so batch embedding stays 1:1.
+        return [
+            types.Content(
+                role="user",
+                parts=[types.Part(text=text if text.strip() else "(empty)")],
+            )
+            for text in texts
+        ]
+
     def _embed_batch(self, texts: list[str]) -> list[list[float]]:
         try:
             response = self._client.models.embed_content(
                 model=self.spec.model,
-                contents=texts,
+                contents=self._as_contents(texts),
                 config=types.EmbedContentConfig(
                     output_dimensionality=self.spec.dimensions
                 ),
