@@ -60,7 +60,7 @@ Modern research is fragmented: PDFs in local folders, citations in browser tabs,
 *   **Quick tools:** Easily toggle your annotations on or off, search within the document, and use simple keyboard shortcuts to stay in the flow.
 
 ### 🤖 Chat With Your Research
-*   **Bring your favorite AI:** Connect your own API keys to use Claude, ChatGPT, Gemini, or OpenRouter—you are never locked into a single model.
+*   **Bring your favorite AI:** Connect your own API keys to use Claude, ChatGPT, Gemini, or OpenRouter (you are never locked into a single model).
 *   **Chat with Codex:** Sign in with ChatGPT and use the embedded Codex runtime for streaming, paper-grounded answers without adding an API key.
 *   **Talk to a single paper or your whole library:** Ask questions about the document in front of you, or zoom out and ask questions across every paper you have ever imported.
 *   **Targeted context:** Use intuitive `@` tags (like `@page`, `@highlights`, or `@paper`) to point the AI to the exact paragraphs or notes you want it to focus on.
@@ -72,22 +72,11 @@ Modern research is fragmented: PDFs in local folders, citations in browser tabs,
 *   **Smart recommendations:** Get high-level overviews of your research clusters and suggestions on which papers to read next.
 
 ### 🔍 Never Lose a Thought Again
-*   **Instant library search:** Search across everything at once—paper titles, text highlights, sticky notes, and personal scratchpads.
+*   **Instant library search:** Search across everything at once: paper titles, text highlights, sticky notes, and personal scratchpads.
 *   **Auto-OCR for scanned PDFs:** Have an old, scanned paper that you can't highlight or search? We automatically run OCR on it so you can select text and search it just like a modern digital PDF.
 *   **Smart filters:** Quickly narrow down your searches to just your recent notes, specific tags, or individual folders.
 
 ### 🔒 Private, Offline & Cross-Platform
-*   **Your data stays on your machine:** Research Marker is a true desktop app for Mac, Windows, and Linux. Your papers, reading history, notes, and API keys are stored locally on your computer—not on a cloud server.
+*   **Your data stays on your machine:** Research Marker is a true desktop app for Mac, Windows, and Linux. Your papers, reading history, notes, and API keys are stored locally on your computer, not on a cloud server.
 *   **Works offline:** Read, annotate, and organize your library anywhere, whether you have an internet connection or not.
 *   **Always up to date:** Seamless background updates ensure you always have the latest tools and improvements without disrupting your workflow.
-
-## Codex paper chat
-
-The desktop build bundles the official `openai-codex` SDK and its pinned app-server runtime.
-
-1. Open **Settings → AI Preferences**.
-2. Under **Codex connection**, choose browser sign-in or device-code sign-in.
-3. Select Codex in a paper's Chat sidebar.
-4. Ask normally, or use `@page 4`, `@pages 4-7`, `@current`, or `@selection`.
-
-Paper extraction and retrieval stay local. Each turn sends Codex only its bounded text and page-image context. Codex credentials remain managed by Codex. See the [user guide](docs/codex-paper-chat.md) and [developer notes](docs/codex-paper-context-development.md).
