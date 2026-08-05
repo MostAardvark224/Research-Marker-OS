@@ -388,6 +388,97 @@
                 </select>
               </label>
 
+              <div class="p-4 rounded-xl border border-purple-500/20 bg-purple-500/5 space-y-4">
+                <div>
+                  <h4 class="text-sm font-medium text-white">Smart Collections</h4>
+                  <p class="mt-1 text-[11px] leading-relaxed text-slate-500">
+                    Embeddings build the graph. A separate generation model labels topics and
+                    creates recommendations. Claude can label collections but does not provide
+                    embeddings.
+                  </p>
+                </div>
+
+                <div class="grid gap-3 sm:grid-cols-2">
+                  <label class="block space-y-1.5">
+                    <span class="text-[11px] font-mono text-purple-300">Embedding provider</span>
+                    <select
+                      v-model="smartCollectionEmbeddingProvider"
+                      class="w-full bg-[#0A0A0C] border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-purple-500/50"
+                    >
+                      <option
+                        v-for="provider in embeddingProviders"
+                        :key="provider.id"
+                        :value="provider.id"
+                      >
+                        {{ provider.label }}{{ provider.configured ? "" : " — configure first" }}
+                      </option>
+                    </select>
+                  </label>
+
+                  <label class="block space-y-1.5">
+                    <span class="text-[11px] font-mono text-purple-300">Embedding model</span>
+                    <select
+                      v-if="selectedEmbeddingProvider?.models?.length"
+                      v-model="smartCollectionEmbeddingModels[smartCollectionEmbeddingProvider]"
+                      class="w-full bg-[#0A0A0C] border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-purple-500/50"
+                    >
+                      <option
+                        v-for="model in selectedEmbeddingProvider.models"
+                        :key="model"
+                        :value="model"
+                      >
+                        {{ model }}
+                      </option>
+                    </select>
+                    <input
+                      v-else
+                      v-model="smartCollectionEmbeddingModels[smartCollectionEmbeddingProvider]"
+                      placeholder="Embedding model ID"
+                      class="w-full bg-[#0A0A0C] border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-purple-500/50 font-mono"
+                    />
+                  </label>
+
+                  <label class="block space-y-1.5">
+                    <span class="text-[11px] font-mono text-purple-300">Label provider</span>
+                    <select
+                      v-model="smartCollectionGenerationProvider"
+                      class="w-full bg-[#0A0A0C] border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-purple-500/50"
+                    >
+                      <option
+                        v-for="provider in smartCollectionGenerationProviders"
+                        :key="provider.id"
+                        :value="provider.id"
+                      >
+                        {{ provider.label }}
+                      </option>
+                    </select>
+                  </label>
+
+                  <label class="block space-y-1.5">
+                    <span class="text-[11px] font-mono text-purple-300">Label model</span>
+                    <select
+                      v-if="selectedGenerationProvider?.models?.length"
+                      v-model="smartCollectionGenerationModel"
+                      class="w-full bg-[#0A0A0C] border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-purple-500/50"
+                    >
+                      <option
+                        v-for="model in selectedGenerationProvider.models"
+                        :key="model"
+                        :value="model"
+                      >
+                        {{ model }}
+                      </option>
+                    </select>
+                    <input
+                      v-else
+                      v-model="smartCollectionGenerationModel"
+                      placeholder="Generation model ID"
+                      class="w-full bg-[#0A0A0C] border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-purple-500/50 font-mono"
+                    />
+                  </label>
+                </div>
+              </div>
+
               <div
                 v-for="provider in aiProviders"
                 :key="provider.id"
@@ -544,6 +635,7 @@ const emit = defineEmits(["close"]);
 
 const {
   aiProviders,
+  embeddingProviders,
   aiModels,
   selectedAiProvider: defaultAiProvider,
   selectedProviderModels,
@@ -551,6 +643,37 @@ const {
   fetchAiModels,
   aiModelsLoading,
 } = useAiModels();
+
+const smartCollectionEmbeddingProvider = ref("gemini");
+const smartCollectionEmbeddingModels = ref({
+  gemini: "gemini-embedding-2",
+  openai: "text-embedding-3-small",
+  custom: "",
+});
+const smartCollectionGenerationProvider = ref("gemini");
+const smartCollectionGenerationModel = ref("gemini-2.5-flash");
+const selectedEmbeddingProvider = computed(() =>
+  embeddingProviders.value.find(
+    (provider) => provider.id === smartCollectionEmbeddingProvider.value,
+  ),
+);
+const smartCollectionGenerationProviders = computed(() =>
+  aiProviders.value.filter((provider) => provider.id !== "codex"),
+);
+const selectedGenerationProvider = computed(() =>
+  smartCollectionGenerationProviders.value.find(
+    (provider) => provider.id === smartCollectionGenerationProvider.value,
+  ),
+);
+
+watch(smartCollectionGenerationProvider, () => {
+  const provider = selectedGenerationProvider.value;
+  if (!provider) return;
+  if (!provider.models?.includes(smartCollectionGenerationModel.value)) {
+    smartCollectionGenerationModel.value =
+      provider.default_chat_model || provider.models?.[0] || "";
+  }
+});
 
 const {
   isDesktopApp,
@@ -907,6 +1030,17 @@ async function loadUserPreferences() {
         ...aiModels.value,
         ...(aiPrefs.models || {}),
       };
+      const smartCollections = aiPrefs.smart_collections || {};
+      smartCollectionEmbeddingProvider.value =
+        smartCollections.embedding_provider || smartCollectionEmbeddingProvider.value;
+      smartCollectionEmbeddingModels.value = {
+        ...smartCollectionEmbeddingModels.value,
+        ...(smartCollections.embedding_models || {}),
+      };
+      smartCollectionGenerationProvider.value =
+        smartCollections.generation_provider || smartCollectionGenerationProvider.value;
+      smartCollectionGenerationModel.value =
+        smartCollections.generation_model || smartCollectionGenerationModel.value;
     }
   } catch (error) {
     console.error("Failed to load user preferences:", error);
@@ -939,6 +1073,12 @@ async function saveSettings() {
         ai: {
           default_provider: defaultAiProvider.value,
           models: aiModels.value,
+          smart_collections: {
+            embedding_provider: smartCollectionEmbeddingProvider.value,
+            embedding_models: smartCollectionEmbeddingModels.value,
+            generation_provider: smartCollectionGenerationProvider.value,
+            generation_model: smartCollectionGenerationModel.value,
+          },
         },
       },
     };

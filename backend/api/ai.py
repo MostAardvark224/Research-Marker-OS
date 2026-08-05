@@ -698,25 +698,14 @@ In general embedding the user prompt could have its downsides, could have an LLM
 
 # function that executes embedding search
 def embedding_search_rankings(query, annot_objs): 
-    client = genai.Client(api_key=backup_gemini_key) 
-    query_emb_full = client.models.embed_content(
-        model="text-embedding-004", 
-        contents=query,
-        config=types.EmbedContentConfig(
-            output_dimensionality=512
-        )
+    from api.providers.embeddings import (
+        EMBEDDING_PIPELINE_VERSION,
+        build_embedding_provider,
     )
+    from api.smart_collections.config import get_smart_collection_config
 
-    if not query_emb_full.embeddings:
-        print("No embeddings returned by API")
-        return
-    
-    raw_embedding = query_emb_full.embeddings[0].values
-    query_emb = np.array(raw_embedding, dtype=np.float32)
-
-    query_norm = np.linalg.norm(query_emb)
-    if query_norm > 0:
-        query_emb = query_emb / query_norm
+    config = get_smart_collection_config()
+    query_emb = build_embedding_provider(config.embedding).embed_texts([query])[0]
 
     # getting annotation model object rankings based on cos similarity 
     # must be above threshold of 0.6 to be included in the ranking
@@ -724,11 +713,20 @@ def embedding_search_rankings(query, annot_objs):
     thresh = 0.6
     rankings = []
 
-    for annot_id, binary in annot_objs.values_list("id", "embedding_binary").iterator(chunk_size=500):
+    compatible = annot_objs.filter(
+        embedding_provider=config.embedding.provider,
+        embedding_model=config.embedding.model,
+        embedding_dimensions=config.embedding.dimensions,
+        embedding_version=EMBEDDING_PIPELINE_VERSION,
+        embedding_binary__isnull=False,
+    )
+    for annot_id, binary in compatible.values_list("id", "embedding_binary").iterator(chunk_size=500):
         if not binary:
             continue
 
         vector = np.frombuffer(binary, dtype=np.float32)
+        if vector.shape != (config.embedding.dimensions,):
+            continue
         norm = np.linalg.norm(vector)
         if norm <= 0:
             continue
@@ -1097,7 +1095,10 @@ def send_prompt(
     raise ValueError(f"Unsupported model provider: {provider}")
 
 def send_prompt_gemini(api_key, model, prompt, pdf_count=0, pdf_paths=None, chat_id=None, system_prompt=SYSTEM_PROMPT, temperature=0.7):
-    client = genai.Client(api_key=api_key)
+    client = genai.Client(
+        api_key=api_key,
+        http_options=types.HttpOptions(timeout=120_000),
+    )
 
     chat = client.chats.create(
         model=model,
@@ -1312,62 +1313,9 @@ Technical Implementation:
 
 # general function to embed all annotations that are marked to be embedded (batch)
 def embed_annotations():
+    from api.smart_collections.service import embed_pending_annotations
 
-    # getting all anots to update
-    annots_to_embed = list(models.Annotations.objects.filter(
-        needs_embedding=True  
-    ).select_related("document"))
-
-    if not annots_to_embed:
-        print("No annotations to embed.")
-        return
-    
-    print(f"embedding {len(annots_to_embed)} notes.")
-    client = genai.Client(api_key=backup_gemini_key) 
-
-    embedded_count = 0
-
-    for batch_start in range(0, len(annots_to_embed), EMBEDDING_BATCH_SIZE):
-        batch = annots_to_embed[batch_start:batch_start + EMBEDDING_BATCH_SIZE]
-        ordered_notes_content = []
-        
-        # droppping noise from annots obj, only want to embed useful stuff
-        for a in batch: 
-            title = a.document.title
-            
-            # extract sticky note text only
-            sticky_text = ""
-            data = a.sticky_note_data
-            if isinstance(data, list):
-                extracted_texts = [str(item.get("content", "")) for item in data] # type: ignore
-                sticky_text = "".join(extracted_texts)
-
-            notepad_content = a.notepad or ""
-
-            content_string = f"{title}|{sticky_text}|{notepad_content}" # formatted content string
-            ordered_notes_content.append(content_string)
-
-        result = client.models.embed_content(
-            model="text-embedding-004", 
-            contents=ordered_notes_content,
-            config=types.EmbedContentConfig(
-                output_dimensionality=512
-            )
-        )
-
-        to_update = []
-        
-        # converting embedding to binary and setting other fields
-        # not gonna use the given method on the annot model because bulk update is faster
-        # can zip bc gemini gurantees they come back in same order
-        for obj, embedding in zip(batch, result.embeddings):  # type: ignore
-            obj.embedding_binary = np.array(embedding.values, dtype=np.float32).tobytes()
-            obj.needs_embedding = False
-            to_update.append(obj)
-        
-        models.Annotations.objects.bulk_update(to_update, ['embedding_binary', 'needs_embedding'])
-        embedded_count += len(to_update)
-    
+    embedded_count = embed_pending_annotations()
     print(f"Successfully embedded {embedded_count} annotations.")
 
 # clusters embeddings into major and sub clusters for the creation of a smart collection

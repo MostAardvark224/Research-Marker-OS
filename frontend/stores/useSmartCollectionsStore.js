@@ -1,24 +1,28 @@
-// saves initializing state whenever user inits a smart collection
-
 export const useSmartCollectionsStore = defineStore(
   "smartCollectionsStore",
   () => {
-    const isInitializing = ref(false);
-    const taskId = ref(null);
+    const activeJobId = ref(null);
+    const jobStatus = ref(null);
+    const isInitializing = computed(() =>
+      ["queued", "running"].includes(jobStatus.value?.status),
+    );
 
-    function setInitializing(value) {
-      isInitializing.value = value;
+    function setJob(job) {
+      jobStatus.value = job || null;
+      activeJobId.value = job?.id || null;
     }
 
-    function setTaskId(value) {
-      taskId.value = value;
+    function clearJob() {
+      activeJobId.value = null;
+      jobStatus.value = null;
     }
 
     return {
       isInitializing,
-      taskId,
-      setInitializing,
-      setTaskId,
+      activeJobId,
+      jobStatus,
+      setJob,
+      clearJob,
     };
   },
   {

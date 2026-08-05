@@ -5,6 +5,7 @@ import hashlib
 import json
 from django.db import transaction
 import re
+import uuid
 
 class Folder(models.Model):
     name = models.CharField(max_length=255)
@@ -143,6 +144,10 @@ class Annotations(models.Model):
 
     embedding_binary = models.BinaryField(null=True, blank=True)
     needs_embedding = models.BooleanField(default=False)
+    embedding_provider = models.CharField(max_length=32, blank=True, default="")
+    embedding_model = models.CharField(max_length=128, blank=True, default="")
+    embedding_dimensions = models.PositiveIntegerField(default=0)
+    embedding_version = models.PositiveSmallIntegerField(default=0)
 
     content_hash = models.CharField(max_length=64, blank=True, default="")
 
@@ -164,7 +169,8 @@ class Annotations(models.Model):
 
         notepad_content = self.notepad or ""
 
-        content_string = f"{sticky_text}|{notepad_content}"
+        title = self.document.title if self.document_id else ""
+        content_string = f"{title}|{sticky_text}|{notepad_content}"
         return hashlib.sha256(content_string.encode('utf-8')).hexdigest()
 
     # override save to see if embedding is needed
@@ -176,7 +182,13 @@ class Annotations(models.Model):
         if new_hash != self.content_hash:
             self.content_hash = new_hash
             self.needs_embedding = True
-            
+            update_fields = kwargs.get("update_fields")
+            if update_fields is not None:
+                kwargs["update_fields"] = set(update_fields) | {
+                    "content_hash",
+                    "needs_embedding",
+                }
+
         super().save(*args, **kwargs)
 
     def set_embedding(self, float_list):
@@ -257,5 +269,53 @@ class SmartCollections(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     reading_recommendations = models.JSONField(blank=True, null=True)
     colors = models.JSONField(blank=True, null=True)
+    source_job = models.ForeignKey(
+        "SmartCollectionJob",
+        related_name="published_collections",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+    )
+
+
+class SmartCollectionJob(models.Model):
+    class Status(models.TextChoices):
+        QUEUED = "queued", "Queued"
+        RUNNING = "running", "Running"
+        COMPLETED = "completed", "Completed"
+        FAILED = "failed", "Failed"
+        CANCELLED = "cancelled", "Cancelled"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    task_id = models.CharField(max_length=64, blank=True, default="", db_index=True)
+    status = models.CharField(
+        max_length=16,
+        choices=Status.choices,
+        default=Status.QUEUED,
+        db_index=True,
+    )
+    stage = models.CharField(max_length=32, default="queued")
+    progress = models.PositiveSmallIntegerField(default=0)
+    embedding_provider = models.CharField(max_length=32)
+    embedding_model = models.CharField(max_length=128)
+    embedding_dimensions = models.PositiveIntegerField(default=512)
+    generation_provider = models.CharField(max_length=32)
+    generation_model = models.CharField(max_length=128)
+    total_items = models.PositiveIntegerField(default=0)
+    processed_items = models.PositiveIntegerField(default=0)
+    warnings = models.JSONField(default=list, blank=True)
+    error_code = models.CharField(max_length=64, blank=True, default="")
+    error_message = models.TextField(blank=True, default="")
+    cancel_requested = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(blank=True, null=True)
+    finished_at = models.DateTimeField(blank=True, null=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["status", "created_at"]),
+        ]
     
     

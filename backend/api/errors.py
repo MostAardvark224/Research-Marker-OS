@@ -67,6 +67,31 @@ class ProviderUnavailable(ResearchMarkerError):
     http_status = 503
 
 
+class EmbeddingConfigurationError(ResearchMarkerError):
+    code = "embedding_configuration_error"
+    http_status = 400
+
+
+class EmbeddingAuthenticationError(ResearchMarkerError):
+    code = "embedding_authentication_error"
+    http_status = 401
+
+
+class EmbeddingRateLimited(ResearchMarkerError):
+    code = "embedding_rate_limited"
+    http_status = 429
+
+
+class EmbeddingProviderUnavailable(ResearchMarkerError):
+    code = "embedding_provider_unavailable"
+    http_status = 503
+
+
+class EmbeddingResponseError(ResearchMarkerError):
+    code = "embedding_response_error"
+    http_status = 502
+
+
 class GenerationCancelled(ResearchMarkerError):
     code = "generation_cancelled"
 

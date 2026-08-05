@@ -30,6 +30,16 @@ def intitial_user_prefs():
                     "maximum_page_images": 4,
                     "maximum_image_bytes": 8388608
                 },
+                "smart_collections": {
+                    "embedding_provider": "gemini",
+                    "embedding_models": {
+                        "gemini": "gemini-embedding-2",
+                        "openai": "text-embedding-3-small",
+                        "custom": ""
+                    },
+                    "generation_provider": "gemini",
+                    "generation_model": "gemini-2.5-flash"
+                },
             }
         }
     }

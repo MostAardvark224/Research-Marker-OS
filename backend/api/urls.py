@@ -32,6 +32,7 @@ urlpatterns = [
          'search-notes'), 
     path('ask-ai/', views.AIChatView.as_view(), name='ask-ai'), 
     path('smart-collection/', views.SmartCollectionView.as_view(), name='smart-collection'),
+    path('smart-collection/jobs/<uuid:job_id>/', views.SmartCollectionJobView.as_view(), name='smart-collection-job'),
     path('poll-smart-collection/<str:task_id>/', views.PollSmartCollection.as_view(), name='poll-smart-collection'),
     path('reading-recommendations/', views.ReadingRecommendationsView.as_view(), name='reading-recommendations'),
     path('codex/status/', codex_views.CodexStatusView.as_view(), name='codex-status'),

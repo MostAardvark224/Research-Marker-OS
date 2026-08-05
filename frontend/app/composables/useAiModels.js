@@ -4,6 +4,7 @@ export function useAiModels() {
   } = useRuntimeConfig();
 
   const aiProviders = ref([]);
+  const embeddingProviders = ref([]);
   const aiModels = ref({});
   const selectedAiProvider = ref("gemini");
   const aiModelsLoading = ref(false);
@@ -125,6 +126,7 @@ export function useAiModels() {
         query: refresh ? { refresh: "true" } : undefined,
       });
       applyProviderCatalog(res.providers || []);
+      embeddingProviders.value = res.embedding_providers || [];
     } catch (error) {
       aiModelsError.value = error?.message || "Failed to load AI models";
       console.error("Failed to fetch AI models:", error);
@@ -149,6 +151,7 @@ export function useAiModels() {
 
   return {
     aiProviders,
+    embeddingProviders,
     aiModels,
     selectedAiProvider,
     selectedAiModel,

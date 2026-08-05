@@ -164,7 +164,12 @@ def _codex_model(request) -> str | None:
     if model:
         return model
     prefs = load_user_preferences()
-    saved = deep_get(prefs, "ai", "models", "codex", default="")
+    saved = (
+        prefs.get("user_preferences", {})
+        .get("ai", {})
+        .get("models", {})
+        .get("codex", "")
+    )
     if saved:
         return str(saved).strip() or None
     try:

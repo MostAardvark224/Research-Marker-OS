@@ -14,7 +14,7 @@ from django.db.models import Q, Max
 from django.http import FileResponse
 from django.utils.text import get_valid_filename
 from django.utils import timezone
-from django_q.tasks import async_task, fetch
+from django_q.tasks import async_task
 from rest_framework import status, viewsets
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
@@ -27,7 +27,6 @@ from api.ai import (
     AI_PROVIDER_CONFIG,
     add_message_to_chat,
     extract_pdf_pages,
-    generate_reading_recommendations,
     get_all_provider_models,
     get_provider_api_key,
     get_provider_base_url,
@@ -38,6 +37,13 @@ from api.ai import (
     send_prompt,
 )
 from api.scholar_inbox import fetch_scholar_inbox_papers
+from api.smart_collections.config import get_smart_collection_config
+from api.smart_collections.service import (
+    reconcile_stale_job,
+    regenerate_recommendations,
+    safe_failure,
+    serialize_job,
+)
 from api.user_preferences import deep_get, load_user_preferences, write_user_preferences
 from api.utils import (
     get_env_vars_potential_list,
@@ -555,7 +561,15 @@ class AIModelsView(APIView):
                 "error": None,
             }
         )
-        return Response({"providers": providers}, status=status.HTTP_200_OK)
+        from api.providers.embeddings import embedding_provider_catalog
+
+        return Response(
+            {
+                "providers": providers,
+                "embedding_providers": embedding_provider_catalog(load_env_vars()),
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class OCRProvidersView(APIView):
@@ -1148,27 +1162,88 @@ class ChatLogsViewset(viewsets.ModelViewSet):
 
 # Note: entierty of smart collection logic is in ai.py file, here Im just running & polling progress & returning finished data
 class SmartCollectionView(APIView):
-    # Running the smart collection
-    def post(self, request):  
-        # returns task id immediately, which can then be sent to the frontend for polling
-        collection = models.SmartCollections.objects.first()
-
-        if collection:
-            # reset existing collection
-            collection.is_ready = False
-            collection.save()
-        else:
-            # will create the model obj after the view is done running
-            pass
-
-        task_id = async_task(
-            'api.ai.run_smart_collection'        
+    def post(self, request):
+        active = models.SmartCollectionJob.objects.filter(
+            status__in=[
+                models.SmartCollectionJob.Status.QUEUED,
+                models.SmartCollectionJob.Status.RUNNING,
+            ]
+        ).first()
+        if active:
+            active = reconcile_stale_job(active)
+            if active.status in (
+                models.SmartCollectionJob.Status.QUEUED,
+                models.SmartCollectionJob.Status.RUNNING,
+            ):
+                return Response(
+                    {
+                        "message": "A Smart Collection update is already running.",
+                        "job": serialize_job(active),
+                        "already_running": True,
+                    },
+                    status=status.HTTP_202_ACCEPTED,
+                )
+        if not models.Annotations.objects.exists():
+            return Response(
+                {
+                    "error": "no_annotations",
+                    "message": (
+                        "Add notes or annotations to at least one paper before "
+                        "building a Smart Collection."
+                    ),
+                },
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
-
-        return Response({
-            "message": "Initialization started",
-            "task_id": task_id,
-        })
+        try:
+            config = get_smart_collection_config(
+                embedding_provider=request.data.get("embedding_provider"),
+                embedding_model=request.data.get("embedding_model"),
+                generation_provider=request.data.get("generation_provider"),
+                generation_model=request.data.get("generation_model"),
+            )
+        except Exception as exc:
+            code, message = safe_failure(exc, "preflight")
+            return Response(
+                {"error": code, "message": message},
+                status=getattr(exc, "http_status", status.HTTP_400_BAD_REQUEST),
+            )
+        job = models.SmartCollectionJob.objects.create(
+            embedding_provider=config.embedding.provider,
+            embedding_model=config.embedding.model,
+            embedding_dimensions=config.embedding.dimensions,
+            generation_provider=config.generation_provider,
+            generation_model=config.generation_model,
+            total_items=models.Annotations.objects.count(),
+        )
+        try:
+            task_id = async_task(
+                "api.smart_collections.tasks.run_smart_collection_job",
+                str(job.id),
+                hook="api.smart_collections.tasks.finalize_smart_collection_task",
+                timeout=1800,
+            )
+        except Exception as exc:
+            code, message = safe_failure(exc, "queueing")
+            job.status = models.SmartCollectionJob.Status.FAILED
+            job.stage = "failed"
+            job.error_code = code
+            job.error_message = message
+            job.finished_at = timezone.now()
+            job.save()
+            return Response(
+                {"error": code, "message": message},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        job.task_id = task_id
+        job.save(update_fields=["task_id", "updated_at"])
+        return Response(
+            {
+                "message": "Smart Collection initialization started.",
+                "job": serialize_job(job),
+                "task_id": task_id,
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
     
     
     """
@@ -1193,13 +1268,20 @@ class SmartCollectionView(APIView):
     Frontend will need to calculate geometric mean for each cluster, shouldn't be an intensive computation tho
     
     """
-    def get(self, request): 
-        # small check jsut to make sure that the object exists and tell the client if it doesn't
+    def get(self, request):
+        active = models.SmartCollectionJob.objects.filter(
+            status__in=[
+                models.SmartCollectionJob.Status.QUEUED,
+                models.SmartCollectionJob.Status.RUNNING,
+            ]
+        ).first()
+        if active:
+            active = reconcile_stale_job(active)
         smart_collection = models.SmartCollections.objects.first()
-        if smart_collection: 
+        if smart_collection and smart_collection.is_ready:
             is_ready = smart_collection.is_ready
             
-            if is_ready: 
+            if is_ready:
                 list_of_annot_objs = smart_collection.annotation_ids
                 annot_objs = models.Annotations.objects.filter(
                     pk__in = list_of_annot_objs
@@ -1222,45 +1304,94 @@ class SmartCollectionView(APIView):
 
                 colors = smart_collection.colors
 
-                return Response({"data": data, "colors": colors}, status=status.HTTP_200_OK)
-
-            else: 
-                return Response({"error": "data is not ready yet."}, status=status.HTTP_400_BAD_REQUEST)
-                
-        else: 
-            return Response({"error": "smart collection doesn't exist."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response(
+                    {
+                        "data": data,
+                        "colors": colors or {},
+                        "recommendations": smart_collection.reading_recommendations or {},
+                        "active_job": serialize_job(active) if active else None,
+                    },
+                    status=status.HTTP_200_OK,
+                )
+        return Response(
+            {
+                "data": [],
+                "colors": {},
+                "recommendations": {},
+                "active_job": serialize_job(active) if active else None,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 # polling view so that frontend can track status of collection creation
 class PollSmartCollection(APIView):
     def get(self, request, task_id):
+        if task_id == "null" or not task_id:
+            return Response({"state": "no_task", "job": None})
+        job = models.SmartCollectionJob.objects.filter(task_id=task_id).first()
+        if job is None:
+            try:
+                job = models.SmartCollectionJob.objects.get(pk=task_id)
+            except (models.SmartCollectionJob.DoesNotExist, ValueError):
+                return Response(
+                    {
+                        "state": "not_found",
+                        "job": None,
+                        "message": "This Smart Collection job no longer exists.",
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+        job = reconcile_stale_job(job)
+        state_map = {
+            models.SmartCollectionJob.Status.QUEUED: "queued",
+            models.SmartCollectionJob.Status.RUNNING: "running",
+            models.SmartCollectionJob.Status.COMPLETED: "success",
+            models.SmartCollectionJob.Status.FAILED: "failed",
+            models.SmartCollectionJob.Status.CANCELLED: "cancelled",
+        }
+        return Response({"state": state_map[job.status], "job": serialize_job(job)})
 
-        if task_id == "null" or not task_id: 
-            return Response({"state": "no task"})
 
+class SmartCollectionJobView(APIView):
+    def get(self, request, job_id):
+        try:
+            job = models.SmartCollectionJob.objects.get(pk=job_id)
+        except models.SmartCollectionJob.DoesNotExist:
+            return Response(
+                {"error": "job_not_found", "message": "Smart Collection job not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response({"job": serialize_job(reconcile_stale_job(job))})
 
-        task = fetch(task_id)  
-
-        if task:
-            if task.success: 
-                return Response({"state": "success"})
-            else: 
-                return Response({"state": "failed"})
-
-        else:
-            return Response({"state": "queued"})
+    def delete(self, request, job_id):
+        try:
+            job = models.SmartCollectionJob.objects.get(pk=job_id)
+        except models.SmartCollectionJob.DoesNotExist:
+            return Response(
+                {"error": "job_not_found", "message": "Smart Collection job not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if job.status not in (
+            models.SmartCollectionJob.Status.QUEUED,
+            models.SmartCollectionJob.Status.RUNNING,
+        ):
+            return Response({"job": serialize_job(job)})
+        job.cancel_requested = True
+        job.save(update_fields=["cancel_requested", "updated_at"])
+        return Response({"job": serialize_job(job)}, status=status.HTTP_202_ACCEPTED)
 
 
 class ReadingRecommendationsView(APIView):
     def get(self, request): 
         
         sc_obj = models.SmartCollections.objects.first() 
-        if not sc_obj: 
-            return Response({"error": "failed generating recommendations"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
+        if not sc_obj:
+            return Response({"recommendations": {}}, status=status.HTTP_200_OK)
             
         recs = sc_obj.reading_recommendations # already in JSON
 
-        if not recs: 
-            return Response({"error": "failed generating recommendations"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
+        if not recs:
+            return Response({"recommendations": {}}, status=status.HTTP_200_OK)
         
         # NOTE to self: format display on frontend
 
@@ -1268,27 +1399,12 @@ class ReadingRecommendationsView(APIView):
     
     # regeneration in case user doesn't like or something goes wrong
     def post(self, request): 
-        sc_obj = models.SmartCollections.objects.first() 
-
-        if not sc_obj: 
-            return Response({"error": "failed generating recommendations"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
-        
-
-        if sc_obj.annotation_ids: 
-            recs = generate_reading_recommendations(sc_obj.annotation_ids)
-
-            if not recs:
-                return Response(
-                    {"error": "failed generating recommendations"},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                )
-
-            sc_obj.reading_recommendations = recs
-            sc_obj.save(
-                update_fields=["reading_recommendations"]
+        try:
+            recs = regenerate_recommendations(get_smart_collection_config())
+            return Response({"recommendations": recs}, status=status.HTTP_200_OK)
+        except Exception as exc:
+            code, message = safe_failure(exc, "recommendations")
+            return Response(
+                {"error": code, "message": message},
+                status=getattr(exc, "http_status", status.HTTP_502_BAD_GATEWAY),
             )
-
-            return Response(status=status.HTTP_200_OK)
-
-        else: 
-            return Response({"error": "failed generating recommendations"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR) 
