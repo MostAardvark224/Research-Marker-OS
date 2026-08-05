@@ -521,8 +521,16 @@ const handleAnnotationClick = async (event, annotation) => {
   }
 };
 
+// Prevent placing a new sticky when a drag ends on the page
+let suppressNextLayerClick = false;
+
 // Sticky Note Events
 const handleLayerClick = async (event, pageNum) => {
+  if (suppressNextLayerClick) {
+    suppressNextLayerClick = false;
+    return;
+  }
+
   if (activeStickyNoteId.value !== null) {
     activeStickyNoteId.value = null;
   }
@@ -617,11 +625,13 @@ const renderStickyNote = (note, textLayerElement) => {
   iconDiv.style.width = "36px";
   iconDiv.style.height = "36px";
   iconDiv.style.transform = "translate(-50%, -50%)";
-  iconDiv.style.cursor = "pointer";
+  iconDiv.style.cursor = "grab";
   iconDiv.style.pointerEvents = "auto";
   iconDiv.style.zIndex = "20";
+  iconDiv.style.touchAction = "none";
   iconDiv.style.filter =
     "drop-shadow(0 4px 3px rgb(0 0 0 / 0.07)) drop-shadow(0 2px 2px rgb(0 0 0 / 0.06))";
+  iconDiv.title = "Drag to move";
 
   // svg icon
   iconDiv.innerHTML = `
@@ -638,8 +648,115 @@ const renderStickyNote = (note, textLayerElement) => {
         </svg>
     `;
 
-  iconDiv.addEventListener("click", (e) => handleAnnotationClick(e, note));
+  iconDiv.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+
+    if (activeTool.value === "deleteAnnotation") {
+      handleAnnotationClick(e, note);
+      return;
+    }
+
+    startStickyNoteDrag(e, note, iconDiv);
+  });
   textLayerElement.appendChild(iconDiv);
+};
+
+const startStickyNoteDrag = (event, note, iconDiv) => {
+  const textLayer = textLayerRefs.value[note.page - 1];
+  if (!textLayer) return;
+
+  const originX = note.x;
+  const originY = note.y;
+  let latestX = originX;
+  let latestY = originY;
+  let didMove = false;
+
+  const scale = zoomLevel.value / 100;
+  const startClientX = event.clientX;
+  const startClientY = event.clientY;
+
+  iconDiv.style.cursor = "grabbing";
+  iconDiv.style.zIndex = "50";
+  document.body.style.userSelect = "none";
+  document.body.style.cursor = "grabbing";
+
+  const setIconPosition = (x, y) => {
+    iconDiv.style.left = `calc(${x}px * var(--scale-factor))`;
+    iconDiv.style.top = `calc(${y}px * var(--scale-factor))`;
+  };
+
+  const isOutsidePage = (clientX, clientY) => {
+    const rect = textLayer.getBoundingClientRect();
+    return (
+      clientX < rect.left ||
+      clientX > rect.right ||
+      clientY < rect.top ||
+      clientY > rect.bottom
+    );
+  };
+
+  const onMove = (e) => {
+    if (
+      !didMove &&
+      (Math.abs(e.clientX - startClientX) > 4 ||
+        Math.abs(e.clientY - startClientY) > 4)
+    ) {
+      didMove = true;
+    }
+
+    const rect = textLayer.getBoundingClientRect();
+    latestX = (e.clientX - rect.left) / scale;
+    latestY = (e.clientY - rect.top) / scale;
+    setIconPosition(latestX, latestY);
+    iconDiv.style.opacity = isOutsidePage(e.clientX, e.clientY) ? "0.4" : "1";
+  };
+
+  const cleanup = () => {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    window.removeEventListener("pointercancel", onUp);
+    iconDiv.style.cursor = "grab";
+    iconDiv.style.zIndex = "20";
+    iconDiv.style.opacity = "1";
+    document.body.style.userSelect = "";
+    document.body.style.cursor = "";
+  };
+
+  const onUp = async (e) => {
+    cleanup();
+
+    if (!didMove) {
+      setIconPosition(originX, originY);
+      activeStickyNoteId.value = note.id;
+      changeSidebarTab("stickyNotes");
+      if (!isSidebarOpen.value) isSidebarOpen.value = true;
+      return;
+    }
+
+    suppressNextLayerClick = true;
+
+    if (isOutsidePage(e.clientX, e.clientY)) {
+      setIconPosition(originX, originY);
+      return;
+    }
+
+    const stored = stickyNoteData.value.find((s) => s.id === note.id);
+    if (stored) {
+      stored.x = latestX;
+      stored.y = latestY;
+    }
+    note.x = latestX;
+    note.y = latestY;
+    setIconPosition(latestX, latestY);
+
+    await saveAnnotationsToBackend();
+  };
+
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
+  window.addEventListener("pointercancel", onUp);
 };
 
 // undo/redo functions
@@ -783,6 +900,7 @@ function changeActiveTool(newToolButton) {
 const sidebarActiveTab = ref("stickyNotes");
 const sidebarTabs = [
   { id: "stickyNotes", label: "Sticky Notes", icon: "ph:note" },
+  { id: "highlights", label: "Highlights", icon: "ph:highlighter" },
   { id: "notepad", label: "Notepad", icon: "ph:notebook" },
   { id: "chat", label: "Chat", icon: "ph:chat-circle-dots" },
   { id: "ocr", label: "OCR", icon: "ph:text-aa" },
@@ -793,6 +911,15 @@ function changeSidebarTab(tabName) {
 }
 const activeSidebarTabLabel = computed(
   () => sidebarTabs.find((t) => t.id === sidebarActiveTab.value)?.label ?? "",
+);
+const activeHighlightId = ref(null);
+const highlightsByPage = computed(() =>
+  [...savedHighlights.value].sort((a, b) => {
+    if (a.page !== b.page) return a.page - b.page;
+    const ay = a.rects?.[0]?.y ?? 0;
+    const by = b.rects?.[0]?.y ?? 0;
+    return ay - by;
+  }),
 );
 
 // Sidebar font size (scales content proportionally; headers stay larger than body)
@@ -1266,10 +1393,19 @@ watch(
 
 const focusStickyNote = (noteId) => {
   const note = stickyNoteData.value.find((n) => n.id === noteId);
-  if (note) {
-    scrollToPage(note.page);
-    activeStickyNoteId.value = noteId;
-  }
+  if (!note) return;
+  activeStickyNoteId.value = noteId;
+  activeHighlightId.value = null;
+  scrollToPagePosition(note.page, note.y);
+};
+
+const focusHighlight = (highlightId) => {
+  const highlight = savedHighlights.value.find((h) => h.id === highlightId);
+  if (!highlight) return;
+  activeHighlightId.value = highlightId;
+  activeStickyNoteId.value = null;
+  const y = highlight.rects?.[0]?.y ?? 0;
+  scrollToPagePosition(highlight.page, y);
 };
 
 const deleteStickyNote = async (noteId) => {
@@ -1363,19 +1499,56 @@ const handleZoomInput = () => {
 };
 
 const scrollToPage = (pageNumber) => {
+  scrollToPagePosition(pageNumber, 0, { align: "start" });
+};
+
+// Scroll so a specific unscaled page Y (sticky/highlight) lands in view
+const scrollToPagePosition = (pageNumber, yUnscaled = 0, options = {}) => {
   if (pageNumber < 1 || pageNumber > totalPages.value) return;
-  const el = pageContainerRefs.value[pageNumber - 1];
-  if (el) {
-    isManualScrolling.value = true;
-    el.scrollIntoView({ behavior: "smooth", block: "start" });
-    currentPage.value = pageNumber;
-    queuePageRender(pageNumber, true);
-    processRenderQueue();
-    setTimeout(() => {
-      isManualScrolling.value = false;
-      cleanupRenderedPages();
-    }, 1000);
-  }
+  const pageEl = pageContainerRefs.value[pageNumber - 1];
+  const scroller = mainScrollContainer.value;
+  if (!pageEl || !scroller) return;
+
+  const scale = zoomLevel.value / 100;
+  const yScaled = Math.max(0, (yUnscaled || 0) * scale);
+  const align = options.align || "center";
+
+  isManualScrolling.value = true;
+  currentPage.value = pageNumber;
+  queuePageRender(pageNumber, true);
+  processRenderQueue();
+
+  const applyScroll = () => {
+    const scrollerRect = scroller.getBoundingClientRect();
+    const pageRect = pageEl.getBoundingClientRect();
+    const absoluteTop =
+      scroller.scrollTop + (pageRect.top - scrollerRect.top) + yScaled;
+
+    let targetTop;
+    if (align === "start") {
+      targetTop = absoluteTop - 16;
+    } else {
+      // Keep the annotation roughly in the upper-middle of the viewport
+      targetTop = absoluteTop - scroller.clientHeight * 0.35;
+    }
+
+    scroller.scrollTo({
+      top: Math.max(0, targetTop),
+      behavior: "smooth",
+    });
+  };
+
+  // Wait a frame so page layout/render can settle when jumping far
+  requestAnimationFrame(() => {
+    applyScroll();
+    // Retry once after render for pages that weren't laid out yet
+    setTimeout(applyScroll, 120);
+  });
+
+  setTimeout(() => {
+    isManualScrolling.value = false;
+    cleanupRenderedPages();
+  }, 1000);
 };
 
 const changePage = (diff) => {
@@ -2366,6 +2539,46 @@ watch(currentPage, () => {
             </div>
           </div>
         </div>
+
+        <!-- Highlights Tab -->
+        <div
+          v-show="sidebarActiveTab === 'highlights'"
+          class="flex-1 p-4 flex flex-col overflow-y-auto gap-2"
+        >
+          <div
+            v-if="highlightsByPage.length === 0"
+            class="flex flex-col items-center justify-center h-32 text-slate-600"
+          >
+            <span class="text-sm italic opacity-50"
+              >Select text to highlight</span
+            >
+          </div>
+
+          <button
+            v-for="highlight in highlightsByPage"
+            :key="highlight.id"
+            type="button"
+            class="w-full text-left bg-slate-800 p-3 rounded border border-slate-700 hover:border-slate-600 transition-colors"
+            :class="{
+              'ring-2 ring-indigo-500': activeHighlightId === highlight.id,
+            }"
+            @click="focusHighlight(highlight.id)"
+          >
+            <div class="flex items-center gap-2 mb-2">
+              <div
+                class="w-2.5 h-2.5 rounded-sm shrink-0"
+                :style="{ backgroundColor: highlight.color }"
+              ></div>
+              <span class="text-xs text-slate-400"
+                >Page {{ highlight.page }}</span
+              >
+            </div>
+            <p class="text-sm text-slate-300 leading-relaxed line-clamp-4">
+              {{ highlight.text?.trim() || "Empty highlight" }}
+            </p>
+          </button>
+        </div>
+
         <div
           v-show="sidebarActiveTab === 'notepad'"
           class="flex-1 flex flex-col h-full overflow-hidden"
@@ -2898,6 +3111,21 @@ watch(currentPage, () => {
 .hide-annotations :deep(.custom-highlight),
 .hide-annotations :deep(.sticky-note-icon) {
   display: none !important;
+}
+
+:deep(.sticky-note-icon) {
+  cursor: grab;
+  transition: opacity 120ms ease;
+}
+
+:deep(.sticky-note-icon:hover) {
+  filter: brightness(1.08)
+    drop-shadow(0 4px 3px rgb(0 0 0 / 0.12))
+    drop-shadow(0 2px 2px rgb(0 0 0 / 0.1));
+}
+
+:deep(.sticky-note-icon:active) {
+  cursor: grabbing;
 }
 
 :deep(.textLayer span) {

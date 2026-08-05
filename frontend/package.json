@@ -88,7 +88,8 @@
     "publish": {
       "provider": "github",
       "owner": "MostAardvark224",
-      "repo": "Research-Marker-OS"
+      "repo": "Research-Marker-OS",
+      "releaseType": "release"
     },
     "directories": {
       "output": "dist_electron"
