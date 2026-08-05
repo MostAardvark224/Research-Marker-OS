@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { app, BrowserWindow, ipcMain, shell } = require("electron");
 const path = require("path");
 const { spawn } = require("child_process");
 const { autoUpdater } = require("electron-updater");
@@ -338,6 +338,25 @@ function createWindow() {
 
 ipcMain.handle("get-api-port", () => {
   return apiPort;
+});
+
+ipcMain.handle("codex:open-auth-url", async (_event, rawUrl) => {
+  let parsed;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return { ok: false, reason: "Invalid authentication URL." };
+  }
+  const allowedHost =
+    parsed.hostname === "openai.com" ||
+    parsed.hostname.endsWith(".openai.com") ||
+    parsed.hostname === "chatgpt.com" ||
+    parsed.hostname.endsWith(".chatgpt.com");
+  if (parsed.protocol !== "https:" || !allowedHost) {
+    return { ok: false, reason: "Authentication URL is not allowlisted." };
+  }
+  await shell.openExternal(parsed.toString());
+  return { ok: true };
 });
 
 ipcMain.handle("updater:get-status", () => {

@@ -39,6 +39,14 @@ export function useAiModels() {
     const provider = selectedProvider.value;
     if (!provider) return null;
 
+    if (provider.id === "codex") {
+      if (provider.ready) return null;
+      return (
+        provider.status?.message ||
+        "Connect your ChatGPT account in Settings → Models before using Codex."
+      );
+    }
+
     if (provider.id === "custom") {
       if (!provider.has_api_key) {
         return "Add your Custom Server base URL in Settings → General.";
@@ -60,6 +68,13 @@ export function useAiModels() {
   });
 
   const selectedProviderHasModels = computed(() => {
+    if (selectedProvider.value?.id === "codex") {
+      if (!selectedProvider.value.ready) return false;
+      if (selectedProviderModels.value.length > 0) {
+        return Boolean(selectedAiModel.value?.trim());
+      }
+      return true;
+    }
     if (!selectedProvider.value?.has_api_key) return false;
     if (selectedProviderModels.value.length > 0) {
       return Boolean(selectedAiModel.value?.trim());

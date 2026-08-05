@@ -78,6 +78,33 @@
 
         <div class="flex-1 overflow-y-auto p-6 custom-scrollbar">
           <div v-if="activeTab === 'general'" class="space-y-6 max-w-2xl">
+            <div class="p-4 rounded-xl border border-white/10 bg-white/[0.02] space-y-3">
+              <div class="flex items-center justify-between gap-3">
+                <label class="block font-mono text-xs text-indigo-300">
+                  Paper context cache
+                </label>
+              </div>
+              <p class="text-[11px] leading-relaxed text-slate-500">
+                Clears locally generated page images, OCR cache, extracted text, and search
+                chunks. Your PDFs, annotations, and chat history are kept. Context rebuilds when
+                you open a paper again.
+              </p>
+              <button
+                @click="clearPaperContext"
+                :disabled="paperContextClearing"
+                class="px-3 py-1.5 rounded-lg text-xs bg-white/5 text-slate-300 border border-white/10 hover:bg-white/10 disabled:opacity-50"
+              >
+                {{ paperContextClearing ? "Clearing…" : "Clear paper context" }}
+              </button>
+              <p
+                v-if="paperContextMessage"
+                class="text-[11px]"
+                :class="paperContextError ? 'text-red-300' : 'text-emerald-300'"
+              >
+                {{ paperContextMessage }}
+              </p>
+            </div>
+
             <div
               class="p-3 rounded-lg border border-indigo-500/20 bg-indigo-500/5 mb-4"
             >
@@ -368,7 +395,7 @@
               >
                 <div class="flex items-center justify-between gap-3">
                   <label class="block font-mono text-xs text-indigo-300">
-                    {{ provider.label }} Model
+                    {{ provider.id === "codex" ? "Codex connection" : `${provider.label} Model` }}
                   </label>
                   <span
                     v-if="provider.error"
@@ -378,29 +405,111 @@
                     {{ provider.error }}
                   </span>
                 </div>
-                <select
-                  v-if="provider.models?.length"
-                  v-model="aiModels[provider.id]"
-                  class="w-full bg-[#0A0A0C] border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 outline-none"
-                >
-                  <option
-                    v-for="model in provider.models"
-                    :key="model"
-                    :value="model"
+                <div v-if="provider.id === 'codex'" class="space-y-3">
+                  <div class="flex items-center gap-2 text-xs">
+                    <span
+                      class="h-2 w-2 rounded-full"
+                      :class="codexStatus.subscription_usable ? 'bg-emerald-400' : codexStatus.state === 'runtime_error' ? 'bg-red-400' : 'bg-amber-400'"
+                    />
+                    <span class="text-slate-300">{{ codexStatusLabel }}</span>
+                    <span v-if="codexStatus.plan_type" class="text-slate-500">
+                      · {{ codexStatus.plan_type }}
+                    </span>
+                  </div>
+                  <p v-if="codexStatus.message" class="text-xs text-amber-300/90">
+                    {{ codexStatus.message }}
+                  </p>
+                  <p v-if="codexLogin.user_code" class="rounded-lg bg-black/30 px-3 py-2 text-xs text-slate-300">
+                    Device code:
+                    <strong class="ml-1 font-mono tracking-widest text-white">{{ codexLogin.user_code }}</strong>
+                  </p>
+                  <div v-if="codexRateLimits" class="text-[11px] text-slate-400">
+                    <template v-if="codexRateLimits.rateLimits?.primary">
+                      {{ codexRateLimits.rateLimits.primary.usedPercent }}% of the current
+                      Codex window used
+                    </template>
+                    <template v-else>Rate-limit details are not currently available.</template>
+                  </div>
+                  <div class="flex flex-wrap gap-2">
+                    <button
+                      v-if="!codexStatus.subscription_usable"
+                      @click="startCodexLogin('browser')"
+                      :disabled="codexBusy"
+                      class="px-3 py-1.5 rounded-lg text-xs bg-indigo-500/20 text-indigo-200 border border-indigo-500/30 disabled:opacity-50"
+                    >
+                      Sign in with ChatGPT
+                    </button>
+                    <button
+                      v-if="!codexStatus.subscription_usable"
+                      @click="startCodexLogin('device_code')"
+                      :disabled="codexBusy"
+                      class="px-3 py-1.5 rounded-lg text-xs bg-white/5 text-slate-300 border border-white/10 disabled:opacity-50"
+                    >
+                      Use device code
+                    </button>
+                    <button
+                      @click="refreshCodexStatus(true)"
+                      :disabled="codexBusy"
+                      class="px-3 py-1.5 rounded-lg text-xs bg-white/5 text-slate-300 border border-white/10 disabled:opacity-50"
+                    >
+                      Restart Codex
+                    </button>
+                    <button
+                      v-if="codexStatus.subscription_usable"
+                      @click="logoutCodex"
+                      :disabled="codexBusy"
+                      class="px-3 py-1.5 rounded-lg text-xs bg-white/5 text-slate-300 border border-white/10 disabled:opacity-50"
+                    >
+                      Sign out
+                    </button>
+                  </div>
+                  <p class="text-[11px] leading-relaxed text-slate-500">
+                    Codex credentials are managed by Codex. Research Marker does not read or
+                    store your ChatGPT tokens.
+                  </p>
+                  <div v-if="codexStatus.subscription_usable && provider.models?.length" class="space-y-2">
+                    <label class="block font-mono text-xs text-indigo-300">
+                      Codex model
+                    </label>
+                    <select
+                      v-model="aiModels.codex"
+                      class="w-full bg-[#0A0A0C] border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 outline-none"
+                    >
+                      <option
+                        v-for="model in provider.models"
+                        :key="model"
+                        :value="model"
+                      >
+                        {{ model }}
+                      </option>
+                    </select>
+                  </div>
+                </div>
+                <template v-else>
+                  <select
+                    v-if="provider.models?.length"
+                    v-model="aiModels[provider.id]"
+                    class="w-full bg-[#0A0A0C] border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 outline-none"
                   >
-                    {{ model }}
-                  </option>
-                </select>
-                <input
-                  v-model="aiModels[provider.id]"
-                  class="w-full bg-[#0A0A0C] border border-white/10 rounded-lg px-4 py-2 text-xs text-slate-300 placeholder-slate-700 focus:border-indigo-500/50 outline-none font-mono"
-                  :placeholder="
-                    provider.id === 'custom'
-                      ? 'Model id your server expects (e.g. llama3.2)...'
-                      : `Custom ${provider.label} model id...`
-                  "
-                  spellcheck="false"
-                />
+                    <option
+                      v-for="model in provider.models"
+                      :key="model"
+                      :value="model"
+                    >
+                      {{ model }}
+                    </option>
+                  </select>
+                  <input
+                    v-model="aiModels[provider.id]"
+                    class="w-full bg-[#0A0A0C] border border-white/10 rounded-lg px-4 py-2 text-xs text-slate-300 placeholder-slate-700 focus:border-indigo-500/50 outline-none font-mono"
+                    :placeholder="
+                      provider.id === 'custom'
+                        ? 'Model id your server expects (e.g. llama3.2)...'
+                        : `Custom ${provider.label} model id...`
+                    "
+                    spellcheck="false"
+                  />
+                </template>
               </div>
             </div>
           </div>
@@ -464,6 +573,151 @@ const tabs = [
   { id: "scholar", label: "Scholar Inbox", icon: "uil:envelope-alt" },
   { id: "ai", label: "AI Preferences", icon: "uil:robot" },
 ];
+
+const codexStatus = ref({ state: "not_connected" });
+const codexRateLimits = ref(null);
+const codexLogin = ref({});
+const codexBusy = ref(false);
+const paperContextClearing = ref(false);
+const paperContextMessage = ref("");
+const paperContextError = ref(false);
+let codexStatusPoll = null;
+
+const codexStatusLabel = computed(() => {
+  const labels = {
+    not_installed: "Not installed",
+    not_connected: "Runtime stopped",
+    authentication_required: "Sign-in required",
+    authentication_expired: "Authentication expired",
+    api_key_mode: "API-key mode blocked",
+    runtime_error: "Runtime error",
+    connected: codexStatus.value.subscription_usable
+      ? `Connected${codexStatus.value.email ? ` as ${codexStatus.value.email}` : ""}`
+      : "Runtime connected",
+  };
+  return labels[codexStatus.value.state] || "Checking Codex";
+});
+
+async function openCodexAuthUrl(url) {
+  if (!url) return;
+  if (window.electronAPI?.openCodexAuthUrl) {
+    const result = await window.electronAPI.openCodexAuthUrl(url);
+    if (!result?.ok) throw new Error(result?.reason || "Could not open sign-in page.");
+    return;
+  }
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
+async function loadCodexRateLimits() {
+  if (!codexStatus.value.subscription_usable) {
+    codexRateLimits.value = null;
+    return;
+  }
+  try {
+    const response = await $fetch(`${apiBaseURL}/codex/rate-limits/`);
+    codexRateLimits.value = response.rate_limits;
+  } catch {
+    codexRateLimits.value = null;
+  }
+}
+
+async function refreshCodexStatus(restart = false) {
+  codexBusy.value = true;
+  try {
+    codexStatus.value = await $fetch(`${apiBaseURL}/codex/status/`, {
+      method: restart ? "POST" : "GET",
+      body: restart ? { action: "restart" } : undefined,
+    });
+    if (codexStatus.value.subscription_usable) {
+      codexLogin.value = {};
+      if (codexStatusPoll) {
+        clearInterval(codexStatusPoll);
+        codexStatusPoll = null;
+      }
+      await loadCodexRateLimits();
+      await fetchAiModels();
+    }
+  } catch (error) {
+    codexStatus.value = {
+      state: "runtime_error",
+      message: error?.data?.message || error?.message || "Codex is unavailable.",
+    };
+  } finally {
+    codexBusy.value = false;
+  }
+}
+
+async function startCodexLogin(mode) {
+  codexBusy.value = true;
+  try {
+    const status = await $fetch(`${apiBaseURL}/codex/status/`, {
+      method: "POST",
+      body: { action: "connect" },
+    });
+    codexStatus.value = status;
+    if (status.state === "not_installed") {
+      throw new Error(
+        status.message ||
+          "Codex is not installed. Run `pip install -r requirements.txt` in the backend folder and restart.",
+      );
+    }
+    const response = await $fetch(`${apiBaseURL}/codex/login/`, {
+      method: "POST",
+      body: { mode },
+    });
+    codexLogin.value = response;
+    await openCodexAuthUrl(response.auth_url || response.verification_url);
+    if (codexStatusPoll) clearInterval(codexStatusPoll);
+    codexStatusPoll = setInterval(() => refreshCodexStatus(), 1500);
+  } catch (error) {
+    codexStatus.value = {
+      state: "runtime_error",
+      message: error?.data?.message || error?.message || "Codex sign-in could not start.",
+    };
+  } finally {
+    codexBusy.value = false;
+  }
+}
+
+async function logoutCodex() {
+  codexBusy.value = true;
+  try {
+    await $fetch(`${apiBaseURL}/codex/logout/`, { method: "POST" });
+    codexLogin.value = {};
+    codexRateLimits.value = null;
+    await refreshCodexStatus();
+    await fetchAiModels();
+  } finally {
+    codexBusy.value = false;
+  }
+}
+
+async function clearPaperContext() {
+  if (
+    !confirm(
+      "Clear all locally cached paper context? Page images and extracted text will be removed and rebuilt when you open papers again.",
+    )
+  ) {
+    return;
+  }
+
+  paperContextClearing.value = true;
+  paperContextMessage.value = "";
+  paperContextError.value = false;
+  try {
+    const result = await $fetch(`${apiBaseURL}/paper-context/clear/`, {
+      method: "POST",
+      body: { include_ai_sessions: true },
+    });
+    paperContextMessage.value = `Cleared ${result.pages_removed || 0} cached pages and ${result.chunks_removed || 0} search chunks.`;
+  } catch (error) {
+    paperContextError.value = true;
+    paperContextMessage.value =
+      error?.data?.message || error?.message || "Could not clear paper context.";
+  } finally {
+    paperContextClearing.value = false;
+  }
+}
 
 const appVersionLabel = computed(
   () => updateState.value.currentVersion || "…",
@@ -664,10 +918,12 @@ onMounted(async () => {
   loadEnvVars();
   loadUserPreferences();
   await initializeAiModels();
+  await refreshCodexStatus();
 });
 
 onUnmounted(() => {
   teardownUpdater();
+  if (codexStatusPoll) clearInterval(codexStatusPoll);
 });
 
 async function saveSettings() {

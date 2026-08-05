@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("electronAPI", {
   getApiPort: () => ipcRenderer.invoke("get-api-port"),
+  openCodexAuthUrl: (url) => ipcRenderer.invoke("codex:open-auth-url", url),
   getAppVersion: () => ipcRenderer.invoke("updater:get-version"),
   getUpdateStatus: () => ipcRenderer.invoke("updater:get-status"),
   checkForUpdates: () => ipcRenderer.invoke("updater:check"),

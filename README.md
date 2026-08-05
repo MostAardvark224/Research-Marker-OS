@@ -61,6 +61,7 @@ Modern research is fragmented: PDFs in local folders, citations in browser tabs,
 
 ### 🤖 Chat With Your Research
 *   **Bring your favorite AI:** Connect your own API keys to use Claude, ChatGPT, Gemini, or OpenRouter—you are never locked into a single model.
+*   **Chat with Codex:** Sign in with ChatGPT and use the embedded Codex runtime for streaming, paper-grounded answers without adding an API key.
 *   **Talk to a single paper or your whole library:** Ask questions about the document in front of you, or zoom out and ask questions across every paper you have ever imported.
 *   **Targeted context:** Use intuitive `@` tags (like `@page`, `@highlights`, or `@paper`) to point the AI to the exact paragraphs or notes you want it to focus on.
 *   **Grounded answers:** The AI is tuned to act as a research assistant, answering your questions by citing your actual sources and notes.
@@ -79,3 +80,14 @@ Modern research is fragmented: PDFs in local folders, citations in browser tabs,
 *   **Your data stays on your machine:** Research Marker is a true desktop app for Mac, Windows, and Linux. Your papers, reading history, notes, and API keys are stored locally on your computer—not on a cloud server.
 *   **Works offline:** Read, annotate, and organize your library anywhere, whether you have an internet connection or not.
 *   **Always up to date:** Seamless background updates ensure you always have the latest tools and improvements without disrupting your workflow.
+
+## Codex paper chat
+
+The desktop build bundles the official `openai-codex` SDK and its pinned app-server runtime.
+
+1. Open **Settings → AI Preferences**.
+2. Under **Codex connection**, choose browser sign-in or device-code sign-in.
+3. Select Codex in a paper's Chat sidebar.
+4. Ask normally, or use `@page 4`, `@pages 4-7`, `@current`, or `@selection`.
+
+Paper extraction and retrieval stay local. Each turn sends Codex only its bounded text and page-image context. Codex credentials remain managed by Codex. See the [user guide](docs/codex-paper-chat.md) and [developer notes](docs/codex-paper-context-development.md).

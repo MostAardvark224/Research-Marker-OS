@@ -10,7 +10,7 @@ def intitial_user_prefs():
             "general": {},
             "scholar_inbox": {
             "auto_import": False,
-            "last_import_date": null,
+            "last_import_date": None,
             "amount_to_import": 0
             },
             "ai": {
@@ -20,8 +20,16 @@ def intitial_user_prefs():
                     "claude": "claude-sonnet-4-5",
                     "openai": "gpt-5.1",
                     "openrouter": "openai/gpt-5.1",
-                    "custom": ""
-                }
+                    "custom": "",
+                    "codex": ""
+                },
+                "context_limits": {
+                    "maximum_explicit_pages": 20,
+                    "maximum_retrieved_chunks": 6,
+                    "maximum_text_characters": 48000,
+                    "maximum_page_images": 4,
+                    "maximum_image_bytes": 8388608
+                },
             }
         }
     }

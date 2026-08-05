@@ -21,6 +21,8 @@ class ApiConfig(AppConfig):
     name = 'api'
 
     def ready(self):
+        from api.paper_context import signals as _paper_context_signals  # noqa: F401
+
         # Skip the parent process during `manage.py runserver` autoreload only.
         if "runserver" in sys.argv and os.environ.get("RUN_MAIN") != "true":
             return

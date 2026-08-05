@@ -15,6 +15,7 @@ from typing import Any
 import fitz
 import requests
 from django.utils import timezone
+from django_q.tasks import async_task
 
 from api.paddle_ocr_engine import PaddleOCREngineError, run_paddle_ocr_on_image
 from api.utils import load_env_vars
@@ -58,6 +59,13 @@ OCR_PROVIDER_CONFIG: dict[str, dict[str, Any]] = {
 
 class OCRError(Exception):
     pass
+
+
+def _queue_context_ingestion(document) -> None:
+    document.context_status = "queued"
+    document.context_error = ""
+    document.save(update_fields=["context_status", "context_error"])
+    async_task("api.paper_context.ingestion.ingest_document", document.pk)
 
 
 def normalize_ocr_provider(provider: str | None) -> str:
@@ -410,6 +418,7 @@ def create_searchable_document_pdf(document_id: int, provider: str | None = None
         document.ocr_error = error_message[:2000]
         document.ocr_completed_at = timezone.now()
         document.save(update_fields=["ocr_status", "ocr_error", "ocr_completed_at"])
+        _queue_context_ingestion(document)
         return "failed"
     except Exception as exc:
         error_message = str(exc) or exc.__class__.__name__
@@ -418,6 +427,7 @@ def create_searchable_document_pdf(document_id: int, provider: str | None = None
         document.ocr_error = error_message[:2000]
         document.ocr_completed_at = timezone.now()
         document.save(update_fields=["ocr_status", "ocr_error", "ocr_completed_at"])
+        _queue_context_ingestion(document)
         return "failed"
 
     document.searchable = True
@@ -425,4 +435,5 @@ def create_searchable_document_pdf(document_id: int, provider: str | None = None
     document.ocr_error = ""
     document.ocr_completed_at = timezone.now()
     document.save(update_fields=["searchable", "ocr_status", "ocr_error", "ocr_completed_at"])
+    _queue_context_ingestion(document)
     return "success"

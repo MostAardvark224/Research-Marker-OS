@@ -356,7 +356,16 @@ const handleTextSelection = async () => {
   // Always capture selection for @selection chat context
   const selectionRaw = window.getSelection();
   const selText = selectionRaw?.toString().trim();
-  if (selText) capturedSelection.value = selText;
+  if (selText && selectionRaw.rangeCount) {
+    capturedSelection.value = selText;
+    let selectionContainer = selectionRaw.getRangeAt(0).commonAncestorContainer;
+    while (selectionContainer && !selectionContainer.classList?.contains("textLayer")) {
+      selectionContainer = selectionContainer.parentNode;
+    }
+    capturedSelectionPage.value = selectionContainer
+      ? parseInt(selectionContainer.getAttribute("data-page-number"), 10)
+      : currentPage.value;
+  }
 
   if (activeTool.value !== "highlighter") return;
 
@@ -836,6 +845,7 @@ const chatMirrorRef = ref(null);
 const showAtMenu = ref(false);
 const chatScrollContainer = ref(null);
 const capturedSelection = ref("");
+const capturedSelectionPage = ref(null);
 const showChatHistory = ref(false);
 const savedChats = ref([]);
 const isDeletingChat = ref(false);
@@ -851,14 +861,23 @@ const {
   initializeAiModels,
 } = useAiModels();
 
-const atMenuOptions = [
-  { tag: "@page", label: "Current Page", desc: "Send this page's PDF to the model", icon: "ph:book-open" },
+const paperContextMenuOptions = [
+  { tag: "@page", label: "Current Page", desc: "Use the visible page", icon: "ph:book-open" },
+  { tag: "@pages", label: "Page Range", desc: "Add pages, e.g. @pages 2, 5-7", icon: "ph:books" },
+  { tag: "@current", label: "Current Context", desc: "Use the current reader page", icon: "ph:eye" },
+  { tag: "@selection", label: "Selection", desc: "Use currently selected PDF text", icon: "ph:text-select" },
+];
+const legacyContextMenuOptions = [
   { tag: "@paper", label: "This Paper", desc: "Include full PDF + all annotations", icon: "ph:file-pdf" },
   { tag: "@highlights", label: "Highlights", desc: "All highlights in this paper", icon: "ph:highlighter" },
   { tag: "@sticky", label: "Sticky Notes", desc: "All sticky notes in this paper", icon: "ph:note" },
   { tag: "@notepad", label: "Notepad", desc: "Your notepad for this paper", icon: "ph:notebook" },
-  { tag: "@selection", label: "Selection", desc: "Currently selected text on the PDF", icon: "ph:text-select" },
 ];
+const atMenuOptions = computed(() =>
+  selectedAiProvider.value === "codex"
+    ? paperContextMenuOptions
+    : [...paperContextMenuOptions, ...legacyContextMenuOptions],
+);
 
 const renderChatContent = (text) => {
   if (!text) return "";
@@ -918,27 +937,11 @@ const insertAtTag = (tag) => {
 const buildContextFromInput = (rawInput) => {
   let prompt = rawInput;
   const contextParts = [];
-  let usePaperIds = false;
-  let pageNumbers = [];
 
-  // @page or @page:N → send that page's PDF bytes via backend
-  const pageMatches = [...rawInput.matchAll(/@page(?::(\d+))?/g)];
-  for (const m of pageMatches) {
-    const pageNum = m[1] ? parseInt(m[1], 10) : currentPage.value;
-    if (Number.isFinite(pageNum) && pageNum >= 1 && !pageNumbers.includes(pageNum)) {
-      pageNumbers.push(pageNum);
-    }
-    prompt = prompt.replace(m[0], "");
-  }
-  if (pageNumbers.length > 0) {
-    usePaperIds = true;
-  }
-
-  // @paper → send full PDF + annotations (overrides page-only filter)
+  // Legacy @paper is normalized into a paper-scoped request. The backend now
+  // retrieves a bounded PaperContext instead of attaching the whole PDF.
   if (/@paper\b/.test(rawInput)) {
-    usePaperIds = true;
-    pageNumbers = [];
-    prompt = prompt.replace(/@paper\b/g, "");
+    prompt = prompt.replace(/@paper\b/g, "this paper");
   }
 
   // @highlights
@@ -968,82 +971,194 @@ const buildContextFromInput = (rawInput) => {
     prompt = prompt.replace(/@notepad\b/g, "");
   }
 
-  // @selection
-  if (/@selection\b/.test(rawInput)) {
-    if (capturedSelection.value) {
-      contextParts.push(`--- Selected Text ---\n${capturedSelection.value}\n---`);
-    } else {
-      contextParts.push("--- Selected Text ---\n(No text selected on the PDF)\n---");
-    }
-    prompt = prompt.replace(/@selection\b/g, "");
-  }
-
   prompt = prompt.trim();
   if (contextParts.length > 0) {
     prompt += `\n\n[Context from PDF viewer]\n${contextParts.join("\n\n")}`;
   }
 
-  return { prompt, usePaperIds, pageNumbers };
+  return { prompt };
+};
+
+let chatAbortController = null;
+const chatProvider = ref(null);
+
+const acceptChatDraft = () => {
+  chatInput.value = "";
+  capturedSelection.value = "";
+  capturedSelectionPage.value = null;
+  showAtMenu.value = false;
+};
+
+const formatCodexStreamError = (event) => {
+  const message = event?.message?.trim();
+  const technical = event?.details?.technical_message?.trim();
+  if (message && technical && technical !== message) {
+    return `${message} (${technical})`;
+  }
+  return message || technical || "Codex generation failed.";
+};
+
+const streamCodexMessage = async (rawInput, onAccepted) => {
+  if (!chatId.value || chatProvider.value !== "codex") {
+    const conversation = await $fetch(`${apiBaseURL}/codex/conversations/`, {
+      method: "POST",
+      body: {
+        document_id: Number(id),
+        title: rawInput.slice(0, 80),
+      },
+    });
+    chatId.value = conversation.id;
+    chatProvider.value = "codex";
+  }
+
+  chatAbortController = new AbortController();
+  const response = await fetch(
+    `${apiBaseURL}/codex/conversations/${chatId.value}/stream/`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        question: rawInput,
+        model: selectedAiModel.value,
+        current_page: currentPage.value,
+        selected_text: capturedSelection.value,
+        selected_text_page: capturedSelectionPage.value,
+      }),
+      signal: chatAbortController.signal,
+    },
+  );
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.message || `Codex request failed (${response.status}).`);
+  }
+
+  acceptChatDraft();
+  onAccepted?.();
+  const assistantMessage = reactive({
+    role: "model",
+    content: "",
+    citations: [],
+    timestamp: new Date().toISOString(),
+  });
+  chatMessages.value.push(assistantMessage);
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() || "";
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      const event = JSON.parse(line);
+      if (event.type === "delta") {
+        assistantMessage.content += event.text || "";
+        scrollChatToBottom();
+      } else if (event.type === "completed") {
+        assistantMessage.citations = event.citations || [];
+      } else if (event.type === "error") {
+        throw new Error(formatCodexStreamError(event));
+      } else if (event.type === "cancelled") {
+        assistantMessage.content ||= "Generation cancelled.";
+      }
+    }
+    if (done) break;
+  }
 };
 
 const sendChatMessage = async () => {
   const rawInput = chatInput.value.trim();
   if (!rawInput || chatLoading.value || !selectedProviderHasModels.value) return;
 
-  const { prompt, usePaperIds, pageNumbers } = buildContextFromInput(rawInput);
-
-  chatMessages.value.push({ role: "user", content: rawInput, timestamp: new Date().toISOString() });
-  chatInput.value = "";
-  capturedSelection.value = "";
-  showAtMenu.value = false;
-
+  const userMessage = {
+    role: "user",
+    content: rawInput,
+    timestamp: new Date().toISOString(),
+  };
+  chatMessages.value.push(userMessage);
   scrollChatToBottom();
-
   chatLoading.value = true;
+  let draftAccepted = false;
+
   try {
-    const body = {
-      prompt,
-      ...(chatId.value ? { chat_id: chatId.value } : {}),
-      ...(usePaperIds ? { paper_ids: [Number(id)] } : {}),
-      ...(pageNumbers.length > 0 ? { pages: pageNumbers } : {}),
-      model_provider: selectedAiProvider.value,
-      model: selectedAiModel.value,
-    };
-
-    const data = await $fetch(`${apiBaseURL}/ask-ai/`, {
-      method: "POST",
-      body,
-    });
-
-    chatId.value = data.chat_id;
-    chatMessages.value.push({
-      role: "model",
-      content: data.model_response,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (e) {
-    chatMessages.value.push({
-      role: "model",
-      content: "Sorry, something went wrong. Please check your API key is configured in Settings.",
-      timestamp: new Date().toISOString(),
-      isError: true,
-    });
-    console.error("Chat error:", e);
+    if (selectedAiProvider.value === "codex") {
+      await streamCodexMessage(rawInput, () => {
+        draftAccepted = true;
+      });
+    } else {
+      const { prompt } = buildContextFromInput(rawInput);
+      const data = await $fetch(`${apiBaseURL}/ask-ai/`, {
+        method: "POST",
+        body: {
+          prompt,
+          ...(chatId.value && chatProvider.value !== "codex"
+            ? { chat_id: chatId.value }
+            : {}),
+          document_id: Number(id),
+          current_page: currentPage.value,
+          selected_text: capturedSelection.value,
+          selected_text_page: capturedSelectionPage.value,
+          model_provider: selectedAiProvider.value,
+          model: selectedAiModel.value,
+        },
+      });
+      chatId.value = data.chat_id;
+      chatProvider.value = selectedAiProvider.value;
+      acceptChatDraft();
+      draftAccepted = true;
+      chatMessages.value.push({
+        role: "model",
+        content: data.model_response,
+        citations: data.citations || [],
+        timestamp: new Date().toISOString(),
+      });
+    }
+  } catch (error) {
+    if (!draftAccepted && chatInput.value.trim() !== rawInput) {
+      chatInput.value = rawInput;
+    }
+    if (error?.name !== "AbortError") {
+      chatMessages.value.push({
+        role: "model",
+        content:
+          error?.data?.message ||
+          error?.message ||
+          "The model could not complete this request.",
+        timestamp: new Date().toISOString(),
+        isError: true,
+      });
+    }
+    console.error("Chat error:", error);
   } finally {
+    chatAbortController = null;
     chatLoading.value = false;
     scrollChatToBottom();
   }
 };
 
+const cancelChatGeneration = async () => {
+  if (!chatLoading.value) return;
+  if (selectedAiProvider.value === "codex" && chatId.value) {
+    await $fetch(`${apiBaseURL}/codex/conversations/${chatId.value}/cancel/`, {
+      method: "POST",
+    }).catch(() => {});
+  }
+  chatAbortController?.abort();
+};
+
 const clearChat = () => {
   chatMessages.value = [];
   chatId.value = null;
+  chatProvider.value = null;
 };
 
 const fetchSavedChats = async () => {
   try {
     const res = await $fetch(`${apiBaseURL}/chatlogs/`, { method: "GET" });
-    savedChats.value = res.sort((a, b) => b.id - a.id);
+    savedChats.value = res
+      .filter((chat) => !chat.document || Number(chat.document) === Number(id))
+      .sort((a, b) => b.id - a.id);
   } catch (error) {
     console.error("Error fetching chats:", error);
   }
@@ -1061,10 +1176,12 @@ const loadChat = async (idToLoad) => {
       method: "GET",
     });
     chatId.value = res.id;
+    chatProvider.value = res.provider || "legacy";
     chatMessages.value = (res.content || []).map((msg) => ({
       role: msg.role,
       content: msg.content,
       timestamp: msg.timestamp,
+      citations: msg.citations || [],
     }));
     showChatHistory.value = false;
     scrollChatToBottom();
@@ -1106,7 +1223,7 @@ const parseChatInputParts = (text) => {
   if (!text) return [{ type: "text", text: "" }];
 
   const parts = [];
-  const regex = /@(?:page(?::\d+)?|paper|highlights|sticky|notepad|selection)\b/g;
+  const regex = /@(?:pages?|current|paper|highlights|sticky|notepad|selection)\b/g;
   let lastIndex = 0;
   let match;
 
@@ -1703,13 +1820,22 @@ watch(searchQuery, () => {
 
 // writing most recent page back to backend
 async function postPage() {
-  const res = await $fetch(`${apiBaseURL}/documents/${id}/`, {
-    method: "PATCH",
-    body: {
-      last_page: currentPage.value,
-      zoom_level: zoomLevel.value,
-    },
-  });
+  await Promise.all([
+    $fetch(`${apiBaseURL}/documents/${id}/`, {
+      method: "PATCH",
+      body: {
+        last_page: currentPage.value,
+        zoom_level: zoomLevel.value,
+      },
+    }),
+    $fetch(`${apiBaseURL}/paper-context/active/`, {
+      method: "POST",
+      body: {
+        document_id: Number(id),
+        current_page: currentPage.value,
+      },
+    }),
+  ]);
 }
 
 let pageUpdateDebounce = null;
@@ -2342,13 +2468,10 @@ watch(currentPage, () => {
               <p class="text-[11px] text-slate-500 leading-relaxed max-w-[240px]">
                 Type
                 <span class="font-mono text-indigo-300/90">@…</span>
-                to send the model all of that context — e.g.
-                <span class="font-mono text-indigo-300/90">@sticky</span>
-                sends every sticky note,
-                <span class="font-mono text-indigo-300/90">@highlights</span>
-                all highlights, and
-                <span class="font-mono text-indigo-300/90">@paper</span>
-                the full PDF plus annotations.
+                to choose precise paper context — for example
+                <span class="font-mono text-indigo-300/90">@page 4</span>,
+                <span class="font-mono text-indigo-300/90">@pages 6-8</span>, or
+                <span class="font-mono text-indigo-300/90">@selection</span>.
               </p>
               <div class="mt-4 grid w-full grid-cols-2 gap-1.5">
                 <button
@@ -2409,7 +2532,28 @@ watch(currentPage, () => {
                       <span v-else>{{ part.text }}</span>
                     </template>
                   </div>
-                  <div v-else class="chat-prose" v-html="renderChatContent(msg.content)"></div>
+                  <template v-else>
+                    <div class="chat-prose" v-html="renderChatContent(msg.content)"></div>
+                    <div
+                      v-if="msg.citations?.some((citation) => citation.valid)"
+                      class="mt-2 flex flex-wrap gap-1.5 border-t border-white/5 pt-2"
+                    >
+                      <button
+                        v-for="citation in msg.citations.filter((item) => item.valid)"
+                        :key="`${citation.page_start}-${citation.page_end}-${citation.quoted_or_paraphrased_text}`"
+                        type="button"
+                        @click="scrollToPage(citation.page_start)"
+                        class="rounded-md border border-indigo-500/25 bg-indigo-500/10 px-2 py-1 text-[10px] font-medium text-indigo-200 hover:bg-indigo-500/20"
+                        :title="citation.quoted_or_paraphrased_text"
+                      >
+                        {{
+                          citation.page_start === citation.page_end
+                            ? `p. ${citation.page_start}`
+                            : `pp. ${citation.page_start}–${citation.page_end}`
+                        }}
+                      </button>
+                    </div>
+                  </template>
                 </div>
               </div>
 
@@ -2501,6 +2645,12 @@ watch(currentPage, () => {
                       {{ model }}
                     </option>
                   </select>
+                  <div
+                    v-else-if="selectedAiProvider === 'codex' && !selectedProviderModels.length"
+                    class="ai-select min-w-0 rounded-lg border border-slate-700 px-2 py-1.5 text-[10px] text-slate-400"
+                  >
+                    Connect Codex in Settings
+                  </div>
                   <input
                     v-else
                     v-model="selectedAiModel"
@@ -2595,6 +2745,15 @@ watch(currentPage, () => {
                 </div>
 
                 <button
+                  v-if="chatLoading"
+                  @click="cancelChatGeneration"
+                  class="mb-0.5 shrink-0 rounded-lg bg-red-500/15 p-2 text-red-300 transition-colors hover:bg-red-500/25"
+                  title="Stop generation"
+                >
+                  <Icon name="ph:stop-fill" class="w-4 h-4" />
+                </button>
+                <button
+                  v-else
                   @click="sendChatMessage"
                   :disabled="chatLoading || !chatInput.trim() || !selectedProviderHasModels"
                   class="mb-0.5 shrink-0 rounded-lg bg-indigo-600 p-2 text-white transition-colors hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"

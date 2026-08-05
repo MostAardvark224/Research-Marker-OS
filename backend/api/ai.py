@@ -125,13 +125,14 @@ You are the Research Marker Assistant, a specialized AI designed to help researc
 
 # for saving chat logs
 # this only saves the user prompt and doesn't include added context so that it looks normal in the chat history
-def add_message_to_chat(chat_id, role, text): 
+def add_message_to_chat(chat_id, role, text, citations=None):
     obj = models.ChatLogs.objects.get(pk=chat_id)
     
     new_message = {
         "role": role, # user or model
         "content": text,
-        "timestamp": timezone.now().isoformat()
+        "timestamp": timezone.now().isoformat(),
+        "citations": citations or [],
     }
     
     if obj.content is None:

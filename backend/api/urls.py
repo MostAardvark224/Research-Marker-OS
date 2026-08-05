@@ -1,5 +1,6 @@
 from django.urls import path
 import api.views as views  
+import api.codex_views as codex_views
 from rest_framework.routers import DefaultRouter
 from .views import DocumentsViewSet # type: ignore
 from django.conf import settings
@@ -33,6 +34,44 @@ urlpatterns = [
     path('smart-collection/', views.SmartCollectionView.as_view(), name='smart-collection'),
     path('poll-smart-collection/<str:task_id>/', views.PollSmartCollection.as_view(), name='poll-smart-collection'),
     path('reading-recommendations/', views.ReadingRecommendationsView.as_view(), name='reading-recommendations'),
+    path('codex/status/', codex_views.CodexStatusView.as_view(), name='codex-status'),
+    path('codex/login/', codex_views.CodexLoginView.as_view(), name='codex-login'),
+    path('codex/logout/', codex_views.CodexLogoutView.as_view(), name='codex-logout'),
+    path('codex/rate-limits/', codex_views.CodexRateLimitsView.as_view(), name='codex-rate-limits'),
+    path('codex/models/', codex_views.CodexModelsView.as_view(), name='codex-models'),
+    path('codex/conversations/', codex_views.CodexConversationsView.as_view(), name='codex-conversations'),
+    path(
+        'codex/conversations/<int:conversation_id>/',
+        codex_views.CodexConversationDetailView.as_view(),
+        name='codex-conversation-detail',
+    ),
+    path(
+        'codex/conversations/<int:conversation_id>/stream/',
+        codex_views.CodexConversationStreamView.as_view(),
+        name='codex-conversation-stream',
+    ),
+    path(
+        'codex/conversations/<int:conversation_id>/cancel/',
+        codex_views.CodexConversationCancelView.as_view(),
+        name='codex-conversation-cancel',
+    ),
+    path(
+        'paper-context/documents/<int:document_id>/',
+        codex_views.PaperContextStatusView.as_view(),
+        name='paper-context-status',
+    ),
+    path(
+        'paper-context/documents/<int:document_id>/pages/<int:page_number>/',
+        codex_views.PaperContextPageView.as_view(),
+        name='paper-context-page',
+    ),
+    path(
+        'paper-context/documents/<int:document_id>/preview/',
+        codex_views.PaperContextPreviewView.as_view(),
+        name='paper-context-preview',
+    ),
+    path('paper-context/active/', codex_views.ActiveContextView.as_view(), name='paper-context-active'),
+    path('paper-context/clear/', codex_views.PaperContextClearView.as_view(), name='paper-context-clear'),
 ]
 
 # serves files

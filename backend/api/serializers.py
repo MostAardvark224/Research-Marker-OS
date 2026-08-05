@@ -87,6 +87,45 @@ class ChatLogSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
+class DocumentPageSerializer(serializers.ModelSerializer):
+    has_image = serializers.SerializerMethodField()
+
+    class Meta:
+        model = models.DocumentPage
+        fields = [
+            "document",
+            "page_number",
+            "extracted_text",
+            "text_blocks",
+            "source_type",
+            "ocr_used",
+            "ocr_confidence",
+            "width",
+            "height",
+            "rotation",
+            "visually_complex",
+            "complexity_reasons",
+            "extraction_error",
+            "has_image",
+        ]
+
+    def get_has_image(self, instance):
+        return bool(instance.page_image_path)
+
+
+class DocumentChunkSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.DocumentChunk
+        fields = [
+            "document",
+            "chunk_id",
+            "start_page",
+            "end_page",
+            "chunk_text",
+            "section_title",
+        ]
+
+
 class SmartCollectionsSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.SmartCollections

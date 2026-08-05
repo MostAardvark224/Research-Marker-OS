@@ -553,7 +553,7 @@
                     class="ai-select flex-1 min-w-0 rounded-lg border border-white/10 px-2 py-1.5 text-[11px] focus:border-indigo-500/40 outline-none"
                   >
                     <option
-                      v-for="provider in aiProviders"
+                      v-for="provider in libraryAiProviders"
                       :key="provider.id"
                       :value="provider.id"
                     >
@@ -1138,6 +1138,14 @@ const {
   selectedProviderHasModels,
   initializeAiModels,
 } = useAiModels();
+const libraryAiProviders = computed(() =>
+  aiProviders.value.filter((provider) => provider.id !== "codex"),
+);
+watch([libraryAiProviders, selectedAiProvider], ([providers, selected]) => {
+  if (selected === "codex") {
+    selectedAiProvider.value = providers[0]?.id || "gemini";
+  }
+});
 
 const showHistory = ref(false);
 const savedChats = ref([]);

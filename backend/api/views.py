@@ -117,18 +117,31 @@ def _stream_pdf_to_document(pdf_url, title, folder):
             os.remove(temp_path)
 
 
+def _queue_context_ingestion(document):
+    if document.context_status in ("queued", "processing"):
+        return
+    document.context_status = "queued"
+    document.context_error = ""
+    document.save(update_fields=["context_status", "context_error"])
+    async_task("api.paper_context.ingestion.ingest_document", document.pk)
+
+
 def _apply_ocr_settings_to_document(document, skip_ocr, ocr_provider):
     if skip_ocr:
         document.ocr_provider = ocr_provider
         document.ocr_status = models.Document.OcrStatus.NOT_STARTED
         document.ocr_error = ""
         document.save(update_fields=["ocr_provider", "ocr_status", "ocr_error"])
+        _queue_context_ingestion(document)
         return
 
     document.ocr_provider = ocr_provider
     document.ocr_status = models.Document.OcrStatus.QUEUED
     document.ocr_error = ""
-    document.save(update_fields=["ocr_provider", "ocr_status", "ocr_error"])
+    document.context_status = "waiting_for_ocr"
+    document.save(
+        update_fields=["ocr_provider", "ocr_status", "ocr_error", "context_status"]
+    )
     async_task(
         "api.OCR.create_searchable_document_pdf",
         document.pk,
@@ -303,7 +316,15 @@ class DocumentsViewSet(viewsets.ModelViewSet):
                     serializer.instance.ocr_provider = ocr_provider
                     serializer.instance.ocr_status = models.Document.OcrStatus.QUEUED
                     serializer.instance.ocr_error = ""
-                    serializer.instance.save(update_fields=["ocr_provider", "ocr_status", "ocr_error"])
+                    serializer.instance.context_status = "waiting_for_ocr"
+                    serializer.instance.save(
+                        update_fields=[
+                            "ocr_provider",
+                            "ocr_status",
+                            "ocr_error",
+                            "context_status",
+                        ]
+                    )
                     async_task(
                         "api.OCR.create_searchable_document_pdf",
                         serializer.instance.pk,
@@ -314,6 +335,7 @@ class DocumentsViewSet(viewsets.ModelViewSet):
                     serializer.instance.ocr_status = models.Document.OcrStatus.NOT_STARTED
                     serializer.instance.ocr_error = ""
                     serializer.instance.save(update_fields=["ocr_provider", "ocr_status", "ocr_error"])
+                    _queue_context_ingestion(serializer.instance)
 
                 uploaded_documents.append(self.get_serializer(serializer.instance).data)
 
@@ -420,7 +442,14 @@ class getPaper(APIView):
             document = models.Document.objects.get(pk=pk)
         except models.Document.DoesNotExist:
             return Response(status=status.HTTP_404_NOT_FOUND)
-        
+
+        if (
+            document.context_status not in ("ready", "queued", "processing", "waiting_for_ocr")
+            and document.ocr_status
+            not in (models.Document.OcrStatus.QUEUED, models.Document.OcrStatus.PROCESSING)
+        ):
+            _queue_context_ingestion(document)
+
         file = document.file.open("rb")
 
         response = FileResponse(file, content_type='application/pdf')
@@ -493,7 +522,39 @@ class EnvironmentVariablesView(APIView):
 class AIModelsView(APIView):
     def get(self, request):
         force_refresh = to_bool(request.query_params.get("refresh", False))
-        providers = get_all_provider_models(load_env_vars(), force_refresh=force_refresh)
+        providers = list(get_all_provider_models(load_env_vars(), force_refresh=force_refresh))
+        from api.providers.codex import get_codex_provider
+
+        codex_status = get_codex_provider().get_status()
+        codex_models: list[str] = []
+        codex_default = ""
+        if codex_status.get("subscription_usable"):
+            try:
+                catalog = get_codex_provider().models()
+                codex_models = [item["id"] for item in catalog]
+                defaults = [item["id"] for item in catalog if item.get("is_default")]
+                codex_default = defaults[0] if defaults else (codex_models[0] if codex_models else "")
+            except Exception:
+                codex_models = []
+        providers.append(
+            {
+                "id": "codex",
+                "label": "Codex — ChatGPT account",
+                "models": codex_models,
+                "default_chat_model": codex_default,
+                "default_naming_model": codex_default,
+                "has_api_key": False,
+                "ready": bool(codex_status.get("subscription_usable")),
+                "status": codex_status,
+                "capabilities": {
+                    "embedded_chat": True,
+                    "requires_active_document": True,
+                    "streaming": True,
+                    "subscription_auth": True,
+                },
+                "error": None,
+            }
+        )
         return Response({"providers": providers}, status=status.HTTP_200_OK)
 
 
@@ -545,6 +606,7 @@ class DocumentOCRView(APIView):
         document.searchable = False
         document.ocr_started_at = None
         document.ocr_completed_at = None
+        document.context_status = "waiting_for_ocr"
         document.save(
             update_fields=[
                 "ocr_provider",
@@ -553,6 +615,7 @@ class DocumentOCRView(APIView):
                 "searchable",
                 "ocr_started_at",
                 "ocr_completed_at",
+                "context_status",
             ]
         )
 
@@ -754,6 +817,35 @@ class AIChatView(APIView):
         prompt = request.data.get("prompt", "")
         if not prompt:
             return Response({"error": "Prompt is required"}, status=status.HTTP_400_BAD_REQUEST)
+        original_prompt = prompt
+        paper_context = None
+        document_id = request.data.get("document_id")
+        if document_id:
+            from api.errors import ResearchMarkerError
+            from api.paper_context.builder import build_paper_context, format_paper_context
+            from api.paper_context.types import ContextLimits
+
+            try:
+                paper_context = build_paper_context(
+                    document_id=int(document_id),
+                    question=original_prompt,
+                    current_page=(
+                        int(request.data.get("current_page"))
+                        if request.data.get("current_page") not in (None, "")
+                        else None
+                    ),
+                    selected_text=str(request.data.get("selected_text", "")),
+                    selected_text_page=(
+                        int(request.data.get("selected_text_page"))
+                        if request.data.get("selected_text_page") not in (None, "")
+                        else None
+                    ),
+                    include_page_image=to_bool(request.data.get("include_page_image", False)),
+                    limits=ContextLimits(),
+                )
+                prompt = format_paper_context(paper_context)
+            except ResearchMarkerError as exc:
+                return Response(exc.as_dict(), status=exc.http_status)
         
         # Saving chat logs
         chat_id = request.data.get("chat_id", None)
@@ -762,7 +854,7 @@ class AIChatView(APIView):
         # means that this is a new chat
         if not chat_id:
             # using a model to create a new chat name based on input prompt
-            chat_name = name_chat(provider, api_key, prompt, model=model)
+            chat_name = name_chat(provider, api_key, original_prompt, model=model)
             chatlog_obj = models.ChatLogs.objects.create(
                 name=chat_name,
             )
@@ -790,11 +882,11 @@ class AIChatView(APIView):
 
         at_recent = to_bool(request.data.get("at_recent", False))
         print(f"at_recent: {at_recent}")
-        paper_ids = request.data.get("paper_ids", None)
+        paper_ids = None if paper_context is not None else request.data.get("paper_ids", None)
         print(f"paper_ids: {paper_ids}")
         folder_ids = request.data.get("folder_ids", None)
         print(f"folder_ids: {folder_ids}")
-        rag_enabled = to_bool(request.data.get("rag_enabled", False))
+        rag_enabled = False if paper_context is not None else to_bool(request.data.get("rag_enabled", False))
         print(f"rag enabled: {rag_enabled}")
 
         # handling flags
@@ -835,7 +927,7 @@ class AIChatView(APIView):
                 )
 
             # saving prompt to chatlogs (only original user question)
-            add_message_to_chat(chat_id, "user", prompt) 
+            add_message_to_chat(chat_id, "user", original_prompt)
 
             # Save and return model response
             add_message_to_chat(chat_id, "model", model_response)
@@ -900,7 +992,7 @@ class AIChatView(APIView):
                     shutil.rmtree(temp_dir, ignore_errors=True)
 
             # saving prompt to chatlogs (only original user question)
-            add_message_to_chat(chat_id, "user", prompt)
+            add_message_to_chat(chat_id, "user", original_prompt)
 
             # Save and return model response
             add_message_to_chat(chat_id, "model", model_response)
@@ -962,7 +1054,7 @@ class AIChatView(APIView):
                     )
                 
                  # saving prompt to chatlogs (only original user question)
-                add_message_to_chat(chat_id, "user", prompt)
+                add_message_to_chat(chat_id, "user", original_prompt)
 
                 # Save and return model response
                 add_message_to_chat(chat_id, "model", model_response)
@@ -997,14 +1089,34 @@ class AIChatView(APIView):
                 )
             
             # saving prompt to chatlogs (only original user question)
-            add_message_to_chat(chat_id, "user", prompt)
+            add_message_to_chat(chat_id, "user", original_prompt)
 
             # Save and return model response
-            add_message_to_chat(chat_id, "model", model_response)
+            citation_data = []
+            if paper_context is not None:
+                from api.paper_context.citations import extract_citations
+
+                allowed_pages = {
+                    page.page_number for page in paper_context.page_text
+                } | {
+                    page
+                    for chunk in paper_context.retrieved_chunks
+                    for page in range(chunk.start_page, chunk.end_page + 1)
+                }
+                citation_data = [
+                    citation.to_dict()
+                    for citation in extract_citations(
+                        model_response,
+                        document_id=paper_context.document_id,
+                        allowed_pages=allowed_pages,
+                    )
+                ]
+            add_message_to_chat(chat_id, "model", model_response, citations=citation_data)
             return Response({
                     "model_response": model_response, 
                     "chat_id": chat_id, 
-                    "chat_name": chatlog_obj.name},  
+                    "chat_name": chatlog_obj.name,
+                    "citations": citation_data},
                 status=status.HTTP_200_OK)
 
         # running normal model if not context or no rag 
@@ -1018,7 +1130,7 @@ class AIChatView(APIView):
                 )
             
             # saving prompt to chatlogs (only original user question)
-            add_message_to_chat(chat_id, "user", prompt)
+            add_message_to_chat(chat_id, "user", original_prompt)
 
             # Save and return model response
             add_message_to_chat(chat_id, "model", model_response)

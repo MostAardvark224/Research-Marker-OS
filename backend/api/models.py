@@ -55,10 +55,79 @@ class Document(models.Model):
     ocr_completed_at = models.DateTimeField(blank=True, null=True)
     last_page = models.IntegerField(blank=True, null=True)
     zoom_level = models.IntegerField(blank=True, null=True)
+    document_hash = models.CharField(max_length=64, blank=True, db_index=True)
+    file_name = models.CharField(max_length=255, blank=True, default="")
+    absolute_local_path = models.TextField(blank=True, default="")
+    page_count = models.PositiveIntegerField(default=0)
+    context_status = models.CharField(max_length=32, default="not_started", db_index=True)
+    context_error = models.TextField(blank=True, default="")
+    context_created_at = models.DateTimeField(blank=True, null=True)
+    context_updated_at = models.DateTimeField(blank=True, null=True)
 
     def __str__(self):
         return self.title
-    
+
+
+class DocumentPage(models.Model):
+    class SourceType(models.TextChoices):
+        EMBEDDED = "embedded", "Embedded text"
+        OCR = "ocr", "OCR"
+        COMBINED = "combined", "Embedded text and OCR"
+        FAILED = "failed", "Extraction failed"
+
+    document = models.ForeignKey(Document, related_name="context_pages", on_delete=models.CASCADE)
+    page_number = models.PositiveIntegerField()
+    extracted_text = models.TextField(blank=True, default="")
+    text_blocks = models.JSONField(default=list, blank=True)
+    page_image_path = models.TextField(blank=True, default="")
+    thumbnail_path = models.TextField(blank=True, default="")
+    source_type = models.CharField(
+        max_length=16,
+        choices=SourceType.choices,
+        default=SourceType.EMBEDDED,
+    )
+    ocr_used = models.BooleanField(default=False)
+    ocr_confidence = models.FloatField(blank=True, null=True)
+    width = models.FloatField(default=0)
+    height = models.FloatField(default=0)
+    rotation = models.SmallIntegerField(default=0)
+    visually_complex = models.BooleanField(default=False, db_index=True)
+    complexity_reasons = models.JSONField(default=list, blank=True)
+    extraction_error = models.TextField(blank=True, default="")
+    ocr_cache_key = models.CharField(max_length=128, blank=True, default="")
+    renderer_version = models.CharField(max_length=64, blank=True, default="")
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["page_number"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["document", "page_number"],
+                name="unique_context_page_per_document",
+            )
+        ]
+
+
+class DocumentChunk(models.Model):
+    document = models.ForeignKey(Document, related_name="context_chunks", on_delete=models.CASCADE)
+    chunk_id = models.CharField(max_length=96, unique=True)
+    start_page = models.PositiveIntegerField()
+    end_page = models.PositiveIntegerField()
+    chunk_text = models.TextField()
+    normalized_text = models.TextField(blank=True, default="")
+    section_title = models.CharField(max_length=512, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["start_page", "id"]
+        indexes = [
+            models.Index(
+                fields=["document", "start_page"],
+                name="api_documen_documen_76bf5b_idx",
+            ),
+        ]
+
+
 class Annotations(models.Model):
     document = models.OneToOneField(Document, related_name='annotations', on_delete=models.CASCADE)
     highlight_data = models.JSONField(null=True,)
@@ -170,6 +239,16 @@ class AnnotationIndex(models.Model):
 class ChatLogs(models.Model): 
     name = models.CharField(max_length=255)
     content = models.JSONField(default=list)
+    provider = models.CharField(max_length=32, default="legacy", db_index=True)
+    document = models.ForeignKey(
+        Document,
+        related_name="chat_logs",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+    )
+    codex_thread_id = models.CharField(max_length=255, blank=True, default="", db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True, null=True)
     updated_at = models.DateTimeField(auto_now=True)
 
 class SmartCollections(models.Model): 

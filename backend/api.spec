@@ -27,6 +27,8 @@ def force_load(package_name):
     hidden_imports += h
 
 force_load('rapidocr_onnxruntime')  # PaddleOCR PP-OCRv4 ONNX inference engine
+force_load('openai_codex')          # Official Codex SDK and generated protocol models
+force_load('codex_cli_bin')         # Version-pinned Codex app-server executable
 force_load('playwright')
 force_load('setuptools')
 

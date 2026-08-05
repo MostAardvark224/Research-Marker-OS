@@ -6,6 +6,8 @@ pycache/
 .DS_Store
 media/documents/*
 !media/documents/.gitkeep
+paper_context/
+ai_sessions/
 shell.py
 build/
 dist/
@@ -15,3 +17,4 @@ dist/
 .env.*
 !.env.example
 env.json
+user_preferences.json
