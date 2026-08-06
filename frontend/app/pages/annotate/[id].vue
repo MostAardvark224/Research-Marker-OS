@@ -351,6 +351,73 @@ const handleKeyboardShortcuts = (e) => {
   }
 };
 
+/**
+ * Merge fragmented Range.getClientRects() boxes into contiguous bars.
+ * Mixed fonts (bold/mono/math) produce separate client rects with small
+ * vertical offsets and gaps; without this, highlights look broken up.
+ */
+const mergeHighlightRects = (rects) => {
+  const minSize = 0.5;
+  const lineTolerance = 5; // same line if vertical centers are this close
+  const maxGap = 3; // horizontally merge if gap is at most this
+
+  const valid = rects.filter(
+    (r) => r.width >= minSize && r.height >= minSize,
+  );
+  if (valid.length <= 1) return valid.map((r) => ({ ...r }));
+
+  const sorted = [...valid].sort((a, b) => a.y - b.y || a.x - b.x);
+
+  // Cluster into lines by vertical-center proximity
+  const lines = [];
+  for (const rect of sorted) {
+    const cy = rect.y + rect.height / 2;
+    let line = lines.find((l) => Math.abs(l.centerY - cy) <= lineTolerance);
+    if (!line) {
+      line = { centerY: cy, rects: [] };
+      lines.push(line);
+    }
+    line.rects.push(rect);
+    line.centerY =
+      line.rects.reduce((sum, r) => sum + r.y + r.height / 2, 0) /
+      line.rects.length;
+  }
+
+  const merged = [];
+  for (const line of lines) {
+    const row = [...line.rects].sort((a, b) => a.x - b.x);
+    let current = { ...row[0] };
+
+    for (let i = 1; i < row.length; i++) {
+      const next = row[i];
+      const currentRight = current.x + current.width;
+      const gap = next.x - currentRight;
+
+      if (gap <= maxGap) {
+        const left = Math.min(current.x, next.x);
+        const right = Math.max(currentRight, next.x + next.width);
+        const top = Math.min(current.y, next.y);
+        const bottom = Math.max(
+          current.y + current.height,
+          next.y + next.height,
+        );
+        current = {
+          x: left,
+          y: top,
+          width: right - left,
+          height: bottom - top,
+        };
+      } else {
+        merged.push(current);
+        current = { ...next };
+      }
+    }
+    merged.push(current);
+  }
+
+  return merged;
+};
+
 // Highlight Events
 const handleTextSelection = async () => {
   // Always capture selection for @selection chat context
@@ -392,18 +459,18 @@ const handleTextSelection = async () => {
   const pageRect = container.getBoundingClientRect();
   const rawRects = range.getClientRects();
 
-  const highlightRects = [];
-
   const scale = zoomLevel.value / 100;
 
-  for (const rect of rawRects) {
-    highlightRects.push({
+  // getClientRects() returns one box per styled span (bold, mono, math).
+  // Merge same-line fragments so the highlight looks contiguous.
+  const highlightRects = mergeHighlightRects(
+    Array.from(rawRects).map((rect) => ({
       x: (rect.left - pageRect.left) / scale,
       y: (rect.top - pageRect.top) / scale,
       width: rect.width / scale,
       height: rect.height / scale,
-    });
-  }
+    })),
+  );
 
   const newHighlight = {
     id: crypto.randomUUID(),
@@ -450,7 +517,8 @@ const renderHighlight = (highlight, textLayerElement) => {
   }
   if (!textLayerElement) return;
 
-  highlight.rects.forEach((rect) => {
+  // Merge on render too so older fragmented highlights display cleanly
+  mergeHighlightRects(highlight.rects).forEach((rect) => {
     const div = document.createElement("div");
     div.classList.add("custom-highlight");
     div.dataset.id = highlight.id;
