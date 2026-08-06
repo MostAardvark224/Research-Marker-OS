@@ -44,8 +44,49 @@ const canvasRefs = ref([]);
 const textLayerRefs = ref([]);
 const mainScrollContainer = ref(null);
 
-const isSidebarOpen = ref(true);
-const sidebarWidth = ref(320);
+const SIDEBAR_WIDTH_MIN = 200;
+const SIDEBAR_WIDTH_DEFAULT = 320;
+const storedSidebarOpen = (() => {
+  try {
+    const v = localStorage.getItem("annotateSidebarOpen");
+    if (v === null) return true;
+    return v === "1" || v === "true";
+  } catch {
+    return true;
+  }
+})();
+const storedSidebarWidth = (() => {
+  try {
+    const v = parseInt(localStorage.getItem("annotateSidebarWidth") || "", 10);
+    if (!Number.isFinite(v)) return SIDEBAR_WIDTH_DEFAULT;
+    const max =
+      typeof window !== "undefined"
+        ? Math.floor(window.innerWidth * 0.5)
+        : Infinity;
+    return Math.min(max, Math.max(SIDEBAR_WIDTH_MIN, v));
+  } catch {
+    return SIDEBAR_WIDTH_DEFAULT;
+  }
+})();
+const isSidebarOpen = ref(storedSidebarOpen);
+const sidebarWidth = ref(storedSidebarWidth);
+const persistSidebarOpen = () => {
+  try {
+    localStorage.setItem(
+      "annotateSidebarOpen",
+      isSidebarOpen.value ? "1" : "0",
+    );
+  } catch {
+    /* ignore */
+  }
+};
+const persistSidebarWidth = () => {
+  try {
+    localStorage.setItem("annotateSidebarWidth", String(sidebarWidth.value));
+  } catch {
+    /* ignore */
+  }
+};
 
 const currentPage = ref(1);
 const lastPage = route.query.page;
@@ -585,7 +626,7 @@ const handleAnnotationClick = async (event, annotation) => {
   } else if (annotation.type === "stickyNote") {
     activeStickyNoteId.value = annotation.id;
     changeSidebarTab("stickyNotes");
-    if (!isSidebarOpen.value) isSidebarOpen.value = true;
+    ensureSidebarOpen();
   }
 };
 
@@ -635,7 +676,7 @@ const handleLayerClick = async (event, pageNum) => {
 
   activeStickyNoteId.value = newSticky.id;
   changeSidebarTab("stickyNotes");
-  if (!isSidebarOpen.value) isSidebarOpen.value = true;
+  ensureSidebarOpen();
 
   await saveAnnotationsToBackend();
 };
@@ -799,7 +840,7 @@ const startStickyNoteDrag = (event, note, iconDiv) => {
       setIconPosition(originX, originY);
       activeStickyNoteId.value = note.id;
       changeSidebarTab("stickyNotes");
-      if (!isSidebarOpen.value) isSidebarOpen.value = true;
+      ensureSidebarOpen();
       return;
     }
 
@@ -965,7 +1006,6 @@ function changeActiveTool(newToolButton) {
 }
 
 // Sidebar state
-const sidebarActiveTab = ref("stickyNotes");
 const sidebarTabs = [
   { id: "stickyNotes", label: "Sticky Notes", icon: "ph:note" },
   { id: "highlights", label: "Highlights", icon: "ph:highlighter" },
@@ -973,8 +1013,26 @@ const sidebarTabs = [
   { id: "chat", label: "Chat", icon: "ph:chat-circle-dots" },
   { id: "ocr", label: "OCR", icon: "ph:text-aa" },
 ];
+const SIDEBAR_TAB_IDS = new Set(sidebarTabs.map((t) => t.id));
+const storedSidebarTab = (() => {
+  try {
+    const v = localStorage.getItem("annotateSidebarActiveTab") || "";
+    return SIDEBAR_TAB_IDS.has(v) ? v : "stickyNotes";
+  } catch {
+    return "stickyNotes";
+  }
+})();
+const sidebarActiveTab = ref(storedSidebarTab);
+const persistSidebarActiveTab = () => {
+  try {
+    localStorage.setItem("annotateSidebarActiveTab", sidebarActiveTab.value);
+  } catch {
+    /* ignore */
+  }
+};
 function changeSidebarTab(tabName) {
   sidebarActiveTab.value = tabName;
+  persistSidebarActiveTab();
   if (tabName !== "chat") showChatHistory.value = false;
 }
 const activeSidebarTabLabel = computed(
@@ -1522,7 +1580,10 @@ const startResize = () => {
 const handleResize = (e) => {
   if (!isResizing.value) return;
   const newWidth = window.innerWidth - e.clientX;
-  if (newWidth >= 200 && newWidth <= window.innerWidth * 0.5) {
+  if (
+    newWidth >= SIDEBAR_WIDTH_MIN &&
+    newWidth <= window.innerWidth * 0.5
+  ) {
     sidebarWidth.value = newWidth;
   }
 };
@@ -1533,10 +1594,18 @@ const stopResize = () => {
   document.body.style.userSelect = "";
   window.removeEventListener("mousemove", handleResize);
   window.removeEventListener("mouseup", stopResize);
+  persistSidebarWidth();
 };
 
 const toggleSidebar = () => {
   isSidebarOpen.value = !isSidebarOpen.value;
+  persistSidebarOpen();
+};
+
+const ensureSidebarOpen = () => {
+  if (isSidebarOpen.value) return;
+  isSidebarOpen.value = true;
+  persistSidebarOpen();
 };
 
 // zoom helpers
