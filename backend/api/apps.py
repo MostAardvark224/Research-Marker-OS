@@ -27,6 +27,32 @@ class ApiConfig(AppConfig):
         if "runserver" in sys.argv and os.environ.get("RUN_MAIN") != "true":
             return
 
+        # Dev / honcho: publish MCP discovery for the runserver bind address.
+        if "runserver" in sys.argv or os.environ.get("RESEARCH_MARKER_WRITE_MCP_DISCOVERY") == "1":
+            try:
+                from api.mcp.discovery import write_discovery
+
+                port = (
+                    os.environ.get("RESEARCH_MARKER_API_PORT")
+                    or os.environ.get("PORT")
+                    or "8000"
+                )
+                if "runserver" in sys.argv:
+                    idx = sys.argv.index("runserver")
+                    for arg in sys.argv[idx + 1 :]:
+                        if arg.startswith("-"):
+                            continue
+                        if arg.startswith("127.0.0.1:") or arg.startswith("0.0.0.0:"):
+                            port = arg.rsplit(":", 1)[-1]
+                            break
+                        if arg.isdigit() and 1 <= int(arg) <= 65535:
+                            port = arg
+                            break
+                write_discovery(port=port, host="127.0.0.1")
+                print(f"MCP discovery published for http://127.0.0.1:{port}/api")
+            except Exception as exc:
+                print(f"Could not write MCP discovery on startup: {exc}")
+
         from django.test import RequestFactory
         from rest_framework import status
 

@@ -1,14 +1,47 @@
 const { app, BrowserWindow, ipcMain, shell } = require("electron");
 const path = require("path");
+const fs = require("fs");
 const { spawn } = require("child_process");
 const { autoUpdater } = require("electron-updater");
 const log = require("electron-log");
+const crypto = require("crypto");
 
 autoUpdater.logger = log;
 autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = false;
 
-app.disableHardwareAcceleration();
+function writeMcpDiscovery(port, userDataPath) {
+  try {
+    const discoveryPath = path.join(userDataPath, "mcp_discovery.json");
+    const tokenPath = path.join(userDataPath, "mcp_token");
+    let token = "";
+    if (fs.existsSync(tokenPath)) {
+      token = fs.readFileSync(tokenPath, "utf8").trim();
+    }
+    if (!token) {
+      token = crypto.randomBytes(32).toString("base64url");
+      fs.writeFileSync(tokenPath, token, { mode: 0o600 });
+    }
+    fs.writeFileSync(
+      discoveryPath,
+      JSON.stringify(
+        {
+          host: "127.0.0.1",
+          port: Number(port),
+          base_url: `http://127.0.0.1:${port}/api`,
+          token,
+          discovery_path: discoveryPath,
+        },
+        null,
+        2,
+      ),
+      { mode: 0o600 },
+    );
+    log.info(`MCP discovery written to ${discoveryPath}`);
+  } catch (error) {
+    log.warn(`Could not write MCP discovery file: ${error}`);
+  }
+}
 
 let mainWindow;
 let splashWindow;
@@ -267,6 +300,7 @@ function createPythonProcess() {
     if (match) {
       apiPort = match[1];
       log.info(`Python backend ready on port ${apiPort}`);
+      writeMcpDiscovery(apiPort, userDataPath);
 
       if (!mainWindow) {
         if (backendProgressTimer) {

@@ -2,13 +2,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import json
 import re
+from pathlib import Path
 from threading import RLock
 
 from django.db import connection
 
 from api import models
 from api.errors import DocumentNotFound, PageOutOfRange
+from api.utils import get_app_data_dir
 from .ingestion import ensure_document_ingested
 from .types import PageContext, RetrievedChunk
 
@@ -25,6 +28,65 @@ class ActiveReaderState:
 
 _STATE = ActiveReaderState()
 _STATE_LOCK = RLock()
+_ACTIVE_READER_FILENAME = "active_reader.json"
+
+
+def _active_reader_path() -> Path:
+    return Path(get_app_data_dir()) / _ACTIVE_READER_FILENAME
+
+
+def _state_from_dict(data: dict | None) -> ActiveReaderState | None:
+    if not isinstance(data, dict):
+        return None
+    document_id = data.get("document_id")
+    try:
+        document_id = int(document_id) if document_id is not None else None
+    except (TypeError, ValueError):
+        document_id = None
+    current_page = data.get("current_page")
+    try:
+        current_page = int(current_page) if current_page is not None else None
+    except (TypeError, ValueError):
+        current_page = None
+    selected_text_page = data.get("selected_text_page")
+    try:
+        selected_text_page = (
+            int(selected_text_page) if selected_text_page is not None else None
+        )
+    except (TypeError, ValueError):
+        selected_text_page = None
+    return ActiveReaderState(
+        document_id=document_id,
+        document_title=str(data.get("document_title") or ""),
+        current_page=current_page,
+        selected_text=str(data.get("selected_text") or ""),
+        selected_text_page=selected_text_page,
+        last_updated=str(data.get("last_updated") or ""),
+    )
+
+
+def _persist_active_context(state: ActiveReaderState) -> None:
+    path = _active_reader_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "document_id": state.document_id,
+        "document_title": state.document_title,
+        "current_page": state.current_page,
+        "selected_text": state.selected_text,
+        "selected_text_page": state.selected_text_page,
+        "last_updated": state.last_updated,
+    }
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _load_persisted_active_context() -> ActiveReaderState | None:
+    path = _active_reader_path()
+    if not path.is_file():
+        return None
+    try:
+        return _state_from_dict(json.loads(path.read_text(encoding="utf-8")))
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return None
 
 
 def update_active_context(
@@ -42,7 +104,7 @@ def update_active_context(
         _STATE.selected_text = selected_text
         _STATE.selected_text_page = selected_text_page
         _STATE.last_updated = datetime.now(timezone.utc).isoformat()
-        return ActiveReaderState(
+        snapshot = ActiveReaderState(
             document_id=_STATE.document_id,
             document_title=_STATE.document_title,
             current_page=_STATE.current_page,
@@ -50,11 +112,22 @@ def update_active_context(
             selected_text_page=_STATE.selected_text_page,
             last_updated=_STATE.last_updated,
         )
+    try:
+        _persist_active_context(snapshot)
+    except OSError:
+        pass
+    return snapshot
 
 
 def get_active_context() -> ActiveReaderState:
+    """Return the active reader.
+
+    Disk is the source of truth across runserver reloads / multiple workers.
+    In-memory state is only a cache.
+    """
+    persisted = _load_persisted_active_context()
     with _STATE_LOCK:
-        return ActiveReaderState(
+        memory = ActiveReaderState(
             document_id=_STATE.document_id,
             document_title=_STATE.document_title,
             current_page=_STATE.current_page,
@@ -62,6 +135,23 @@ def get_active_context() -> ActiveReaderState:
             selected_text_page=_STATE.selected_text_page,
             last_updated=_STATE.last_updated,
         )
+
+    chosen = memory
+    if persisted and persisted.document_id is not None:
+        if memory.document_id is None:
+            chosen = persisted
+        elif (persisted.last_updated or "") >= (memory.last_updated or ""):
+            chosen = persisted
+
+    if chosen.document_id is not None and chosen is persisted:
+        with _STATE_LOCK:
+            _STATE.document_id = chosen.document_id
+            _STATE.document_title = chosen.document_title
+            _STATE.current_page = chosen.current_page
+            _STATE.selected_text = chosen.selected_text
+            _STATE.selected_text_page = chosen.selected_text_page
+            _STATE.last_updated = chosen.last_updated
+    return chosen
 
 
 def get_active_document() -> dict | None:

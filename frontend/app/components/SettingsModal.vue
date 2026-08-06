@@ -369,6 +369,151 @@
               </button>
             </div>
 
+            <div class="p-4 rounded-xl border border-white/10 bg-white/[0.02] space-y-3">
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="flex items-center gap-2">
+                    <h4 class="text-sm font-medium text-white">Claude Desktop / Cowork</h4>
+                    <div class="relative group">
+                      <button
+                        type="button"
+                        class="inline-flex h-5 w-5 items-center justify-center rounded-full border border-white/15 bg-white/5 text-[11px] text-slate-300 hover:text-white hover:border-indigo-400/40 hover:bg-indigo-500/10"
+                        aria-label="How to set up Claude Desktop and Cowork"
+                      >
+                        i
+                      </button>
+                      <div
+                        class="pointer-events-none absolute left-0 top-7 z-30 w-[22rem] max-w-[70vw] rounded-xl border border-white/10 bg-[#0B0B10] p-3 text-[11px] leading-relaxed text-slate-300 opacity-0 shadow-2xl transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100"
+                      >
+                        <p class="font-medium text-white">Connect Claude to the open PDF</p>
+                        <p class="mt-1.5 text-slate-400">
+                          One MCP setup works in
+                          <span class="text-slate-200">normal Claude Desktop chat</span>
+                          and in
+                          <span class="text-slate-200">Claude Cowork</span>.
+                        </p>
+                        <ol class="mt-2 list-decimal space-y-1.5 pl-4 text-slate-400">
+                          <li>Keep Research Marker open with the paper you are reading.</li>
+                          <li>Click <span class="text-slate-200">Copy Claude config</span> below.</li>
+                          <li>
+                            In Claude Desktop open
+                            <span class="text-slate-200">Settings → Developer → Edit Config</span>
+                            (file:
+                            <span class="font-mono text-[10px] text-slate-300">claude_desktop_config.json</span>).
+                          </li>
+                          <li>
+                            Merge the copied
+                            <span class="font-mono text-[10px] text-slate-300">mcpServers.research-marker</span>
+                            block into that file. Restart Claude Desktop fully.
+                          </li>
+                          <li>
+                            Confirm
+                            <span class="text-slate-200">research-marker</span>
+                            shows as running under Developer MCP settings.
+                          </li>
+                          <li>
+                            In a normal Desktop chat
+                            <span class="text-slate-500">or</span>
+                            Cowork, ask Claude to use the Research Marker MCP, then ask things like
+                            <span class="text-slate-200">“Explain the diagram on @page”</span>.
+                            Example:
+                            <span class="text-slate-200">“Use Research Marker MCP. Explain the diagram on @page.”</span>
+                            Claude should call tools such as
+                            <span class="font-mono text-[10px] text-slate-300">resolve_paper_question</span>
+                            for local page text/images.
+                          </li>
+                        </ol>
+                        <p class="mt-2 text-slate-500">
+                          Claude will not always auto-pick the MCP — say
+                          <span class="text-slate-300">“use Research Marker”</span>
+                          (or
+                          <span class="text-slate-300">“use the Research Marker MCP”</span>)
+                          in the prompt so it actually calls the tools.
+                        </p>
+                        <p class="mt-2 text-slate-500">
+                          Everything stays on localhost. Only Claude’s own chat call leaves your machine.
+                          The MCP process is a thin bridge to this app’s paper-context cache — it does not
+                          re-OCR your library.
+                        </p>
+                        <p class="mt-2 text-amber-200/80">
+                          If tools fail with a connection error, your discovery port is probably stale.
+                          Keep the backend running, click <span class="text-slate-200">Refresh status</span>,
+                          then ask Claude again.
+                          If Claude says no paper is open, reload the PDF viewer tab so Research Marker
+                          publishes the active page.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <p class="mt-1 text-[11px] leading-relaxed text-slate-500">
+                    Let Claude Desktop chat or Cowork read the same local paper context as in-app
+                    <span class="text-slate-400">@page</span> chat. Prompt Claude to use the
+                    Research Marker MCP so it actually calls the tools.
+                  </p>
+                </div>
+                <div class="flex items-center gap-2 text-xs flex-shrink-0">
+                  <span
+                    class="h-2 w-2 rounded-full"
+                    :class="mcpSetup?.ready ? 'bg-emerald-400' : 'bg-amber-400'"
+                  />
+                  <span class="text-slate-300">
+                    {{ mcpSetup?.ready ? "Backend ready" : "Waiting for backend" }}
+                  </span>
+                </div>
+              </div>
+
+              <p v-if="mcpSetupError" class="text-[11px] text-red-300">{{ mcpSetupError }}</p>
+
+              <div class="grid gap-2 text-[11px] text-slate-400">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="text-slate-500">Discovery</span>
+                  <code class="rounded bg-black/40 px-1.5 py-0.5 font-mono text-[10px] text-slate-300 break-all">
+                    {{ mcpSetup?.discovery_path || "—" }}
+                  </code>
+                </div>
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="text-slate-500">API</span>
+                  <code class="rounded bg-black/40 px-1.5 py-0.5 font-mono text-[10px] text-slate-300">
+                    {{ mcpSetup?.base_url || "—" }}
+                  </code>
+                </div>
+              </div>
+
+              <div class="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  @click="copyMcpConfig"
+                  :disabled="mcpBusy || !mcpSetup?.claude_desktop_config_json"
+                  class="px-3 py-1.5 rounded-lg text-xs bg-indigo-500/20 text-indigo-200 border border-indigo-500/30 disabled:opacity-50"
+                >
+                  {{ mcpCopied ? "Copied" : "Copy Claude config" }}
+                </button>
+                <button
+                  type="button"
+                  @click="refreshMcpSetup"
+                  :disabled="mcpBusy"
+                  class="px-3 py-1.5 rounded-lg text-xs bg-white/5 text-slate-300 border border-white/10 disabled:opacity-50"
+                >
+                  Refresh status
+                </button>
+                <button
+                  type="button"
+                  @click="regenerateMcpToken"
+                  :disabled="mcpBusy"
+                  class="px-3 py-1.5 rounded-lg text-xs bg-white/5 text-slate-300 border border-white/10 disabled:opacity-50"
+                >
+                  Regenerate token
+                </button>
+              </div>
+
+              <details class="rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+                <summary class="cursor-pointer text-[11px] text-slate-400">
+                  Preview config JSON
+                </summary>
+                <pre class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-all font-mono text-[10px] text-slate-300">{{ mcpSetup?.claude_desktop_config_json || "Loading…" }}</pre>
+              </details>
+            </div>
+
             <div class="space-y-4">
               <label class="block">
                 <span class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">
@@ -710,6 +855,12 @@ const paperContextMessage = ref("");
 const paperContextError = ref(false);
 let codexStatusPoll = null;
 
+const mcpSetup = ref(null);
+const mcpBusy = ref(false);
+const mcpCopied = ref(false);
+const mcpSetupError = ref("");
+let mcpCopiedTimer = null;
+
 const codexStatusLabel = computed(() => {
   const labels = {
     not_installed: "Not installed",
@@ -816,6 +967,50 @@ async function logoutCodex() {
     await fetchAiModels();
   } finally {
     codexBusy.value = false;
+  }
+}
+
+async function refreshMcpSetup() {
+  mcpBusy.value = true;
+  mcpSetupError.value = "";
+  try {
+    mcpSetup.value = await $fetch(`${apiBaseURL}/mcp/setup/`);
+  } catch (error) {
+    mcpSetupError.value =
+      error?.data?.message || error?.message || "Could not load Claude Desktop / Cowork setup.";
+  } finally {
+    mcpBusy.value = false;
+  }
+}
+
+async function regenerateMcpToken() {
+  mcpBusy.value = true;
+  mcpSetupError.value = "";
+  try {
+    mcpSetup.value = await $fetch(`${apiBaseURL}/mcp/setup/`, {
+      method: "POST",
+      body: { action: "regenerate_token" },
+    });
+  } catch (error) {
+    mcpSetupError.value =
+      error?.data?.message || error?.message || "Could not regenerate the MCP token.";
+  } finally {
+    mcpBusy.value = false;
+  }
+}
+
+async function copyMcpConfig() {
+  const text = mcpSetup.value?.claude_desktop_config_json;
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    mcpCopied.value = true;
+    if (mcpCopiedTimer) clearTimeout(mcpCopiedTimer);
+    mcpCopiedTimer = setTimeout(() => {
+      mcpCopied.value = false;
+    }, 2000);
+  } catch (error) {
+    mcpSetupError.value = "Could not copy to the clipboard.";
   }
 }
 
@@ -1065,11 +1260,13 @@ onMounted(async () => {
   loadUserPreferences();
   await initializeAiModels();
   await refreshCodexStatus();
+  await refreshMcpSetup();
 });
 
 onUnmounted(() => {
   teardownUpdater();
   if (codexStatusPoll) clearInterval(codexStatusPoll);
+  if (mcpCopiedTimer) clearTimeout(mcpCopiedTimer);
 });
 
 async function saveSettings() {

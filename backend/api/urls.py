@@ -1,6 +1,7 @@
 from django.urls import path
 import api.views as views  
 import api.codex_views as codex_views
+import api.mcp.views as mcp_views
 from rest_framework.routers import DefaultRouter
 from .views import DocumentsViewSet # type: ignore
 from django.conf import settings
@@ -73,6 +74,13 @@ urlpatterns = [
     ),
     path('paper-context/active/', codex_views.ActiveContextView.as_view(), name='paper-context-active'),
     path('paper-context/clear/', codex_views.PaperContextClearView.as_view(), name='paper-context-clear'),
+    path('mcp/setup/', mcp_views.McpSetupView.as_view(), name='mcp-setup'),
+    path('mcp/tools/active/', mcp_views.McpActivePaperView.as_view(), name='mcp-tools-active'),
+    path('mcp/tools/page/', mcp_views.McpPageView.as_view(), name='mcp-tools-page'),
+    path('mcp/tools/pages/', mcp_views.McpPagesView.as_view(), name='mcp-tools-pages'),
+    path('mcp/tools/selection/', mcp_views.McpSelectionView.as_view(), name='mcp-tools-selection'),
+    path('mcp/tools/search/', mcp_views.McpSearchView.as_view(), name='mcp-tools-search'),
+    path('mcp/tools/resolve/', mcp_views.McpResolveView.as_view(), name='mcp-tools-resolve'),
 ]
 
 # serves files

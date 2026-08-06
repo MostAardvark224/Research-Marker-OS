@@ -2,11 +2,11 @@ import os
 import json 
 from pathlib import Path
 import sys
-from django.core.management.utils import get_random_secret_key
 
 def generate_new_django_key():
-    new_key = get_random_secret_key()
-    return new_key
+    from django.core.management.utils import get_random_secret_key
+
+    return get_random_secret_key()
 
 def get_app_data_dir():
     if getattr(sys, 'frozen', False):

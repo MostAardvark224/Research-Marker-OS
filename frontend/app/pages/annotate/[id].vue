@@ -1870,6 +1870,7 @@ async function fetchPaper() {
     loading.value = false;
     await nextTick();
     await loadPdf(pdfBytes);
+    await publishActivePaperContext();
   } catch (err) {
     console.error("Error fetching paper:", err);
     error.value = err.message;
@@ -1944,6 +1945,7 @@ onUnmounted(() => {
   if (zoomDebounce) clearTimeout(zoomDebounce);
   if (searchDebounce) clearTimeout(searchDebounce);
   if (pageUpdateDebounce) clearTimeout(pageUpdateDebounce);
+  if (activeContextDebounce) clearTimeout(activeContextDebounce);
   if (saveNotepadDebounce) clearTimeout(saveNotepadDebounce);
   if (saveStickyDebounce) clearTimeout(saveStickyDebounce);
   if (observer) observer.disconnect();
@@ -2059,7 +2061,24 @@ watch(searchQuery, () => {
   }, 3000); // 3s debounce to keep load off of backend
 });
 
-// writing most recent page back to backend
+// Publish the open paper/page for Codex + Claude MCP (@page).
+// Previously this only ran after a page *change* with a 5s debounce, so opening a
+// paper and staying on page 1 never registered an active document.
+async function publishActivePaperContext() {
+  try {
+    await $fetch(`${apiBaseURL}/paper-context/active/`, {
+      method: "POST",
+      body: {
+        document_id: Number(id),
+        document_title: "",
+        current_page: currentPage.value,
+      },
+    });
+  } catch (err) {
+    console.warn("Failed to publish active paper context", err);
+  }
+}
+
 async function postPage() {
   await Promise.all([
     $fetch(`${apiBaseURL}/documents/${id}/`, {
@@ -2069,18 +2088,18 @@ async function postPage() {
         zoom_level: zoomLevel.value,
       },
     }),
-    $fetch(`${apiBaseURL}/paper-context/active/`, {
-      method: "POST",
-      body: {
-        document_id: Number(id),
-        current_page: currentPage.value,
-      },
-    }),
+    publishActivePaperContext(),
   ]);
 }
 
 let pageUpdateDebounce = null;
+let activeContextDebounce = null;
 watch(currentPage, () => {
+  if (activeContextDebounce) clearTimeout(activeContextDebounce);
+  activeContextDebounce = setTimeout(() => {
+    publishActivePaperContext();
+  }, 300);
+
   if (pageUpdateDebounce) clearTimeout(pageUpdateDebounce);
   pageUpdateDebounce = setTimeout(() => {
     postPage();

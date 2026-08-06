@@ -19,3 +19,8 @@ dist/
 !.env.example
 env.json
 user_preferences.json
+
+# Local runtime / secrets (generated while the app runs)
+active_reader.json
+mcp_discovery.json
+mcp_token

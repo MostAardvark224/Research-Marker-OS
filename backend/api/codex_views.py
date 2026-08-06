@@ -325,6 +325,24 @@ class PaperContextClearView(APIView):
 
 
 class ActiveContextView(APIView):
+    def get(self, request):
+        from api.paper_context.retrieval import get_active_context, get_active_document
+
+        state = get_active_context()
+        document = get_active_document()
+        return Response(
+            {
+                "document_id": state.document_id,
+                "document_title": state.document_title
+                or (document or {}).get("document_title", ""),
+                "current_page": state.current_page,
+                "selected_text_page": state.selected_text_page,
+                "has_selection": bool(state.selected_text),
+                "page_count": (document or {}).get("page_count"),
+                "last_updated": state.last_updated,
+            }
+        )
+
     def post(self, request):
         state = update_active_context(
             document_id=_optional_int(request.data.get("document_id")),

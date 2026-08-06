@@ -1,6 +1,6 @@
 # This file is replacing launcher.py as the startup command
 # more robust for running embeddings, django-q2 bg process, and main django server
-web: python manage.py migrate && python manage.py runserver
+web: python manage.py migrate && python manage.py runserver 127.0.0.1:8000
 
 # Runs in its own process.
 qcluster: python -u manage.py qcluster
