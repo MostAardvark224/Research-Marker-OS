@@ -17,6 +17,26 @@ export function useAppUpdater() {
   const hasUpdateError = computed(() => updateState.value.status === "error");
 
   let unsubscribe = null;
+  let pendingStatus = null;
+  let progressFlushTimer = null;
+
+  function applyUpdateStatus(status) {
+    updateState.value = { ...updateState.value, ...status };
+  }
+
+  function scheduleProgressUpdate(status) {
+    pendingStatus = status;
+    if (progressFlushTimer != null) return;
+    // Cap download progress re-renders (~10/s) so a downloading update
+    // doesn't thrash every settings tab.
+    progressFlushTimer = window.setTimeout(() => {
+      progressFlushTimer = null;
+      if (pendingStatus) {
+        applyUpdateStatus(pendingStatus);
+        pendingStatus = null;
+      }
+    }, 100);
+  }
 
   async function refreshUpdateStatus() {
     if (!isDesktopApp) {
@@ -25,7 +45,7 @@ export function useAppUpdater() {
 
     try {
       const status = await window.electronAPI.getUpdateStatus();
-      updateState.value = { ...updateState.value, ...status };
+      applyUpdateStatus(status);
     } catch (error) {
       console.error("Failed to fetch update status:", error);
     }
@@ -136,7 +156,16 @@ export function useAppUpdater() {
     refreshUpdateStatus();
 
     unsubscribe = window.electronAPI.onUpdateStatus((status) => {
-      updateState.value = { ...updateState.value, ...status };
+      if (status?.status === "downloading") {
+        scheduleProgressUpdate(status);
+        return;
+      }
+      if (progressFlushTimer != null) {
+        clearTimeout(progressFlushTimer);
+        progressFlushTimer = null;
+      }
+      pendingStatus = null;
+      applyUpdateStatus(status);
     });
   }
 
@@ -145,6 +174,11 @@ export function useAppUpdater() {
       unsubscribe();
       unsubscribe = null;
     }
+    if (progressFlushTimer != null) {
+      clearTimeout(progressFlushTimer);
+      progressFlushTimer = null;
+    }
+    pendingStatus = null;
   }
 
   return {

@@ -1,14 +1,16 @@
 <template>
+  <Teleport to="body">
   <div
     class="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6"
   >
+    <!-- Solid overlay: backdrop-blur over the library causes severe scroll jank in Electron -->
     <div
-      class="absolute inset-0 bg-black/60 backdrop-blur-sm"
+      class="absolute inset-0 bg-black/75"
       @click="$emit('close')"
     ></div>
 
     <div
-      class="relative flex flex-col md:flex-row w-full max-w-4xl max-h-[85vh] bg-[#020204] border border-white/10 rounded-2xl shadow-2xl overflow-hidden selection:bg-indigo-500/30"
+      class="settings-modal-panel relative flex flex-col md:flex-row w-full max-w-4xl max-h-[85vh] bg-[#020204] border border-white/10 rounded-2xl overflow-hidden selection:bg-indigo-500/30"
     >
       <aside
         class="w-full md:w-60 border-b md:border-b-0 md:border-r border-white/10 bg-white/[0.02] flex flex-col flex-shrink-0"
@@ -33,9 +35,9 @@
             :key="tab.id"
             @click="activeTab = tab.id"
             :class="[
-              'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-200',
+              'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors duration-150',
               activeTab === tab.id
-                ? 'bg-indigo-500/10 text-indigo-400 shadow-[inset_0px_1px_0px_rgba(255,255,255,0.05)] border border-indigo-500/20'
+                ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'
                 : 'text-slate-400 hover:text-white hover:bg-white/5 border border-transparent',
             ]"
           >
@@ -46,10 +48,10 @@
 
         <div class="p-3 border-t border-white/5 hidden md:block">
           <div
-            class="flex items-center gap-3 px-3 py-2 rounded-lg bg-gradient-to-br from-indigo-500/10 to-purple-500/10 border border-white/5"
+            class="flex items-center gap-3 px-3 py-2 rounded-lg bg-indigo-500/10 border border-white/5"
           >
             <div
-              class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"
+              class="w-1.5 h-1.5 rounded-full bg-emerald-500"
             ></div>
             <span class="text-[10px] text-slate-400 font-mono">v{{ appVersionLabel }}</span>
           </div>
@@ -76,7 +78,7 @@
           </button>
         </header>
 
-        <div class="flex-1 overflow-y-auto p-6 custom-scrollbar">
+        <div class="settings-modal-scroll flex-1 overflow-y-auto p-6 custom-scrollbar">
           <div v-if="activeTab === 'general'" class="space-y-6 max-w-2xl">
             <div class="p-4 rounded-xl border border-white/10 bg-white/[0.02] space-y-3">
               <div class="flex items-center justify-between gap-3">
@@ -121,56 +123,17 @@
             </div>
 
             <div class="space-y-4">
-              <div
+              <SettingsEnvField
                 v-for="env in computedEnvList"
                 :key="env.key"
-                class="p-4 rounded-xl border border-white/10 bg-white/[0.02] hover:bg-white/[0.04] transition-colors"
-              >
-                <div class="space-y-3">
-                  <div>
-                    <label
-                      class="block text-sm font-medium text-white mb-1 tracking-wide"
-                    >
-                      {{ env.label }}
-                    </label>
-                    <p
-                      v-if="env.key !== env.label"
-                      class="font-mono text-[10px] text-slate-600 mb-1"
-                    >
-                      {{ env.key }}
-                    </p>
-                    <p
-                      v-if="env.description"
-                      class="text-xs text-slate-500 leading-relaxed"
-                    >
-                      {{ env.description }}
-                    </p>
-                  </div>
-
-                  <div class="relative group">
-                    <input
-                      v-model="envFormValues[env.key]"
-                      :type="env.type"
-                      :placeholder="env.placeholder || `Enter ${env.label}...`"
-                      class="w-full bg-[#0A0A0C] border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white placeholder-slate-700 focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 focus:bg-white/[0.03] outline-none transition-all font-mono"
-                      spellcheck="false"
-                    />
-
-                    <div
-                      class="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"
-                    >
-                      <div
-                        v-if="envFormValues[env.key]"
-                        class="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]"
-                      ></div>
-                      <div
-                        v-else
-                        class="w-1.5 h-1.5 rounded-full bg-slate-700"
-                      ></div>
-                    </div>
-                  </div>
-                </div>
-              </div>
+                :field-key="env.key"
+                :label="env.label"
+                :description="env.description"
+                :placeholder="env.placeholder || `Enter ${env.label}...`"
+                :type="env.type"
+                :model-value="envFormValues[env.key] || ''"
+                @update:model-value="(value) => setEnvValue(env.key, value)"
+              />
             </div>
           </div>
 
@@ -278,7 +241,7 @@
               >
                 <div class="h-2 rounded-full bg-slate-800 overflow-hidden">
                   <div
-                    class="h-full rounded-full bg-indigo-500 transition-all duration-300"
+                    class="h-full rounded-full bg-indigo-500"
                     :style="{ width: `${downloadProgress}%` }"
                   ></div>
                 </div>
@@ -607,7 +570,10 @@
                       class="w-full bg-[#0A0A0C] border border-white/10 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-purple-500/50"
                     >
                       <option
-                        v-for="model in selectedGenerationProvider.models"
+                        v-for="model in modelsForSelect(
+                          selectedGenerationProvider,
+                          smartCollectionGenerationModel,
+                        )"
                         :key="model"
                         :value="model"
                       >
@@ -718,7 +684,7 @@
                       class="w-full bg-[#0A0A0C] border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 outline-none"
                     >
                       <option
-                        v-for="model in provider.models"
+                        v-for="model in modelsForSelect(provider)"
                         :key="model"
                         :value="model"
                       >
@@ -734,7 +700,7 @@
                     class="w-full bg-[#0A0A0C] border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 outline-none"
                   >
                     <option
-                      v-for="model in provider.models"
+                      v-for="model in modelsForSelect(provider)"
                       :key="model"
                       :value="model"
                     >
@@ -776,6 +742,7 @@
       </main>
     </div>
   </div>
+  </Teleport>
 </template>
 
 <script setup>
@@ -1041,6 +1008,22 @@ async function clearPaperContext() {
   }
 }
 
+const MAX_SELECT_MODELS = 80;
+
+function modelsForSelect(provider, selectedModel) {
+  const models = provider?.models || [];
+  if (models.length <= MAX_SELECT_MODELS) return models;
+
+  const selected =
+    selectedModel ??
+    (provider?.id ? aiModels.value[provider.id] : null);
+  const limited = models.slice(0, MAX_SELECT_MODELS);
+  if (selected && !limited.includes(selected)) {
+    limited[limited.length - 1] = selected;
+  }
+  return limited;
+}
+
 const appVersionLabel = computed(
   () => updateState.value.currentVersion || "…",
 );
@@ -1101,7 +1084,12 @@ const activeTabDescription = computed(() => {
 });
 
 const envPotentialList = ref([]);
-const envFormValues = ref({});
+// shallowRef + nested writes: typing in a field must not re-render the whole modal
+const envFormValues = shallowRef({});
+
+function setEnvValue(key, value) {
+  envFormValues.value[key] = value;
+}
 
 const envMetadata = {
   GEMINI_API_KEY: {
@@ -1173,13 +1161,15 @@ async function loadEnvVars() {
     const res = await $fetch(`${apiBaseURL}/env-vars/`);
     envPotentialList.value = res.potential_list || [];
 
+    const nextValues = { ...envFormValues.value };
     envPotentialList.value.forEach((key) => {
       if (res.variables && res.variables[key]) {
-        envFormValues.value[key] = res.variables[key];
-      } else if (!envFormValues.value[key]) {
-        envFormValues.value[key] = "";
+        nextValues[key] = res.variables[key];
+      } else if (!nextValues[key]) {
+        nextValues[key] = "";
       }
     });
+    envFormValues.value = nextValues;
   } catch (error) {
     console.error("Failed to load env vars:", error);
   }
@@ -1254,14 +1244,34 @@ async function loadUserPreferences() {
   }
 }
 
-onMounted(async () => {
+onMounted(() => {
   initializeUpdater();
   loadEnvVars();
   loadUserPreferences();
-  await initializeAiModels();
-  await refreshCodexStatus();
-  await refreshMcpSetup();
+  // AI catalog / Codex / MCP are heavy — load only when that tab is opened
 });
+
+watch(activeTab, (tab) => {
+  if (tab === "ai") {
+    ensureAiTabLoaded();
+  }
+});
+
+let aiTabLoadPromise = null;
+async function ensureAiTabLoaded() {
+  if (aiTabLoadPromise) return aiTabLoadPromise;
+  aiTabLoadPromise = (async () => {
+    await initializeAiModels();
+    await refreshCodexStatus();
+    await refreshMcpSetup();
+  })();
+  try {
+    await aiTabLoadPromise;
+  } catch (error) {
+    aiTabLoadPromise = null;
+    throw error;
+  }
+}
 
 onUnmounted(() => {
   teardownUpdater();
@@ -1314,6 +1324,19 @@ async function saveSettings() {
 </script>
 
 <style scoped>
+.settings-modal-panel {
+  /* Isolate paints so scrolling the pane doesn't invalidate the page behind */
+  contain: layout paint style;
+  transform: translateZ(0);
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.55);
+}
+
+.settings-modal-scroll {
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  contain: content;
+}
+
 .custom-scrollbar::-webkit-scrollbar {
   width: 4px;
 }
