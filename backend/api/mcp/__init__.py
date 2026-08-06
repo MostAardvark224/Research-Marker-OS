@@ -1,7 +1,13 @@
-from api.mcp.discovery import build_claude_desktop_config, setup_payload, write_discovery
+from api.mcp.discovery import (
+    build_claude_desktop_config,
+    ensure_stable_mcp_launcher,
+    setup_payload,
+    write_discovery,
+)
 
 __all__ = [
     "build_claude_desktop_config",
+    "ensure_stable_mcp_launcher",
     "setup_payload",
     "write_discovery",
 ]

@@ -404,6 +404,10 @@
                           then ask Claude again.
                           If Claude says no paper is open, reload the PDF viewer tab so Research Marker
                           publishes the active page.
+                          If Claude shows
+                          <span class="font-mono text-[10px] text-slate-300">spawn …/tmp/.mount_… ENOENT</span>,
+                          re-copy the Claude config after opening Research Marker (AppImage mount paths are
+                          temporary) and fully restart Claude Desktop.
                         </p>
                       </div>
                     </div>
