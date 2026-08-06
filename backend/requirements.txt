@@ -33,7 +33,7 @@ hdbscan==0.8.43
 honcho==2.0.0
 httpcore==1.0.9
 httpx==0.28.1
-idna==3.16
+idna==3.18
 jinxed==2.0.4
 joblib==1.5.3
 llvmlite==0.47.0
