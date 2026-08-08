@@ -116,7 +116,14 @@ def _stale_failure_for(job: models.SmartCollectionJob) -> tuple[str, str]:
         f"Embedding: {job.embedding_provider}/{job.embedding_model}. "
         f"Labels: {job.generation_provider}/{job.generation_model}."
     )
+    worker_detail = _django_q_failure_detail(job)
     if job.status == models.SmartCollectionJob.Status.QUEUED:
+        if worker_detail:
+            return (
+                "worker_failure",
+                "Smart Collection never left the queue because the background "
+                f"worker rejected the task: {worker_detail} ({providers})",
+            )
         return (
             "worker_not_running",
             "Smart Collection stayed queued and never started. The background "
@@ -138,12 +145,36 @@ def _stale_failure_for(job: models.SmartCollectionJob) -> tuple[str, str]:
             "provider stopped responding. Verify the API key/model works from "
             f"this host and retry. ({providers})",
         )
+    detail = f" Worker error: {worker_detail}." if worker_detail else ""
     return (
         "worker_timeout",
         f"Smart Collection stalled during '{stage}' with no progress. The "
-        "background worker may have crashed or frozen. Restart the worker and "
-        f"retry. ({providers})",
+        f"background worker may have crashed or frozen.{detail} Restart the "
+        f"worker and retry. ({providers})",
     )
+
+
+def _django_q_failure_detail(job: models.SmartCollectionJob) -> str:
+    """Best-effort real error from django-q when the job row never advanced."""
+    task_id = (job.task_id or "").strip()
+    if not task_id:
+        return ""
+    try:
+        from django_q.models import Task
+    except Exception:
+        return ""
+    try:
+        task = Task.objects.filter(id=task_id).only("success", "result").first()
+    except Exception:
+        return ""
+    if task is None or task.success:
+        return ""
+    detail = str(task.result or "").strip()
+    if not detail:
+        return "task failed with no result"
+    # django-q sometimes stores a long traceback string; keep the useful head.
+    first_line = detail.splitlines()[0].strip()
+    return first_line[:400]
 
 
 def reconcile_stale_job(job: models.SmartCollectionJob) -> models.SmartCollectionJob:

@@ -42,6 +42,32 @@ hidden_imports += collect_submodules('social_core')
 hidden_imports += collect_submodules('storages')                 
 hidden_imports += collect_submodules('rest_framework_simplejwt') 
 
+# django-q resolves these by dotted path string. Analysis cannot see string
+# references, and collect_submodules used to skip packages whose __init__
+# imported Django before the isolated scanner had settings configured.
+hidden_imports += [
+    'api.smart_collections',
+    'api.smart_collections.config',
+    'api.smart_collections.service',
+    'api.smart_collections.tasks',
+    'api.providers',
+    'api.providers.base',
+    'api.providers.codex',
+    'api.providers.embeddings',
+    'api.providers.legacy',
+    'api.paper_context',
+    'api.paper_context.builder',
+    'api.paper_context.citations',
+    'api.paper_context.ingestion',
+    'api.paper_context.mentions',
+    'api.paper_context.retrieval',
+    'api.paper_context.signals',
+    'api.paper_context.types',
+    'api.OCR',
+    'api.scholar_inbox_import',
+    'api.startup_scripts',
+]
+
 hidden_imports += [
     'django.contrib.admin',
     'django.contrib.auth',

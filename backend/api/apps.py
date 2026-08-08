@@ -45,6 +45,13 @@ class ApiConfig(AppConfig):
 
     def ready(self):
         from api.paper_context import signals as _paper_context_signals  # noqa: F401
+        # Import django-q entrypoints so PyInstaller traces them and frozen
+        # workers can resolve dotted-path tasks (string refs alone are invisible).
+        import api.OCR  # noqa: F401
+        import api.paper_context.ingestion  # noqa: F401
+        import api.scholar_inbox_import  # noqa: F401
+        import api.smart_collections.tasks  # noqa: F401
+        import api.startup_scripts  # noqa: F401
 
         # Skip the parent process during `manage.py runserver` autoreload only.
         if "runserver" in sys.argv and os.environ.get("RUN_MAIN") != "true":
