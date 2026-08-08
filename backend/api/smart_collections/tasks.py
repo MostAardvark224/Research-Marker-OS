@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 from django.utils import timezone
+from django_q.tasks import async_task
 
 from api import models
 from api.providers.embeddings import EmbeddingSpec
@@ -15,6 +16,26 @@ from .service import (
 
 
 LOGGER = logging.getLogger(__name__)
+SMART_COLLECTION_TASK_HOOK = (
+    "api.smart_collections.tasks.finalize_smart_collection_task"
+)
+
+
+def queue_smart_collection_job(job_id: str) -> str:
+    """Queue the runner without relying on django-q's pydoc resolver.
+
+    django-q2 accepts callables as task payloads.  Passing the callable is
+    important in a PyInstaller build, where ``pydoc.locate`` can fail even
+    though the module is present in the frozen archive.  Hooks remain dotted
+    paths because django-q stores them in a CharField and resolves them with
+    importlib/getattr instead of pydoc.
+    """
+    return async_task(
+        run_smart_collection_job,
+        str(job_id),
+        hook=SMART_COLLECTION_TASK_HOOK,
+        timeout=1800,
+    )
 
 
 def run_smart_collection_job(job_id: str) -> None:

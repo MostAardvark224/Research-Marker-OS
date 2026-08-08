@@ -178,12 +178,48 @@ def _django_q_failure_detail(job: models.SmartCollectionJob) -> str:
 
 
 def reconcile_stale_job(job: models.SmartCollectionJob) -> models.SmartCollectionJob:
+    active = job.status in (
+        models.SmartCollectionJob.Status.QUEUED,
+        models.SmartCollectionJob.Status.RUNNING,
+    )
+    repair_stale_diagnosis = (
+        job.status == models.SmartCollectionJob.Status.FAILED
+        and job.error_code == "worker_not_running"
+    )
+    if not active and not repair_stale_diagnosis:
+        return job
+
+    # A completed django-q failure is definitive, even while the job's stale
+    # timer is still running.  This also covers worker-level failures where the
+    # result hook could not be imported in a frozen build.
+    worker_detail = _django_q_failure_detail(job)
+    if worker_detail:
+        stage = job.stage or "queued"
+        job.status = models.SmartCollectionJob.Status.FAILED
+        job.error_code = "worker_failure"
+        job.error_message = (
+            f"The background worker rejected the Smart Collection task during "
+            f"'{stage}': {worker_detail}"
+        )
+        job.finished_at = job.finished_at or timezone.now()
+        job.save(
+            update_fields=[
+                "status",
+                "error_code",
+                "error_message",
+                "finished_at",
+                "updated_at",
+            ]
+        )
+        return job
+
+    if not active:
+        return job
+
     if job.status == models.SmartCollectionJob.Status.QUEUED:
         threshold = QUEUED_STALE_AFTER
-    elif job.status == models.SmartCollectionJob.Status.RUNNING:
-        threshold = RUNNING_STALE_AFTER
     else:
-        return job
+        threshold = RUNNING_STALE_AFTER
 
     if job.updated_at >= timezone.now() - threshold:
         return job

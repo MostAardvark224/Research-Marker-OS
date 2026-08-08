@@ -44,6 +44,7 @@ from api.smart_collections.service import (
     safe_failure,
     serialize_job,
 )
+from api.smart_collections.tasks import queue_smart_collection_job
 from api.startup_scripts import get_startup_scripts_status, sanitize_startup_script_paths
 from api.user_preferences import deep_get, load_user_preferences, write_user_preferences
 from api.utils import (
@@ -1230,12 +1231,7 @@ class SmartCollectionView(APIView):
             total_items=models.Annotations.objects.count(),
         )
         try:
-            task_id = async_task(
-                "api.smart_collections.tasks.run_smart_collection_job",
-                str(job.id),
-                hook="api.smart_collections.tasks.finalize_smart_collection_task",
-                timeout=1800,
-            )
+            task_id = queue_smart_collection_job(str(job.id))
         except Exception as exc:
             code, message = safe_failure(exc, "queueing")
             job.status = models.SmartCollectionJob.Status.FAILED
