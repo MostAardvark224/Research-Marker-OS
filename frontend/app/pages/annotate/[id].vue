@@ -405,6 +405,22 @@ const focusPdfReader = (e) => {
   e.currentTarget.focus({ preventScroll: true });
 };
 
+const isTextEntryTarget = (target) =>
+  target instanceof Element &&
+  Boolean(
+    target.closest(
+      "input, textarea, select, [contenteditable='true'], [role='textbox']",
+    ),
+  );
+
+const restoreReaderFocusAfterInteraction = (e) => {
+  if (isTextEntryTarget(e.target)) return;
+
+  nextTick(() => {
+    mainScrollContainer.value?.focus({ preventScroll: true });
+  });
+};
+
 const handleReaderArrowNavigation = (e) => {
   if (
     document.activeElement !== mainScrollContainer.value ||
@@ -2035,6 +2051,8 @@ onMounted(async () => {
     });
     document.addEventListener("keydown", handleKeyboardShortcuts);
     document.addEventListener("mouseup", handleTextSelection);
+    document.addEventListener("click", restoreReaderFocusAfterInteraction);
+    mainScrollContainer.value?.focus({ preventScroll: true });
   } catch (err) {
     console.error("Failed to load PDF libraries:", err);
     error.value = "Failed to initialize PDF viewer.";
@@ -2045,6 +2063,7 @@ onMounted(async () => {
 onUnmounted(() => {
   document.removeEventListener("mouseup", handleTextSelection);
   document.removeEventListener("keydown", handleKeyboardShortcuts);
+  document.removeEventListener("click", restoreReaderFocusAfterInteraction);
   mainScrollContainer.value?.removeEventListener("scroll", handleMainScroll);
   if (scrollEndDebounce) clearTimeout(scrollEndDebounce);
   if (zoomDebounce) clearTimeout(zoomDebounce);
