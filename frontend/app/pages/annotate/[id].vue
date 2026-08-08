@@ -392,6 +392,42 @@ const handleKeyboardShortcuts = (e) => {
   }
 };
 
+const READER_KEY_SCROLL_STEP = 80;
+
+const focusPdfReader = (e) => {
+  if (e.button !== 0) return;
+
+  const interactiveElement = e.target.closest?.(
+    "a, button, input, select, textarea, [contenteditable='true'], [tabindex]",
+  );
+  if (interactiveElement && interactiveElement !== e.currentTarget) return;
+
+  e.currentTarget.focus({ preventScroll: true });
+};
+
+const handleReaderArrowNavigation = (e) => {
+  if (
+    document.activeElement !== mainScrollContainer.value ||
+    e.altKey ||
+    e.ctrlKey ||
+    e.metaKey
+  ) {
+    return;
+  }
+
+  const scrollOffset = {
+    ArrowUp: { top: -READER_KEY_SCROLL_STEP },
+    ArrowDown: { top: READER_KEY_SCROLL_STEP },
+    ArrowLeft: { left: -READER_KEY_SCROLL_STEP },
+    ArrowRight: { left: READER_KEY_SCROLL_STEP },
+  }[e.key];
+
+  if (!scrollOffset) return;
+
+  e.preventDefault();
+  mainScrollContainer.value.scrollBy({ ...scrollOffset, behavior: "auto" });
+};
+
 /**
  * Merge fragmented Range.getClientRects() boxes into contiguous bars.
  * Mixed fonts (bold/mono/math) produce separate client rects with small
@@ -2419,6 +2455,11 @@ watch(currentPage, () => {
     <div class="flex flex-1 overflow-hidden relative">
       <main
         ref="mainScrollContainer"
+        tabindex="0"
+        role="document"
+        aria-label="PDF reader"
+        @pointerdown="focusPdfReader"
+        @keydown="handleReaderArrowNavigation"
         class="flex-1 overflow-auto bg-slate-950 p-8 flex flex-col items-center gap-4"
         :class="{ 'hide-annotations': isAnnotationsHidden }"
         style="overflow-anchor: none; scroll-behavior: auto"
