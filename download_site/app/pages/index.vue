@@ -33,6 +33,9 @@
       >
         <NuxtLink
           to="https://github.com/MostAardvark224/Research-Marker-OS.git"
+          target="_blank"
+          rel="noopener noreferrer"
+          @click="trackGithubClick('header')"
           class="hover:text-white transition-colors"
           >GitHub</NuxtLink
         >
@@ -120,13 +123,14 @@
             </a> -->
             </div>
 
-            <NuxtLink
-              to=""
-              target="_blank"
+            <div
               class="group flex items-center gap-3 text-sm text-slate-400 hover:text-white transition-colors"
             >
               <NuxtLink
                 to="https://github.com/MostAardvark224/Research-Marker-OS.git"
+                target="_blank"
+                rel="noopener noreferrer"
+                @click="trackGithubClick('star')"
                 class="flex items-center gap-2 px-3 py-1.5 rounded-full border border-slate-800 bg-slate-900/50 group-hover:border-slate-700 transition-colors"
               >
                 <Icon name="uil:github" class="text-lg" />
@@ -137,7 +141,7 @@
               >
                 Open Source
               </span>
-            </NuxtLink>
+            </div>
           </div>
         </div>
 
@@ -282,6 +286,19 @@
 </style>
 
 <script setup>
+const { $analytics } = useNuxtApp();
+
+const githubEventNames = {
+  header: "github_header_click",
+  star: "github_star_click",
+};
+
+const trackGithubClick = (placement) => {
+  $analytics.trackEvent(githubEventNames[placement], {
+    link_url: "https://github.com/MostAardvark224/Research-Marker-OS.git",
+  });
+};
+
 const smoothScroll = (id) => {
   const element = document.getElementById(id);
   if (element) {

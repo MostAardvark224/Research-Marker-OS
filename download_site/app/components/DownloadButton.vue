@@ -11,6 +11,20 @@ const props = defineProps({
   },
 });
 
+const { $analytics } = useNuxtApp();
+
+const downloadEventNames = {
+  windows: "download_windows_click",
+  mac: "download_macos_click",
+  linux: "download_linux_click",
+};
+
+const trackDownload = () => {
+  $analytics.trackEvent(downloadEventNames[props.os], {
+    link_url: props.downloadLink,
+  });
+};
+
 const osConfig = computed(() => {
   const config = {
     windows: {
@@ -43,6 +57,8 @@ const osConfig = computed(() => {
   <a
     :href="downloadLink"
     target="_blank"
+    rel="noopener noreferrer"
+    @click="trackDownload"
     class="group relative flex items-center gap-3 px-5 py-3 rounded-xl border border-white/10 bg-white/[0.03] backdrop-blur-sm transition-all duration-300 ease-out hover:-translate-y-1"
     :class="[osConfig.hoverClass, osConfig.glow]"
   >
