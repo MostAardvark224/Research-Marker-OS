@@ -71,6 +71,24 @@ if __name__ == "__main__":
     q_thread = threading.Thread(target=run_qcluster, daemon=True)
     q_thread.start()
 
+    try:
+        from api.startup_scripts import queue_startup_scripts
+
+        task_id = queue_startup_scripts()
+        if task_id:
+            print(f"Startup scripts queued on background worker (task {task_id}).")
+    except Exception as exc:
+        print(f"Could not queue startup scripts: {exc}")
+
+    try:
+        from api.scholar_inbox_import import queue_scholar_auto_import
+
+        task_id = queue_scholar_auto_import()
+        if task_id:
+            print(f"Scholar Inbox auto-import queued on background worker (task {task_id}).")
+    except Exception as exc:
+        print(f"Could not queue Scholar Inbox auto-import: {exc}")
+
     port = _reserve_port()
     _write_mcp_discovery(port)
     # Electron and MCP clients parse this exact URL shape.

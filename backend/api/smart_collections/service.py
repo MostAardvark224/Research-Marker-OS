@@ -41,12 +41,39 @@ LOGGER = logging.getLogger(__name__)
 MAX_ANNOTATIONS = 2000
 MAX_SIMILAR_PAPERS = 6
 SIMILARITY_THRESHOLD = 0.55
-STALE_JOB_AFTER = timedelta(minutes=35)
+# Jobs that never leave the queue usually mean the django-q worker is down.
+QUEUED_STALE_AFTER = timedelta(minutes=2)
+# Running jobs heartbeat on stage/batch progress; silence longer than this is a hang.
+RUNNING_STALE_AFTER = timedelta(minutes=8)
+# Back-compat alias for callers/tests that still reference the old name.
+STALE_JOB_AFTER = RUNNING_STALE_AFTER
 LABEL_MAX_LENGTH = 100
+
+STAGE_LABELS: dict[str, str] = {
+    "queued": "Waiting for background worker",
+    "preflight": "Checking configuration",
+    "embedding": "Embedding annotations",
+    "clustering": "Clustering related notes",
+    "labeling": "Labeling topics",
+    "projection": "Building the graph layout",
+    "similarity": "Finding similar papers",
+    "recommendations": "Generating reading recommendations",
+    "publishing": "Saving the collection",
+    "completed": "Completed",
+    "failed": "Failed",
+    "cancelled": "Cancelled",
+}
 
 
 class SmartCollectionCancelled(Exception):
     pass
+
+
+def stage_label(stage: str | None) -> str:
+    key = str(stage or "").strip()
+    if not key:
+        return "Working"
+    return STAGE_LABELS.get(key, key.replace("_", " ").capitalize())
 
 
 def serialize_job(job: models.SmartCollectionJob) -> dict[str, Any]:
@@ -55,6 +82,7 @@ def serialize_job(job: models.SmartCollectionJob) -> dict[str, Any]:
         "task_id": job.task_id,
         "status": job.status,
         "stage": job.stage,
+        "stage_label": stage_label(job.stage),
         "progress": job.progress,
         "embedding_provider": job.embedding_provider,
         "embedding_model": job.embedding_model,
@@ -68,6 +96,8 @@ def serialize_job(job: models.SmartCollectionJob) -> dict[str, Any]:
             {
                 "code": job.error_code or "smart_collection_failed",
                 "message": job.error_message or "Smart Collection generation failed.",
+                "stage": job.stage or None,
+                "stage_label": stage_label(job.stage),
             }
             if job.status == models.SmartCollectionJob.Status.FAILED
             else None
@@ -80,33 +110,68 @@ def serialize_job(job: models.SmartCollectionJob) -> dict[str, Any]:
     }
 
 
+def _stale_failure_for(job: models.SmartCollectionJob) -> tuple[str, str]:
+    stage = stage_label(job.stage)
+    providers = (
+        f"Embedding: {job.embedding_provider}/{job.embedding_model}. "
+        f"Labels: {job.generation_provider}/{job.generation_model}."
+    )
+    if job.status == models.SmartCollectionJob.Status.QUEUED:
+        return (
+            "worker_not_running",
+            "Smart Collection stayed queued and never started. The background "
+            "django-q worker is probably not running on this host. Start the "
+            "worker process, then retry. "
+            f"({providers})",
+        )
+    if job.stage in ("embedding", "preflight"):
+        return (
+            "embedding_timeout",
+            f"Smart Collection stalled while {stage.lower()}. The embedding "
+            "provider stopped responding or the worker died mid-request. Check "
+            f"network access to the embedding API and retry. ({providers})",
+        )
+    if job.stage in ("labeling", "recommendations"):
+        return (
+            "generation_timeout",
+            f"Smart Collection stalled while {stage.lower()}. The generation "
+            "provider stopped responding. Verify the API key/model works from "
+            f"this host and retry. ({providers})",
+        )
+    return (
+        "worker_timeout",
+        f"Smart Collection stalled during '{stage}' with no progress. The "
+        "background worker may have crashed or frozen. Restart the worker and "
+        f"retry. ({providers})",
+    )
+
+
 def reconcile_stale_job(job: models.SmartCollectionJob) -> models.SmartCollectionJob:
-    if (
-        job.status
-        in (
-            models.SmartCollectionJob.Status.QUEUED,
-            models.SmartCollectionJob.Status.RUNNING,
-        )
-        and job.updated_at < timezone.now() - STALE_JOB_AFTER
-    ):
-        job.status = models.SmartCollectionJob.Status.FAILED
-        job.stage = "failed"
-        job.error_code = "worker_timeout"
-        job.error_message = (
-            "The Smart Collection worker stopped responding. Restart the background "
-            "worker and retry."
-        )
-        job.finished_at = timezone.now()
-        job.save(
-            update_fields=[
-                "status",
-                "stage",
-                "error_code",
-                "error_message",
-                "finished_at",
-                "updated_at",
-            ]
-        )
+    if job.status == models.SmartCollectionJob.Status.QUEUED:
+        threshold = QUEUED_STALE_AFTER
+    elif job.status == models.SmartCollectionJob.Status.RUNNING:
+        threshold = RUNNING_STALE_AFTER
+    else:
+        return job
+
+    if job.updated_at >= timezone.now() - threshold:
+        return job
+
+    code, message = _stale_failure_for(job)
+    # Keep the last real stage so the UI can say where it stalled.
+    job.status = models.SmartCollectionJob.Status.FAILED
+    job.error_code = code
+    job.error_message = message
+    job.finished_at = timezone.now()
+    job.save(
+        update_fields=[
+            "status",
+            "error_code",
+            "error_message",
+            "finished_at",
+            "updated_at",
+        ]
+    )
     return job
 
 
@@ -244,7 +309,15 @@ def _embed_annotations(
 
     completed = 0
     for start in range(0, len(stale), provider.batch_size):
-        _check_cancelled(job)
+        # Heartbeat before the provider call so a hung API request can be
+        # detected as stale instead of looking like silent progress.
+        progress = 5 + round(20 * completed / max(1, len(stale)))
+        _set_job(
+            job,
+            stage="embedding",
+            progress=progress,
+            processed_items=min(len(annotations), completed),
+        )
         batch = stale[start : start + provider.batch_size]
         vectors = provider.embed_texts([_annotation_text(item) for item in batch])
         for item, vector in zip(batch, vectors, strict=True):
@@ -693,14 +766,32 @@ def build_smart_collection(
 
 
 def safe_failure(exc: BaseException, stage: str) -> tuple[str, str]:
+    label = stage_label(stage)
     if isinstance(exc, ResearchMarkerError):
         return exc.code, exc.message[:1000]
     if isinstance(exc, SmartCollectionCancelled):
         return "cancelled", "Smart Collection generation was cancelled."
     if isinstance(exc, ValueError):
         return "invalid_smart_collection_data", str(exc)[:1000]
+    if isinstance(exc, (requests.Timeout, TimeoutError)):
+        return (
+            "provider_timeout",
+            f"Timed out during {label.lower()}: {str(exc)[:400]}",
+        )
+    if isinstance(exc, (requests.ConnectionError, ConnectionError, OSError)):
+        return (
+            "provider_unreachable",
+            f"Could not reach the AI provider during {label.lower()}: {str(exc)[:400]}",
+        )
+    detail = str(exc).strip()[:400]
     LOGGER.exception("Unexpected Smart Collection failure during %s", stage)
+    if detail:
+        return (
+            "smart_collection_failed",
+            f"Smart Collection failed during {label.lower()}: {detail}",
+        )
     return (
         "smart_collection_failed",
-        f"Smart Collection generation failed during {stage}. Check the backend logs and retry.",
+        f"Smart Collection generation failed during {label.lower()}. "
+        "Check the backend logs and retry.",
     )

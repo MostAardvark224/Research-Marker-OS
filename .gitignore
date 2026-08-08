@@ -5,3 +5,5 @@ scripts/
 backend/paper_context/
 backend/ai_sessions/
 docs/
+backend/user_preferences.json
+backend/startup_scripts_status.json

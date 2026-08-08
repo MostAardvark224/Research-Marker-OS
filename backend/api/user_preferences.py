@@ -7,11 +7,13 @@ from .utils import get_app_data_dir
 def intitial_user_prefs(): 
     init_data = {
         "user_preferences": {
-            "general": {},
+            "general": {
+                "startup_scripts": [],
+            },
             "scholar_inbox": {
             "auto_import": False,
             "last_import_date": None,
-            "amount_to_import": 0
+            "amount_to_import": 1
             },
             "ai": {
                 "default_provider": "gemini",

@@ -138,6 +138,13 @@
                 isLoading ? "Fetching Digest..." : "Fetch Today's Digest"
               }}</span>
             </button>
+            <p
+              v-if="statusMessage"
+              class="text-[11px] leading-snug"
+              :class="statusError ? 'text-red-300' : 'text-slate-400'"
+            >
+              {{ statusMessage }}
+            </p>
             <p class="text-[10px] text-slate-500 leading-tight">
               Uses your Gmail app password to read the latest Alert Digest
               email. Defaults match your Scholar Inbox settings.
@@ -163,6 +170,8 @@ const emit = defineEmits(["close", "imported"]);
 const isLoading = ref(false);
 const importAll = ref(false);
 const paperCount = ref(5);
+const statusMessage = ref("");
+const statusError = ref(false);
 
 const {
   public: { apiBaseURL },
@@ -177,8 +186,11 @@ function applyScholarPrefs(scholarPrefs) {
   }
 
   importAll.value = false;
-  if (typeof scholarPrefs.amount_to_import === "number" && scholarPrefs.amount_to_import > 0) {
-    paperCount.value = scholarPrefs.amount_to_import;
+  if (
+    typeof scholarPrefs.amount_to_import === "number" &&
+    scholarPrefs.amount_to_import > 0
+  ) {
+    paperCount.value = Math.min(10, scholarPrefs.amount_to_import);
   }
 }
 
@@ -194,6 +206,8 @@ onMounted(async () => {
 const fetchDigest = async () => {
   if (isLoading.value) return;
   isLoading.value = true;
+  statusMessage.value = "";
+  statusError.value = false;
 
   try {
     const amount_to_import = importAll.value ? "All" : paperCount.value;
@@ -204,23 +218,38 @@ const fetchDigest = async () => {
 
     const imported = res?.imported ?? 0;
     const skipped = res?.skipped ?? 0;
+    const unmatched = res?.unmatched ?? 0;
     const message = res?.message || "Scholar Inbox fetch completed.";
 
+    statusMessage.value = message;
+    statusError.value = false;
+
     if (imported > 0) {
-      alert(`${message}\n${skipped > 0 ? `${skipped} skipped (duplicates or errors).` : ""}`);
+      const extras = [];
+      if (skipped > 0) extras.push(`${skipped} skipped`);
+      if (unmatched > 0) extras.push(`${unmatched} unmatched on arXiv`);
+      alert(
+        extras.length
+          ? `${message}\n(${extras.join(", ")})`
+          : message,
+      );
       emit("imported");
       emit("close");
       return;
     }
 
     alert(message);
-    emit("close");
+    if (res?.digest_found) {
+      emit("close");
+    }
   } catch (error) {
     const message =
       error?.data?.error ||
       error?.data?.message ||
       "Failed to fetch Scholar Inbox digest.";
     console.error("Error fetching digest:", error);
+    statusMessage.value = message;
+    statusError.value = true;
     alert(message);
   } finally {
     isLoading.value = false;

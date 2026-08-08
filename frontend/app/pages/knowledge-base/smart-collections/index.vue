@@ -35,16 +35,24 @@
         class="flex-1 p-8 lg:p-12 overflow-y-auto relative custom-scrollbar flex flex-col"
       >
         <div
-          v-if="isInitializing || requestError || jobStatus?.warnings?.length"
-          class="fixed right-6 top-20 z-[80] w-[min(420px,calc(100vw-3rem))] rounded-xl border border-white/10 bg-[#08080c]/95 p-4 shadow-2xl backdrop-blur-md"
+          v-if="isInitializing || requestError || stallWarning || jobStatus?.warnings?.length"
+          class="fixed right-6 top-20 z-[80] w-[min(440px,calc(100vw-3rem))] rounded-xl border border-white/10 bg-[#08080c]/95 p-4 shadow-2xl backdrop-blur-md"
         >
           <template v-if="isInitializing">
             <div class="flex items-start justify-between gap-4">
               <div>
                 <p class="text-sm font-medium text-white">Updating Smart Collection</p>
-                <p class="mt-1 text-xs capitalize text-slate-400">
-                  {{ jobStatus?.stage || "queued" }} · {{ jobStatus?.processed_items || 0 }} /
+                <p class="mt-1 text-xs text-slate-400">
+                  {{ jobStatus?.stage_label || jobStatus?.stage || "Queued" }}
+                  · {{ jobStatus?.processed_items || 0 }} /
                   {{ jobStatus?.total_items || 0 }}
+                </p>
+                <p
+                  v-if="jobStatus?.embedding_provider"
+                  class="mt-1 text-[11px] text-slate-500"
+                >
+                  {{ jobStatus.embedding_provider }}/{{ jobStatus.embedding_model }}
+                  · labels via {{ jobStatus.generation_provider }}/{{ jobStatus.generation_model }}
                 </p>
               </div>
               <button
@@ -60,9 +68,24 @@
                 :style="{ width: `${jobStatus?.progress || 0}%` }"
               ></div>
             </div>
+            <p
+              v-if="stallWarning"
+              class="mt-3 text-xs leading-relaxed text-amber-300/90"
+            >
+              {{ stallWarning }}
+            </p>
           </template>
-          <template v-else-if="requestError">
+            <template v-else-if="requestError">
             <p class="text-sm font-medium text-red-300">Smart Collection failed</p>
+            <p
+              v-if="requestErrorCode"
+              class="mt-1 font-mono text-[10px] uppercase tracking-wide text-red-400/70"
+            >
+              {{ requestErrorCode }}
+              <span v-if="jobStatus?.error?.stage_label" class="normal-case tracking-normal text-slate-500">
+                · stalled during {{ jobStatus.error.stage_label }}
+              </span>
+            </p>
             <p class="mt-1 text-xs leading-relaxed text-slate-400">{{ requestError }}</p>
             <button
               @click="RunSmartCollection"
@@ -525,7 +548,7 @@
                 <Icon v-else name="uil:processor" class="text-xl" />
                 {{
                   isInitializing
-                    ? "Constructing Graph..."
+                    ? jobStatus?.stage_label || "Constructing Graph..."
                     : "Initialize Smart Collection"
                 }}
               </span>
@@ -597,13 +620,23 @@
 
 <script setup>
 import * as d3 from "d3";
+import { storeToRefs } from "pinia";
+import { useSmartCollectionsStore } from "~~/stores/useSmartCollectionsStore";
+import { useNotificationStore } from "~~/stores/useNotificationStore";
+
 const {
   public: { apiBaseURL },
 } = useRuntimeConfig();
 
+const store = useSmartCollectionsStore();
+const notifications = useNotificationStore();
+const { isInitializing, activeJobId, jobStatus } = storeToRefs(store);
+
 const data = ref(null);
 const graphColors = ref(null);
 const requestError = ref("");
+const requestErrorCode = ref("");
+const stallWarning = ref("");
 
 // Computed property to check if the collection exists
 // once this is true run rendering log
@@ -613,9 +646,70 @@ const hasData = computed(() => {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 let pollingActive = true;
+let stallNoticeShown = false;
+const QUEUED_STALL_MS = 45_000;
+const RUNNING_STALL_MS = 150_000;
 
 const errorMessage = (error, fallback) =>
   error?.data?.message || error?.message || fallback;
+
+const errorCode = (error) => error?.data?.error || "";
+
+function clearFailureState() {
+  requestError.value = "";
+  requestErrorCode.value = "";
+  stallWarning.value = "";
+  stallNoticeShown = false;
+}
+
+function reportFailure(message, { code = "", notify = true } = {}) {
+  requestError.value = message;
+  requestErrorCode.value = code || "";
+  stallWarning.value = "";
+  if (!notify) return;
+  notifications.notify({
+    title: "Smart Collection failed",
+    message: code ? `${message}\n\nError: ${code}` : message,
+    type: "error",
+    durationMs: 0,
+  });
+}
+
+function reportWarnings(warnings) {
+  if (!warnings?.length) return;
+  notifications.notify({
+    title: "Smart Collection finished with warnings",
+    message: warnings.join("\n"),
+    type: "warning",
+    durationMs: 14000,
+  });
+}
+
+function updateStallWarning(job, unchangedMs) {
+  if (!job || !["queued", "running"].includes(job.status)) {
+    stallWarning.value = "";
+    return;
+  }
+  if (job.status === "queued" && unchangedMs >= QUEUED_STALL_MS) {
+    stallWarning.value =
+      "Still queued with no worker pickup. On production this usually means the django-q background worker is not running.";
+  } else if (job.status === "running" && unchangedMs >= RUNNING_STALL_MS) {
+    const stage = job.stage_label || job.stage || "the current step";
+    stallWarning.value = `No progress while ${String(stage).toLowerCase()}. The AI provider may be hanging or the worker may have frozen.`;
+  } else {
+    stallWarning.value = "";
+    return;
+  }
+  if (!stallNoticeShown) {
+    stallNoticeShown = true;
+    notifications.notify({
+      title: "Smart Collection may be stuck",
+      message: stallWarning.value,
+      type: "warning",
+      durationMs: 12000,
+    });
+  }
+}
 
 async function pollBackend() {
   if (!activeJobId.value) return null;
@@ -626,40 +720,96 @@ async function pollBackend() {
     store.setJob(res.job);
     return res.job;
   } catch (error) {
-    requestError.value = errorMessage(error, "Could not check Smart Collection progress.");
+    reportFailure(
+      errorMessage(error, "Could not check Smart Collection progress."),
+      { code: errorCode(error) },
+    );
     return null;
   }
 }
 
 async function continuouslyPollBackend() {
   let interval = 1500;
+  let lastFingerprint = "";
+  let unchangedSince = Date.now();
+  stallNoticeShown = false;
+  stallWarning.value = "";
+
   while (pollingActive && activeJobId.value) {
     const job = await pollBackend();
     if (!job) return;
+
+    const fingerprint = `${job.status}:${job.stage}:${job.progress}:${job.processed_items}`;
+    if (fingerprint !== lastFingerprint) {
+      lastFingerprint = fingerprint;
+      unchangedSince = Date.now();
+      stallWarning.value = "";
+      stallNoticeShown = false;
+    } else {
+      updateStallWarning(job, Date.now() - unchangedSince);
+    }
+
     if (job.status === "completed") {
+      stallWarning.value = "";
       await getData();
+      notifications.notify({
+        title: "Smart Collection ready",
+        message: "Your knowledge graph finished updating.",
+        type: "success",
+        durationMs: 6000,
+      });
+      reportWarnings(job.warnings);
       return;
     }
     if (job.status === "failed") {
-      requestError.value =
-        job.error?.message || "Smart Collection generation failed.";
+      reportFailure(
+        job.error?.message || "Smart Collection generation failed.",
+        { code: job.error?.code || "" },
+      );
       return;
     }
-    if (job.status === "cancelled") return;
+    if (job.status === "cancelled") {
+      stallWarning.value = "";
+      notifications.notify({
+        title: "Smart Collection cancelled",
+        message: "Generation was cancelled before it finished.",
+        type: "info",
+        durationMs: 6000,
+      });
+      return;
+    }
     await sleep(interval);
     interval = Math.min(5000, interval + 500);
   }
 }
 
 async function RunSmartCollection() {
-  requestError.value = "";
+  clearFailureState();
   try {
     const res = await $fetch(`${apiBaseURL}/smart-collection/`, {
       method: "POST",
     });
     store.setJob(res.job);
+    if (res.already_running) {
+      notifications.notify({
+        title: "Smart Collection already running",
+        message: "Resuming progress for the job that is already in progress.",
+        type: "info",
+        durationMs: 6000,
+      });
+    } else {
+      notifications.notify({
+        title: "Smart Collection started",
+        message: "Building embeddings and clustering in the background.",
+        type: "info",
+        durationMs: 5000,
+      });
+    }
   } catch (error) {
-    requestError.value = errorMessage(error, "Failed to start Smart Collection.");
+    if (error?.data?.job) store.setJob(error.data.job);
+    reportFailure(errorMessage(error, "Failed to start Smart Collection."), {
+      code: errorCode(error),
+    });
     return;
   }
   await continuouslyPollBackend();
@@ -673,13 +823,22 @@ async function getData() {
     readingRecs.value = res.recommendations || {};
     if (res.active_job) store.setJob(res.active_job);
   } catch (error) {
-    requestError.value = errorMessage(error, "Failed to fetch Smart Collection data.");
+    reportFailure(
+      errorMessage(error, "Failed to fetch Smart Collection data."),
+      { code: errorCode(error) },
+    );
     return;
   }
 }
 
 async function initDataLogic() {
   await getData();
+  if (jobStatus.value?.status === "failed" && jobStatus.value?.error?.message) {
+    reportFailure(jobStatus.value.error.message, {
+      code: jobStatus.value.error.code || "",
+      notify: false,
+    });
+  }
   if (activeJobId.value && isInitializing.value) await continuouslyPollBackend();
 }
 
@@ -702,16 +861,11 @@ async function cancelSmartCollection() {
     );
     store.setJob(res.job);
   } catch (error) {
-    requestError.value = errorMessage(error, "Could not cancel Smart Collection.");
+    reportFailure(errorMessage(error, "Could not cancel Smart Collection."), {
+      code: errorCode(error),
+    });
   }
 }
-
-import { useSmartCollectionsStore } from "~~/stores/useSmartCollectionsStore";
-import { storeToRefs } from "pinia";
-
-const store = useSmartCollectionsStore();
-
-const { isInitializing, activeJobId, jobStatus } = storeToRefs(store);
 
 onUnmounted(() => {
   pollingActive = false;
@@ -866,7 +1020,9 @@ async function getRecommendations() {
         ? JSON.parse(res.recommendations)
         : res.recommendations;
   } catch (error) {
-    requestError.value = errorMessage(error, "Failed to fetch recommendations.");
+    reportFailure(errorMessage(error, "Failed to fetch recommendations."), {
+      code: errorCode(error),
+    });
   }
 }
 
@@ -880,8 +1036,17 @@ async function newRecommendations() {
       method: "POST",
     });
     readingRecs.value = res.recommendations || {};
+    notifications.notify({
+      title: "Recommendations updated",
+      message: "Fresh reading recommendations are ready.",
+      type: "success",
+      durationMs: 5000,
+    });
   } catch (error) {
-    requestError.value = errorMessage(error, "Failed to generate recommendations.");
+    reportFailure(
+      errorMessage(error, "Failed to generate recommendations."),
+      { code: errorCode(error) },
+    );
   } finally {
     isRegenerating.value = false;
   }

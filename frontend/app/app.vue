@@ -3,5 +3,6 @@
 <template>
   <NuxtLayout>
     <NuxtPage />
+    <AppNotifications />
   </NuxtLayout>
 </template>

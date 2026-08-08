@@ -4,7 +4,11 @@ from django.test import SimpleTestCase
 
 from api.apps import _parse_last_import_date
 from api.arxiv import parse_arxiv_id
-from api.scholar_inbox import _normalize_amount
+from api.scholar_inbox import (
+    _normalize_amount,
+    _normalize_gmail_app_password,
+    _truncate_title,
+)
 
 
 class ScholarInboxAmountTests(SimpleTestCase):
@@ -26,6 +30,17 @@ class ScholarInboxAmountTests(SimpleTestCase):
         self.assertIsNone(_normalize_amount("five"))
         self.assertIsNone(_normalize_amount([]))
 
+    def test_normalize_gmail_app_password_strips_spaces(self):
+        self.assertEqual(
+            _normalize_gmail_app_password("abcd efgh ijkl mnop"),
+            "abcdefghijklmnop",
+        )
+
+    def test_truncate_title(self):
+        long_title = "A" * 300
+        truncated = _truncate_title(long_title)
+        self.assertEqual(len(truncated), 255)
+        self.assertTrue(truncated.endswith("…"))
 
 class ScholarInboxDateTests(SimpleTestCase):
     def test_parse_last_import_date_valid(self):

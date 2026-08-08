@@ -1,6 +1,5 @@
 # pyright: reportAttributeAccessIssue=false
 
-import asyncio
 import json
 import os
 import shutil
@@ -36,7 +35,8 @@ from api.ai import (
     rag_context_injection,
     send_prompt,
 )
-from api.scholar_inbox import fetch_scholar_inbox_papers
+from api.scholar_inbox import ScholarInboxError
+from api.scholar_inbox_import import import_scholar_inbox_papers
 from api.smart_collections.config import get_smart_collection_config
 from api.smart_collections.service import (
     reconcile_stale_job,
@@ -44,6 +44,7 @@ from api.smart_collections.service import (
     safe_failure,
     serialize_job,
 )
+from api.startup_scripts import get_startup_scripts_status, sanitize_startup_script_paths
 from api.user_preferences import deep_get, load_user_preferences, write_user_preferences
 from api.utils import (
     get_env_vars_potential_list,
@@ -502,8 +503,36 @@ class UserPreferencesView(APIView):
 
     def put(self, request): 
         preferences = request.data.get('preferences', {})
+        if not isinstance(preferences, dict):
+            return Response(
+                {'message': 'preferences must be an object.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user_prefs = preferences.get('user_preferences')
+        if isinstance(user_prefs, dict):
+            general = user_prefs.get('general')
+            if isinstance(general, dict) and 'startup_scripts' in general:
+                cleaned, errors = sanitize_startup_script_paths(general.get('startup_scripts'))
+                if errors:
+                    return Response(
+                        {
+                            'message': 'One or more startup script paths are invalid.',
+                            'errors': errors,
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                general['startup_scripts'] = cleaned
+                user_prefs['general'] = general
+                preferences['user_preferences'] = user_prefs
+
         write_user_preferences(preferences)
         return Response({'message': 'Preferences updated successfully.'}, status=status.HTTP_200_OK)
+
+
+class StartupScriptsStatusView(APIView):
+    def get(self, request):
+        return Response(get_startup_scripts_status(), status=status.HTTP_200_OK)
     
 # get/set env vars
 class EnvironmentVariablesView(APIView): 
@@ -641,74 +670,58 @@ class DocumentOCRView(APIView):
         )
 
 
-# Runs fetch from scholar inbox and uplaods papers to "Scholar Inbox" folder
+# Runs fetch from scholar inbox and uploads papers to "Scholar Inbox" folder
 class FetchScholarInboxPapers(APIView):
     def post(self, request):
-        # Running fetch, logic can be altered in scholar_inbox.py
-        current_env_vars = load_env_vars()
-        amount_to_import = request.data.get('amount_to_import', 'all')
+        amount_to_import = request.data.get("amount_to_import", "All")
+        skip_ocr = to_bool(request.data.get("skip_ocr", "true"))
+        ocr_provider = normalize_ocr_provider(
+            request.data.get("ocr_provider", "paddleocr")
+        )
 
-        if not current_env_vars.get("scholar_inbox_email") or not current_env_vars.get("gmail_app_password"):
-            print("ADD SCHOLAR INBOX GMAIL CREDENTIALS TO BACKEND ENV FILE")
-            return Response({'error': 'Scholar Inbox Gmail credentials not configured.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        papers_dict = loop.run_until_complete(fetch_scholar_inbox_papers(current_env_vars, amount_to_import))
-        loop.close()
-
-        if (papers_dict is None) or (len(papers_dict) == 0):    
+        try:
+            result = import_scholar_inbox_papers(
+                amount_to_import,
+                skip_ocr=skip_ocr,
+                ocr_provider=ocr_provider,
+            )
+        except ScholarInboxError as exc:
+            print(f"Scholar Inbox fetch failed ({exc.code}): {exc.message}")
             return Response(
-                {'message': 'No new papers found in Scholar Inbox.', 'imported': 0, 'skipped': 0},
-                status=status.HTTP_200_OK,
+                {
+                    "error": exc.message,
+                    "code": exc.code,
+                    "imported": 0,
+                    "skipped": 0,
+                },
+                status=exc.http_status,
+            )
+        except Exception as exc:
+            print(f"Scholar Inbox fetch crashed: {exc}")
+            return Response(
+                {
+                    "error": f"Scholar Inbox import failed: {exc}",
+                    "code": "unexpected_error",
+                    "imported": 0,
+                    "skipped": 0,
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        # Writing papers to "Scholar Inbox" folder
-        # Making sure that a "Scholar Inbox" folder exists
-        folder, created = models.Folder.objects.get_or_create(
-            name="Scholar Inbox",
-            parent=None,
-            defaults={"sort_order": 0},
-        )
+        payload = {
+            "message": result.get("message"),
+            "imported": result.get("imported", 0),
+            "skipped": result.get("skipped", 0),
+            "unmatched": result.get("unmatched", 0),
+            "digest_found": result.get("digest_found", False),
+            "titles_found": result.get("titles_found", 0),
+        }
+        if result.get("unmatched_titles"):
+            payload["unmatched_titles"] = result["unmatched_titles"]
+        if result.get("errors"):
+            payload["errors"] = result["errors"]
 
-        existing_titles = set(
-            models.Document.objects.filter(folder=folder).values_list('title', flat=True)
-        )
-
-        imported_count = 0
-        skipped_count = 0
-        for paper in papers_dict: 
-            pdf_url = paper.get('pdf_url', None)
-            title = paper.get('title', 'Untitled Paper')
-
-            if not pdf_url:
-                print(f"Skipping {title} due to missing PDF URL.")
-                skipped_count += 1
-                continue
-
-            if title in existing_titles:
-                print(f"Skipping duplicate paper: {title}")
-                skipped_count += 1
-                continue
-            
-            try:
-                _stream_pdf_to_document(pdf_url, title, folder)
-                existing_titles.add(title)
-                imported_count += 1
-            except Exception as e: 
-                print(f"Issue with saving Scholar Inbox pdf file to storage: {e}")
-                print("Skipping this file for now.")
-                skipped_count += 1
-                continue
-        
-        return Response(
-            {
-                'message': f'Imported {imported_count} paper(s) from Scholar Inbox.',
-                'imported': imported_count,
-                'skipped': skipped_count,
-            },
-            status=status.HTTP_200_OK,
-        )
+        return Response(payload, status=status.HTTP_200_OK)
 
 """
 Knowledge Index idea dump: (hopefully this should help anyone reading this understand my thoughts about the knowledge index so that you can tweak however you like)
@@ -1226,13 +1239,19 @@ class SmartCollectionView(APIView):
         except Exception as exc:
             code, message = safe_failure(exc, "queueing")
             job.status = models.SmartCollectionJob.Status.FAILED
-            job.stage = "failed"
+            job.stage = "queued"
             job.error_code = code
-            job.error_message = message
+            job.error_message = (
+                f"{message} Ensure the django-q worker is running on this host."
+            )[:1000]
             job.finished_at = timezone.now()
             job.save()
             return Response(
-                {"error": code, "message": message},
+                {
+                    "error": code,
+                    "message": job.error_message,
+                    "job": serialize_job(job),
+                },
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         job.task_id = task_id

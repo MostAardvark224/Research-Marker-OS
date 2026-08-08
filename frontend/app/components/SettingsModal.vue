@@ -107,8 +107,112 @@
               </p>
             </div>
 
+            <div class="p-4 rounded-xl border border-white/10 bg-white/[0.02] space-y-4">
+              <div>
+                <h4 class="text-sm font-medium text-white tracking-wide">
+                  Startup shell scripts
+                </h4>
+                <p class="text-xs text-slate-500 leading-relaxed mt-1">
+                  Absolute paths to shell scripts on this machine. Research Marker runs them
+                  sequentially in a background worker on startup so they do not delay loading or
+                  using the app.
+                </p>
+              </div>
+
+              <div
+                class="p-3 rounded-lg border border-amber-500/20 bg-amber-500/5"
+              >
+                <div class="flex gap-3">
+                  <Icon
+                    name="material-symbols:warning-outline"
+                    class="text-amber-400 text-lg flex-shrink-0"
+                  />
+                  <p class="text-xs text-amber-100/80 leading-relaxed">
+                    Use absolute paths only (for example
+                    <span class="font-mono text-amber-50">/home/you/scripts/setup.sh</span>).
+                    Only add scripts you trust — they run with the same permissions as Research
+                    Marker.
+                  </p>
+                </div>
+              </div>
+
+              <div class="space-y-2">
+                <div
+                  v-for="(scriptPath, index) in startupScripts"
+                  :key="index"
+                  class="flex items-center gap-2"
+                >
+                  <input
+                    v-model="startupScripts[index]"
+                    type="text"
+                    placeholder="/absolute/path/to/script.sh"
+                    spellcheck="false"
+                    class="flex-1 bg-[#0A0A0C] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-700 focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 outline-none font-mono"
+                  />
+                  <button
+                    type="button"
+                    @click="removeStartupScript(index)"
+                    class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+                    aria-label="Remove script path"
+                  >
+                    <Icon name="material-symbols:close" class="text-lg" />
+                  </button>
+                </div>
+                <div
+                  v-if="startupScriptErrors.length"
+                  class="space-y-1"
+                >
+                  <p
+                    v-for="(error, index) in startupScriptErrors"
+                    :key="`err-${index}`"
+                    class="text-[11px] text-red-300"
+                  >
+                    {{ error }}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                @click="addStartupScript"
+                class="px-3 py-1.5 rounded-lg text-xs bg-white/5 text-slate-300 border border-white/10 hover:bg-white/10"
+              >
+                Add script path
+              </button>
+              <p
+                v-if="startupScriptsSaveError"
+                class="text-[11px] text-red-300"
+              >
+                {{ startupScriptsSaveError }}
+              </p>
+            </div>
+
             <div
-              class="p-3 rounded-lg border border-indigo-500/20 bg-indigo-500/5 mb-4"
+              v-if="scholarEnvList.length"
+              class="space-y-4"
+            >
+              <h4
+                class="text-xs font-bold text-slate-500 uppercase tracking-widest"
+              >
+                Scholar Inbox credentials
+              </h4>
+              <SettingsEnvField
+                v-for="env in scholarEnvList"
+                :key="env.key"
+                :field-key="env.key"
+                :label="env.label"
+                :description="env.description"
+                :placeholder="env.placeholder || `Enter ${env.label}...`"
+                :type="env.type"
+                :model-value="envFormValues[env.key] || ''"
+                @update:model-value="(value) => setEnvValue(env.key, value)"
+              />
+            </div>
+          </div>
+
+          <div v-else-if="activeTab === 'api-keys'" class="space-y-6 max-w-2xl">
+            <div
+              class="p-3 rounded-lg border border-indigo-500/20 bg-indigo-500/5"
             >
               <div class="flex gap-3">
                 <Icon
@@ -116,15 +220,15 @@
                   class="text-indigo-400 text-lg flex-shrink-0"
                 />
                 <p class="text-xs text-indigo-200/80 leading-relaxed">
-                  These settings are stored locally on your machine in a .env
-                  file and are never synced to the cloud.
+                  These API keys are stored locally on your machine and are never synced to the
+                  cloud. Codex ChatGPT sign-in is managed under AI Preferences.
                 </p>
               </div>
             </div>
 
             <div class="space-y-4">
               <SettingsEnvField
-                v-for="env in computedEnvList"
+                v-for="env in aiEnvList"
                 :key="env.key"
                 :field-key="env.key"
                 :label="env.label"
@@ -814,8 +918,25 @@ const tabs = [
   { id: "general", label: "General", icon: "uil:setting" },
   { id: "updates", label: "Updates", icon: "uil:sync" },
   { id: "scholar", label: "Scholar Inbox", icon: "uil:envelope-alt" },
+  { id: "api-keys", label: "API Keys", icon: "material-symbols:key" },
   { id: "ai", label: "AI Preferences", icon: "uil:robot" },
 ];
+
+const AI_ENV_KEYS = new Set([
+  "GEMINI_API_KEY",
+  "ANTHROPIC_API_KEY",
+  "OPENAI_API_KEY",
+  "OPENROUTER_API_KEY",
+  "CUSTOM_AI_BASE_URL",
+  "CUSTOM_AI_API_KEY",
+  "MISTRAL_API_KEY",
+]);
+
+const SCHOLAR_ENV_KEYS = new Set(["scholar_inbox_email", "gmail_app_password"]);
+
+const startupScripts = ref([""]);
+const startupScriptErrors = ref([]);
+const startupScriptsSaveError = ref("");
 
 const codexStatus = ref({ state: "not_connected" });
 const codexRateLimits = ref(null);
@@ -1075,11 +1196,13 @@ const activeTabLabel = computed(
 const activeTabDescription = computed(() => {
   switch (activeTab.value) {
     case "general":
-      return "Customize interface & environment variables.";
+      return "Workspace tools, startup scripts, and Scholar credentials.";
     case "updates":
       return "Check for and install app updates.";
     case "scholar":
       return "Manage feeds & keywords.";
+    case "api-keys":
+      return "Manage local AI provider API keys.";
     case "ai":
       return "Manage AI-related settings.";
     default:
@@ -1140,24 +1263,70 @@ const envMetadata = {
   gmail_app_password: {
     label: "Gmail App Password",
     description:
-      "A Gmail App Password for IMAP access — not your regular Gmail password. Create one in Google Account → Security → 2-Step Verification → App passwords.",
+      "A Gmail App Password for IMAP access — not your regular Gmail password. Create one in Google Account → Security → 2-Step Verification → App passwords. Spaces are fine; they are stripped automatically.",
     placeholder: "xxxx xxxx xxxx xxxx",
     type: "password",
   },
 };
 
-const computedEnvList = computed(() => {
-  return envPotentialList.value.map((key) => {
-    const meta = envMetadata[key] || {};
-    return {
-      key: key,
-      label: meta.label || key,
-      description: meta.description || "",
-      placeholder: meta.placeholder || "",
-      type: meta.type || "text",
-    };
-  });
-});
+function mapEnvKey(key) {
+  const meta = envMetadata[key] || {};
+  return {
+    key,
+    label: meta.label || key,
+    description: meta.description || "",
+    placeholder: meta.placeholder || "",
+    type: meta.type || "text",
+  };
+}
+
+const computedEnvList = computed(() =>
+  envPotentialList.value.map((key) => mapEnvKey(key)),
+);
+
+const aiEnvList = computed(() =>
+  computedEnvList.value.filter((env) => AI_ENV_KEYS.has(env.key)),
+);
+
+const scholarEnvList = computed(() =>
+  computedEnvList.value.filter((env) => SCHOLAR_ENV_KEYS.has(env.key)),
+);
+
+function addStartupScript() {
+  startupScripts.value = [...startupScripts.value, ""];
+}
+
+function removeStartupScript(index) {
+  const next = startupScripts.value.filter((_, i) => i !== index);
+  startupScripts.value = next.length ? next : [""];
+  startupScriptErrors.value = [];
+  startupScriptsSaveError.value = "";
+}
+
+function validateStartupScriptsClient() {
+  const errors = [];
+  const cleaned = [];
+  const seen = new Set();
+
+  for (const raw of startupScripts.value) {
+    const path = (raw || "").trim();
+    if (!path) continue;
+
+    if (!path.startsWith("/")) {
+      errors.push({
+        path,
+        error: `${path}: use an absolute path (for example /home/you/scripts/setup.sh).`,
+      });
+      continue;
+    }
+
+    if (seen.has(path)) continue;
+    seen.add(path);
+    cleaned.push(path);
+  }
+
+  return { cleaned, errors };
+}
 
 // loading previous env vars state
 async function loadEnvVars() {
@@ -1184,9 +1353,9 @@ const paperLimitValue = ref(0);
 const last_import_date = ref(null);
 
 const paperLimitDisplay = computed(() => {
-  if (paperLimitValue.value == 0) return "1 Papers";
-  if (paperLimitValue.value == 1) return "5 Papers";
-  if (paperLimitValue.value == 2) return "All Papers";
+  if (paperLimitValue.value == 0) return "1 paper";
+  if (paperLimitValue.value == 1) return "5 papers";
+  if (paperLimitValue.value == 2) return "All papers";
   return "N/A";
 });
 
@@ -1215,6 +1384,14 @@ async function loadUserPreferences() {
         paperLimitValue.value = 0;
       }
     }
+
+    const generalPrefs = res.user_preferences?.general || {};
+    const savedScripts = Array.isArray(generalPrefs.startup_scripts)
+      ? generalPrefs.startup_scripts.filter((item) => typeof item === "string" && item.trim())
+      : [];
+    startupScripts.value = savedScripts.length ? savedScripts : [""];
+    startupScriptErrors.value = [];
+    startupScriptsSaveError.value = "";
 
     const aiPrefs = res.user_preferences?.ai;
     if (aiPrefs) {
@@ -1285,9 +1462,26 @@ onUnmounted(() => {
 
 async function saveSettings() {
   try {
+    startupScriptsSaveError.value = "";
+    startupScriptErrors.value = [];
+
+    const { cleaned: cleanedScripts, errors: clientErrors } =
+      validateStartupScriptsClient();
+    if (clientErrors.length) {
+      startupScriptErrors.value = clientErrors.map(
+        (item) => item.error || item.message || "Invalid path",
+      );
+      startupScriptsSaveError.value =
+        "Fix invalid startup script paths before saving.";
+      activeTab.value = "general";
+      return;
+    }
+
     const prefsPayload = {
       user_preferences: {
-        general: {},
+        general: {
+          startup_scripts: cleanedScripts,
+        },
         scholar_inbox: {
           auto_import: autoImportEnabled.value,
           last_import_date: last_import_date.value,
@@ -1323,6 +1517,19 @@ async function saveSettings() {
     emit("close");
   } catch (error) {
     console.error("Failed to save settings:", error);
+    const serverErrors = error?.data?.errors;
+    if (Array.isArray(serverErrors) && serverErrors.length) {
+      startupScriptErrors.value = serverErrors.map(
+        (item) =>
+          `${item.path ? `${item.path}: ` : ""}${item.error || item.message || "Invalid path"}`,
+      );
+      startupScriptsSaveError.value =
+        error?.data?.message || "One or more startup script paths are invalid.";
+      activeTab.value = "general";
+      return;
+    }
+    startupScriptsSaveError.value =
+      error?.data?.message || error?.message || "Failed to save settings.";
   }
 }
 </script>

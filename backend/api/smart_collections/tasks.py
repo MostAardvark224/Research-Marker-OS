@@ -51,14 +51,12 @@ def run_smart_collection_job(job_id: str) -> None:
         job.refresh_from_db()
         code, message = safe_failure(exc, job.stage)
         job.status = models.SmartCollectionJob.Status.FAILED
-        job.stage = "failed"
         job.error_code = code
         job.error_message = message
         job.finished_at = timezone.now()
         job.save(
             update_fields=[
                 "status",
-                "stage",
                 "error_code",
                 "error_message",
                 "finished_at",
@@ -85,17 +83,25 @@ def finalize_smart_collection_task(task) -> None:
     ):
         return
     job.status = models.SmartCollectionJob.Status.FAILED
-    job.stage = "failed"
     job.error_code = "worker_failure"
-    job.error_message = (
-        "The background worker stopped before the Smart Collection finished. "
-        "Restart the worker and retry."
-    )
+    result = getattr(task, "result", None)
+    detail = str(result).strip()[:400] if result else ""
+    stage = job.stage or "queued"
+    if detail:
+        job.error_message = (
+            f"The background worker stopped during '{stage}' before the Smart "
+            f"Collection finished: {detail}. Restart the django-q worker and retry."
+        )
+    else:
+        job.error_message = (
+            f"The background worker stopped during '{stage}' before the Smart "
+            "Collection finished (timeout or crash). Restart the django-q worker "
+            "and retry."
+        )
     job.finished_at = timezone.now()
     job.save(
         update_fields=[
             "status",
-            "stage",
             "error_code",
             "error_message",
             "finished_at",

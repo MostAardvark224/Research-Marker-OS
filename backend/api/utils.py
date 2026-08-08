@@ -86,6 +86,11 @@ def write_env_vars(vars):
     if not isinstance(cleaned_vars, dict): 
         print("vars is not a python dictionary")
         return
+
+    if "gmail_app_password" in cleaned_vars and cleaned_vars["gmail_app_password"] is not None:
+        cleaned_vars["gmail_app_password"] = "".join(
+            str(cleaned_vars["gmail_app_password"]).split()
+        )
     
     original_vars.update(cleaned_vars) # only changes vars that were included in the param, keeps existing
     

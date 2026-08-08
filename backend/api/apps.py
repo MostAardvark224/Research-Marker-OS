@@ -5,6 +5,20 @@ from datetime import date
 from django.apps import AppConfig
 
 
+_MANAGEMENT_COMMANDS_SKIP_STARTUP = {
+    "migrate",
+    "makemigrations",
+    "qcluster",
+    "test",
+    "shell",
+    "run_embs",
+    "collectstatic",
+    "mcp",
+    "check",
+    "showmigrations",
+}
+
+
 def _parse_last_import_date(value):
     if value is None or value == "" or value == "null":
         return None
@@ -14,6 +28,15 @@ def _parse_last_import_date(value):
         return date.fromisoformat(str(value))
     except ValueError:
         return None
+
+
+def _should_run_startup_hooks() -> bool:
+    # Skip the parent process during `manage.py runserver` autoreload only.
+    if "runserver" in sys.argv and os.environ.get("RUN_MAIN") != "true":
+        return False
+    if any(cmd in sys.argv for cmd in _MANAGEMENT_COMMANDS_SKIP_STARTUP):
+        return False
+    return True
 
 
 class ApiConfig(AppConfig):
@@ -53,45 +76,31 @@ class ApiConfig(AppConfig):
             except Exception as exc:
                 print(f"Could not write MCP discovery on startup: {exc}")
 
-        from django.test import RequestFactory
-        from rest_framework import status
-
-        from api.user_preferences import load_user_preferences, write_user_preferences
-        from api.views import FetchScholarInboxPapers
-
-        prefs = load_user_preferences()
-        user_data = prefs.get('user_preferences', {})
-        scholar_prefs = user_data.get('scholar_inbox', {})
-        auto_import = scholar_prefs.get('auto_import', False)
-        if not auto_import:
+        if not _should_run_startup_hooks():
             return
 
-        last_import_date = _parse_last_import_date(scholar_prefs.get('last_import_date'))
-        today = date.today()
-        if last_import_date == today:
-            return
+        # Packaged `main.py` queues these after migrate + qcluster start.
+        # Dev `runserver` (migrate already finished) can queue here.
+        if "runserver" in sys.argv:
+            self._queue_scholar_auto_import()
+            self._queue_startup_scripts()
 
-        amount_to_import = scholar_prefs.get('amount_to_import', 1)
-        if amount_to_import == 0:
-            return
+    def _queue_scholar_auto_import(self):
+        try:
+            from api.scholar_inbox_import import queue_scholar_auto_import
 
-        print("Fetching Scholar Inbox papers")
-        factory = RequestFactory()
-        request = factory.post(
-            '/fetch-scholar-inbox-papers/',
-            {'amount_to_import': amount_to_import},
-            format='json',
-        )
+            task_id = queue_scholar_auto_import()
+            if task_id:
+                print(f"Scholar Inbox auto-import queued on background worker (task {task_id}).")
+        except Exception as exc:
+            print(f"Could not queue Scholar Inbox auto-import: {exc}")
 
-        view = FetchScholarInboxPapers.as_view()
-        response = view(request)
+    def _queue_startup_scripts(self):
+        try:
+            from api.startup_scripts import queue_startup_scripts
 
-        if response.status_code != status.HTTP_200_OK:
-            print(f"Scholar Inbox auto-import failed with status {response.status_code}")
-            return
-
-        scholar_prefs['last_import_date'] = today.isoformat()
-        user_data['scholar_inbox'] = scholar_prefs
-        prefs['user_preferences'] = user_data
-        write_user_preferences(prefs)
-        print("Scholar Inbox papers fetched on startup.")
+            task_id = queue_startup_scripts()
+            if task_id:
+                print(f"Startup scripts queued on background worker (task {task_id}).")
+        except Exception as exc:
+            print(f"Could not queue startup scripts: {exc}")
