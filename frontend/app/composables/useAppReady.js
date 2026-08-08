@@ -1,6 +1,6 @@
 /**
- * Coordinates Electron splash teardown with real UI readiness.
- * Pages call signalAppReady() after their first critical data load.
+ * Coordinates Electron splash teardown with first UI paint.
+ * Do not wait on library/API data here — that made boot feel much slower.
  */
 let hasSignaled = false;
 

@@ -342,7 +342,22 @@
 
           <div class="flex-1 p-3 md:p-4 flex flex-col min-h-0">
             <div
-              v-if="!hasPapers"
+              v-if="isLibraryLoading"
+              :class="`flex-1 flex flex-col items-center justify-center text-center ${colorScheme.emptyBg} px-4`"
+            >
+              <Icon
+                name="material-symbols:progress-activity"
+                class="text-4xl text-indigo-400 animate-spin mb-3"
+              />
+              <p
+                :class="`text-sm md:text-base ${colorScheme.emptyText} font-medium`"
+              >
+                Loading library…
+              </p>
+            </div>
+
+            <div
+              v-else-if="!hasPapers"
               :class="`flex-1 flex flex-col items-center justify-center text-center border border-dashed ${colorScheme.emptyBorder} rounded-2xl ${colorScheme.emptyBg} px-4`"
             >
               <p
@@ -681,6 +696,7 @@ const vFocus = {
 
 // State vars
 const isUploading = ref(false);
+const isLibraryLoading = ref(true);
 const showUpload = ref(false);
 const showScholarInbox = ref(false);
 const showArxivImport = ref(false);
@@ -928,15 +944,13 @@ async function fetchPastPapers() {
   } catch (error) {
     console.error("Error fetching past papers:", error);
     alert("Paper Fetch Failed.");
+  } finally {
+    isLibraryLoading.value = false;
   }
 }
 
-const { setSplashProgress, signalAppReady } = useAppReady();
-
-onMounted(async () => {
-  setSplashProgress(96, "Loading library…");
-  await fetchPastPapers();
-  signalAppReady("Ready");
+onMounted(() => {
+  fetchPastPapers();
 });
 
 // DOCUMENT HANDLING FUNCS

@@ -71,14 +71,23 @@ def _wait_for_port(host: str, port: int, timeout_seconds: float = 60.0) -> bool:
     return False
 
 
-def _queue_deferred_startup_work() -> None:
+def _queue_deferred_startup_work(start_qcluster: bool = True) -> None:
     """
     Run after the API is accepting connections.
 
-    Startup scripts / Scholar Inbox auto-import share SQLite with the UI's first
-    fetches. Give the first env-vars / complete-fetch calls a brief head start.
+    qcluster is deferred too: spawning the frozen worker binary before uvicorn
+    binds doubles cold-start I/O and was a major part of the slow boot.
     """
-    time.sleep(1.5)
+    global qcluster_proc
+
+    if start_qcluster and qcluster_proc is None:
+        try:
+            qcluster_proc = _start_qcluster_process()
+        except Exception as exc:
+            print(f"Q Cluster Error: {exc}", flush=True)
+
+    # Brief pause so the first UI fetches can land before heavy workers.
+    time.sleep(0.75)
     try:
         from api.startup_scripts import queue_startup_scripts
 
@@ -107,15 +116,16 @@ def _queue_deferred_startup_work() -> None:
 def _announce_when_listening(port: int) -> None:
     """
     Electron only trusts a bare `http://127.0.0.1:PORT` line (not uvicorn's log).
-    Emit it once the port actually accepts connections.
+    Emit it once the port actually accepts connections, then start workers.
     """
     if _wait_for_port("127.0.0.1", port):
         print(f"http://127.0.0.1:{port}", flush=True)
-        _queue_deferred_startup_work()
+        _queue_deferred_startup_work(start_qcluster=True)
         return
 
     print(f"Timed out waiting for API to bind on 127.0.0.1:{port}", flush=True)
     print(f"http://127.0.0.1:{port}", flush=True)
+    _queue_deferred_startup_work(start_qcluster=True)
 
 
 def _start_qcluster_process() -> subprocess.Popen:
@@ -137,6 +147,19 @@ def _start_qcluster_process() -> subprocess.Popen:
     )
 
 
+qcluster_proc = None
+
+
+def _stop_qcluster() -> None:
+    if qcluster_proc is None or qcluster_proc.poll() is not None:
+        return
+    qcluster_proc.terminate()
+    try:
+        qcluster_proc.wait(timeout=5)
+    except Exception:
+        qcluster_proc.kill()
+
+
 if __name__ == "__main__":
     multiprocessing.freeze_support()
     _ensure_mcp_launcher()
@@ -147,21 +170,6 @@ if __name__ == "__main__":
         print("Migrations applied successfully.", flush=True)
     except Exception as e:
         print(f"Error applying migrations: {e}", flush=True)
-
-    qcluster_proc = None
-    try:
-        qcluster_proc = _start_qcluster_process()
-    except Exception as exc:
-        print(f"Q Cluster Error: {exc}", flush=True)
-
-    def _stop_qcluster() -> None:
-        if qcluster_proc is None or qcluster_proc.poll() is not None:
-            return
-        qcluster_proc.terminate()
-        try:
-            qcluster_proc.wait(timeout=5)
-        except Exception:
-            qcluster_proc.kill()
 
     atexit.register(_stop_qcluster)
 
@@ -178,6 +186,7 @@ if __name__ == "__main__":
     import uvicorn
 
     # Keep uvicorn on the main thread (required for clean lifecycle / signals).
+    # qcluster + startup scripts start only after this port is accepting traffic.
     try:
         uvicorn.run(application, host="127.0.0.1", port=port)
     finally:
