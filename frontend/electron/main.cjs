@@ -117,6 +117,11 @@ let apiPort = null;
 let isAppReady = false;
 let updateCheckTimer = null;
 let backendProgressTimer = null;
+let splashCloseFallbackTimer = null;
+let hasSignaledAppReady = false;
+
+const SPLASH_BG = "#020204";
+const SPLASH_FALLBACK_MS = 45000;
 
 const isDev = process.env.NODE_ENV === "development";
 const useExternalBackend =
@@ -289,12 +294,48 @@ function closeSplashWindow() {
     backendProgressTimer = null;
   }
 
+  if (splashCloseFallbackTimer) {
+    clearTimeout(splashCloseFallbackTimer);
+    splashCloseFallbackTimer = null;
+  }
+
   if (!splashWindow || splashWindow.isDestroyed()) {
     return;
   }
 
   splashWindow.destroy();
   splashWindow = null;
+}
+
+function finishSplashAndShowMain(message) {
+  if (hasSignaledAppReady) {
+    return;
+  }
+  hasSignaledAppReady = true;
+
+  if (message) {
+    setSplashProgress(100, message);
+  }
+
+  // Keep splash painted for a beat so progress hits 100% before reveal.
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show();
+      mainWindow.focus();
+      broadcastUpdateStatus();
+    }
+    closeSplashWindow();
+  }, 160);
+}
+
+function scheduleSplashFallback() {
+  if (splashCloseFallbackTimer) {
+    clearTimeout(splashCloseFallbackTimer);
+  }
+  splashCloseFallbackTimer = setTimeout(() => {
+    log.warn("Splash fallback: renderer did not signal ready in time");
+    finishSplashAndShowMain("Ready");
+  }, SPLASH_FALLBACK_MS);
 }
 
 function startBackendProgressAnimation() {
@@ -324,6 +365,7 @@ function createSplashWindow() {
     frame: true,
     alwaysOnTop: true,
     resizable: false,
+    backgroundColor: SPLASH_BG,
     webPreferences: {
       nodeIntegration: false,
     },
@@ -363,7 +405,10 @@ function createPythonProcess() {
     const output = data.toString();
     log.info(`[Python]: ${output}`);
 
-    const match = output.match(/http:\/\/127\.0\.0\.1:(\d+)/);
+    // Only trust our explicit ready line — not uvicorn's
+    // "Uvicorn running on http://127.0.0.1:PORT ..." log, which fires earlier
+    // and previously opened a blank window before migrations/workers settled.
+    const match = output.match(/(?:^|\n)http:\/\/127\.0\.0\.1:(\d+)[ \t]*(?:\n|$)/);
 
     if (match) {
       apiPort = match[1];
@@ -392,12 +437,15 @@ function createPythonProcess() {
 
 function createWindow() {
   setSplashProgress(68, "Loading interface…");
+  hasSignaledAppReady = false;
 
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     show: false,
     frame: true,
+    // Match splash so Chromium never flashes a white empty window.
+    backgroundColor: SPLASH_BG,
     webPreferences: {
       preload: resolvePath("preload.cjs", "electron/preload.cjs"),
       nodeIntegration: false,
@@ -424,22 +472,32 @@ function createWindow() {
   });
 
   mainWindow.webContents.on("dom-ready", () => {
-    setSplashProgress(92, "Almost ready…");
+    setSplashProgress(88, "Starting interface…");
   });
 
+  // Keep splash until the renderer finishes its first data load.
+  // ready-to-show alone only means the empty shell can paint — that was the white screen.
   mainWindow.once("ready-to-show", () => {
-    setSplashProgress(100, "Ready");
-    setTimeout(() => {
-      closeSplashWindow();
-      mainWindow.show();
-      mainWindow.focus();
-      broadcastUpdateStatus();
-    }, 180);
+    setSplashProgress(92, "Loading library…");
+    scheduleSplashFallback();
   });
 }
 
 ipcMain.handle("get-api-port", () => {
   return apiPort;
+});
+
+ipcMain.on("splash:progress", (_event, payload = {}) => {
+  const percent = Number(payload.percent);
+  const message = payload.message;
+  if (!Number.isFinite(percent)) {
+    return;
+  }
+  setSplashProgress(percent, message);
+});
+
+ipcMain.on("app:ready", () => {
+  finishSplashAndShowMain("Ready");
 });
 
 ipcMain.handle("codex:open-auth-url", async (_event, rawUrl) => {

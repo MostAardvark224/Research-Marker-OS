@@ -8,6 +8,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   checkForUpdates: () => ipcRenderer.invoke("updater:check"),
   installUpdate: () => ipcRenderer.invoke("updater:install"),
   restartApp: () => ipcRenderer.send("restart_app"),
+  setSplashProgress: (percent, message) =>
+    ipcRenderer.send("splash:progress", { percent, message }),
+  notifyAppReady: () => ipcRenderer.send("app:ready"),
   onUpdateStatus: (callback) => {
     const listener = (_event, status) => callback(status);
     ipcRenderer.on("updater:status-changed", listener);

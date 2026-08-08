@@ -931,8 +931,12 @@ async function fetchPastPapers() {
   }
 }
 
-onMounted(() => {
-  fetchPastPapers();
+const { setSplashProgress, signalAppReady } = useAppReady();
+
+onMounted(async () => {
+  setSplashProgress(96, "Loading library…");
+  await fetchPastPapers();
+  signalAppReady("Ready");
 });
 
 // DOCUMENT HANDLING FUNCS

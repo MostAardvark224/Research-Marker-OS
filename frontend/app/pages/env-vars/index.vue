@@ -241,7 +241,9 @@ try {
 }
 
 onMounted(async () => {
+  const { signalAppReady } = useAppReady();
   await initializeAiModels();
+  signalAppReady("Ready");
 });
 
 const computedEnvList = computed(() => {
