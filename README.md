@@ -74,6 +74,7 @@ Research papers tend to end up spread across folders, browser tabs, and separate
 ### Privacy and platforms
 
 - Native desktop app for Mac, Windows, and Linux
+- **Platform note:** Research Marker is completely untested on macOS. It works well on Windows and Linux.
 - Papers, reading history, notes, and API keys stay on your machine
 - Core reading and annotation work offline
 - Background updates keep the app current without interrupting your session

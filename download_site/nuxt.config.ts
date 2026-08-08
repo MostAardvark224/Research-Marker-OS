@@ -4,6 +4,11 @@ export default defineNuxtConfig({
   devtools: { enabled: true },
   modules: ["@nuxtjs/tailwindcss", "@nuxt/icon"],
   ssr: false,
+  runtimeConfig: {
+    public: {
+      firebaseMeasurementId: "",
+    },
+  },
   icon: {
     provider: "none",
     fallbackToApi: false,

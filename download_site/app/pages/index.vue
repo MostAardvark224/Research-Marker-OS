@@ -82,11 +82,18 @@
           </p>
 
           <p
-            class="text-[12px] text-slate-400 leading-relaxed mb-8 max-w-lg mx-auto lg:mx-0"
+            class="text-[12px] text-slate-400 leading-relaxed mb-3 max-w-lg mx-auto lg:mx-0"
           >
             Your antivirus may flag this installer because it is unsigned.
             Research Marker is open source and safe, please select 'Keep' or
             'Run Anyway' to ensure a successful download.
+          </p>
+
+          <p
+            class="text-[12px] text-amber-200/90 leading-relaxed mb-8 max-w-lg mx-auto lg:mx-0"
+          >
+            Platform note: Research Marker is completely untested on macOS. It
+            works well on Windows and Linux.
           </p>
 
           <div class="flex flex-col items-center lg:items-start gap-6 w-full">
