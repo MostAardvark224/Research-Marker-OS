@@ -333,6 +333,18 @@
                       name="material-symbols:description-outline"
                       class="text-sm flex-shrink-0"
                     />
+                    <input
+                      type="checkbox"
+                      :checked="doc.is_read"
+                      :disabled="isUpdatingReadStatus(doc.id)"
+                      :aria-label="`Mark ${doc.title} as ${doc.is_read ? 'unread' : 'read'}`"
+                      :title="doc.is_read ? 'Mark as unread' : 'Mark as read'"
+                      class="h-3.5 w-3.5 flex-shrink-0 cursor-pointer accent-blue-500 disabled:cursor-wait disabled:opacity-60"
+                      @dragstart.stop.prevent
+                      @click.stop
+                      @dblclick.stop
+                      @change.stop="setDocumentRead(doc, $event)"
+                    />
                     <span class="truncate">{{ doc.title }}</span>
                   </div>
                 </div>
@@ -410,6 +422,12 @@
                         class="px-4 py-3 text-left font-semibold min-w-[10rem]"
                       >
                         Searchable
+                      </th>
+                      <th
+                        scope="col"
+                        class="px-4 py-3 text-center font-semibold w-20"
+                      >
+                        Read
                       </th>
                       <th
                         scope="col"
@@ -498,6 +516,21 @@
                             class="text-lg text-red-500"
                           />
                         </div>
+                      </td>
+
+                      <td class="px-4 py-3 text-center align-middle">
+                        <input
+                          type="checkbox"
+                          :checked="paper.is_read"
+                          :disabled="isUpdatingReadStatus(paper.id)"
+                          :aria-label="`Mark ${paper.title} as ${paper.is_read ? 'unread' : 'read'}`"
+                          :title="paper.is_read ? 'Mark as unread' : 'Mark as read'"
+                          class="h-4 w-4 cursor-pointer accent-blue-500 disabled:cursor-wait disabled:opacity-60"
+                          @dragstart.stop.prevent
+                          @click.stop
+                          @dblclick.stop
+                          @change.stop="setDocumentRead(paper, $event)"
+                        />
                       </td>
 
                       <td
@@ -728,6 +761,7 @@ const paperToDelete = ref(null);
 
 const paperToRename = ref(null);
 const newPaperTitle = ref("");
+const updatingReadDocumentIds = reactive(new Set());
 
 const isCreatingFolder = ref(false);
 const newFolderName = ref("");
@@ -1057,6 +1091,35 @@ async function confirmRename() {
     console.error("Error renaming paper:", error);
     alert("Rename Failed.");
     cancelRename();
+  }
+}
+
+function isUpdatingReadStatus(documentId) {
+  return updatingReadDocumentIds.has(documentId);
+}
+
+async function setDocumentRead(paper, event) {
+  const isRead = event.target.checked;
+  const previousValue = Boolean(paper.is_read);
+
+  paper.is_read = isRead;
+  updatingReadDocumentIds.add(paper.id);
+
+  try {
+    await $fetch(`${apiBaseURL}/documents/${paper.id}/`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: { is_read: isRead },
+    });
+  } catch (error) {
+    paper.is_read = previousValue;
+    event.target.checked = previousValue;
+    console.error("Error updating read status:", error);
+    alert("Read Status Update Failed.");
+  } finally {
+    updatingReadDocumentIds.delete(paper.id);
   }
 }
 
@@ -1404,5 +1467,7 @@ provide("folderActions", {
     activeDropFolderId.value = null;
   },
   navigateToAnnotate,
+  setDocumentRead,
+  isUpdatingReadStatus,
 });
 </script>

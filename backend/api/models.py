@@ -56,6 +56,7 @@ class Document(models.Model):
     ocr_completed_at = models.DateTimeField(blank=True, null=True)
     last_page = models.IntegerField(blank=True, null=True)
     zoom_level = models.IntegerField(blank=True, null=True)
+    is_read = models.BooleanField(default=False)
     document_hash = models.CharField(max_length=64, blank=True, db_index=True)
     file_name = models.CharField(max_length=255, blank=True, default="")
     absolute_local_path = models.TextField(blank=True, default="")
@@ -317,5 +318,3 @@ class SmartCollectionJob(models.Model):
         indexes = [
             models.Index(fields=["status", "created_at"]),
         ]
-    
-    

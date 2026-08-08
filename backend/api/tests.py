@@ -1,6 +1,9 @@
 from datetime import date
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
+from rest_framework.test import APIClient
+
+from api.models import Document
 
 from api.apps import _parse_last_import_date
 from api.arxiv import parse_arxiv_id
@@ -81,3 +84,29 @@ class ArxivIdParseTests(SimpleTestCase):
 
     def test_parse_invalid(self):
         self.assertIsNone(parse_arxiv_id("https://example.com/paper"))
+
+
+class DocumentReadStatusTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.document = Document.objects.create(
+            title="Unread paper",
+            file="documents/unread-paper.pdf",
+        )
+
+    def test_document_is_unread_by_default(self):
+        response = self.client.get(f"/api/documents/{self.document.id}/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIs(response.data["is_read"], False)
+
+    def test_document_can_be_marked_as_read(self):
+        response = self.client.patch(
+            f"/api/documents/{self.document.id}/",
+            {"is_read": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.document.refresh_from_db()
+        self.assertIs(self.document.is_read, True)
