@@ -1,31 +1,24 @@
-<div align="center">
 
-  <img src="frontend/public/logo.svg" alt="Research Marker" width="80" />
-  <h1>Research Marker</h1>
 
-  <a href="https://research-marker.web.app/">
-    <b>Download</b>
-  </a>
+# Research Marker
 
-  <br />
-  <br />
+**[Download](https://research-marker.web.app/)**
 
-  <p>
-    An open-source desktop app for reading, annotating, and querying your research library.
-  </p>
+  
+  
 
-  <p>
-    <sub>Created by <a href="https://github.com/MostAardvark224">Amay Babel</a></sub>
-  </p>
 
-  <p>
-    <img src="https://img.shields.io/badge/Status-Active_Development-success?style=flat-square" alt="Status" />
-    <img src="https://img.shields.io/badge/License-MIT-blue?style=flat-square" alt="License" />
-  </p>
+A free, source-available desktop app for reading, annotating, and querying your research library.
 
-</div>
+Created by [Amay Babel](https://github.com/MostAardvark224)
+
+
+
+
 
 ---
+
+
 
 ## Overview
 
@@ -33,7 +26,11 @@ Research papers tend to end up spread across folders, browser tabs, and separate
 
 ---
 
+
+
 ## Features
+
+
 
 ### Library
 
@@ -43,6 +40,8 @@ Research papers tend to end up spread across folders, browser tabs, and separate
 - Organize papers in nested folders with drag and drop and custom reading order
 - Restore the last page and zoom level when reopening a paper
 
+
+
 ### Reading and annotation
 
 - Multi-page PDF viewer for longer reading sessions
@@ -50,6 +49,8 @@ Research papers tend to end up spread across folders, browser tabs, and separate
 - Sticky notes anchored to a page, with optional tags (Definition, Question, Insight, Critique, Evidence)
 - Per-paper notepad with math formatting
 - Toggle annotations, search within the document, and keyboard shortcuts for common actions
+
+
 
 ### AI chat
 
@@ -59,17 +60,23 @@ Research papers tend to end up spread across folders, browser tabs, and separate
 - Point the model at specific context with `@` tags such as `@page`, `@highlights`, and `@paper`
 - Answers are grounded in your papers and notes, with citations back to those sources
 
+
+
 ### Topic graph
 
 - Build an interactive graph that groups related papers from your notes and library
 - Inspect overlaps between authors and concepts across subfields
 - Get cluster overviews and suggestions for what to read next
 
+
+
 ### Search
 
 - Search titles, highlights, sticky notes, and notepads in one place
 - Run OCR on scanned PDFs so text can be selected and indexed
 - Filter results by recent notes, tags, or folders
+
+
 
 ### Privacy and platforms
 
@@ -78,3 +85,16 @@ Research papers tend to end up spread across folders, browser tabs, and separate
 - Papers, reading history, notes, and API keys stay on your machine
 - Core reading and annotation work offline
 - Background updates keep the app current without interrupting your session
+
+---
+
+
+
+## License
+
+**Research Marker**  
+Copyright © 2026 Amay Babel
+
+Full license available in the [LICENSE.md](http://LICENSE.md) file.
+
+For commercial licensing inquiries: [madarauchiha3230@gmail.com](mailto:madarauchiha3230@gmail.com)

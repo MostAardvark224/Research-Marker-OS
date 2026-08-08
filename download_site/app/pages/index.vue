@@ -39,6 +39,13 @@
           class="hover:text-white transition-colors"
           >GitHub</NuxtLink
         >
+        <NuxtLink
+          to="https://github.com/MostAardvark224/Research-Marker-OS/blob/main/LICENSE.md"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="hover:text-white transition-colors"
+          >License</NuxtLink
+        >
         <!-- <a
         href="#features"
         class="hover:text-white transition-colors cursor-pointer"
@@ -247,7 +254,14 @@
 
     <footer class="flex-none py-6 text-center z-10">
       <p class="text-slate-600 text-sm">
-        © {{ new Date().getFullYear() }} Research Marker. Open Source Software.
+        © {{ new Date().getFullYear() }} Research Marker.
+        <NuxtLink
+          to="https://github.com/MostAardvark224/Research-Marker-OS/blob/main/LICENSE.md"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="hover:text-slate-400 transition-colors underline underline-offset-2"
+          >License</NuxtLink
+        >
       </p>
     </footer>
   </div>
