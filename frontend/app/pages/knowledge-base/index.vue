@@ -54,7 +54,11 @@
             </p>
           </div>
 
-          <div class="mb-4 relative group z-50">
+          <form
+            class="mb-4 relative group z-50"
+            role="search"
+            @submit.prevent="submitSearch"
+          >
             <div
               class="absolute inset-y-0 left-4 flex items-center pointer-events-none"
             >
@@ -64,15 +68,31 @@
               />
             </div>
             <input
+              ref="searchInputRef"
               type="text"
               v-model="searchQuery"
               @input="handleInput"
               @keydown.down.prevent="navigateSuggestions(1)"
               @keydown.up.prevent="navigateSuggestions(-1)"
-              @keydown.enter.prevent="selectSuggestion"
+              @keydown.enter.prevent="handleSearchEnter"
               placeholder="Search concepts, highlight text, or tags... (hint: use the @ symbol to narrow your search)"
-              class="w-full bg-white/[0.03] border border-white/10 rounded-2xl py-5 pl-12 pr-6 text-lg text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500/50 focus:bg-white/[0.05] focus:ring-1 focus:ring-indigo-500/50 transition-all shadow-lg shadow-black/50"
+              aria-label="Search the Knowledge Index"
+              class="w-full bg-white/[0.03] border border-white/10 rounded-2xl py-5 pl-12 pr-32 text-lg text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500/50 focus:bg-white/[0.05] focus:ring-1 focus:ring-indigo-500/50 transition-all shadow-lg shadow-black/50"
             />
+
+            <button
+              type="submit"
+              :disabled="!searchQuery.trim()"
+              class="absolute right-2 top-2 bottom-2 inline-flex items-center gap-2 rounded-xl px-5 text-sm font-semibold transition-all"
+              :class="
+                searchQuery.trim()
+                  ? 'bg-indigo-500 text-white hover:bg-indigo-400 active:scale-[0.98] shadow-lg shadow-indigo-500/20'
+                  : 'bg-white/5 text-slate-600 cursor-not-allowed'
+              "
+            >
+              <Icon name="uil:search" class="text-base" />
+              Search
+            </button>
 
             <div
               v-if="showSuggestions"
@@ -93,7 +113,7 @@
                 <span class="text-sm text-slate-200">{{ suggestion }}</span>
               </div>
             </div>
-          </div>
+          </form>
 
           <div
             v-if="errorMsg"
@@ -903,6 +923,7 @@ On the search card will highlight the similarity with the search query
 const searchQuery = ref("");
 const searchActive = computed(() => searchQuery.value.length > 0);
 const errorMsg = ref("");
+const searchInputRef = ref(null);
 
 // Auto-complete logic
 const showSuggestions = ref(false);
@@ -929,7 +950,7 @@ const applyFilter = (filter) => {
   const regex = /@(\w*)$/;
   searchQuery.value = searchQuery.value.replace(regex, `@${filter} `);
   showSuggestions.value = false;
-  if (chatInputRef.value) chatInputRef.value.focus();
+  searchInputRef.value?.focus();
 };
 
 // up and down on @ suggestions
@@ -944,6 +965,21 @@ const selectSuggestion = () => {
   if (showSuggestions.value) {
     applyFilter(filteredSuggestions.value[activeSuggestionIndex.value]);
   }
+};
+
+const submitSearch = () => {
+  searchQuery.value = searchQuery.value.trim();
+  showSuggestions.value = false;
+  searchInputRef.value?.blur();
+};
+
+const handleSearchEnter = () => {
+  if (showSuggestions.value) {
+    selectSuggestion();
+    return;
+  }
+
+  submitSearch();
 };
 
 // final func to get search results
@@ -989,8 +1025,13 @@ function getSearchResults(
 
     // check which filters are active. If none, check all fields.
 
-    // @paper
-    if (at_paper && doc.title.toLowerCase().includes(cleanQuery)) {
+    // Search paper titles by default as well as when @paper is selected.
+    if (
+      (at_paper || trueCount === 0) &&
+      String(doc.title || "")
+        .toLowerCase()
+        .includes(cleanQuery)
+    ) {
       flattenedResults.push({
         title: doc.title,
         content: doc.title, // bc the match is the title
@@ -1007,7 +1048,7 @@ function getSearchResults(
     // @highlights
     if (at_highlight || trueCount === 0) {
       (anns.highlight_data || []).forEach((h) => {
-        if (h.text.toLowerCase().includes(cleanQuery)) {
+        if (String(h.text || "").toLowerCase().includes(cleanQuery)) {
           flattenedResults.push({
             title: doc.title,
             content: h.text,
@@ -1024,7 +1065,7 @@ function getSearchResults(
     // @sticky
     if (at_sticky || trueCount === 0) {
       (anns.sticky_note_data || []).forEach((s) => {
-        if (s.content.toLowerCase().includes(cleanQuery)) {
+        if (String(s.content || "").toLowerCase().includes(cleanQuery)) {
           flattenedResults.push({
             title: doc.title,
             content: s.content,
@@ -1095,8 +1136,9 @@ const highlightMatch = (text) => {
   const cleanTerm = searchQuery.value.replace(/@\w+\s?/g, "").trim();
   if (!cleanTerm) return text;
 
-  const regex = new RegExp(`(${cleanTerm})`, "gi");
-  return text.replace(
+  const escapedTerm = cleanTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`(${escapedTerm})`, "gi");
+  return String(text || "").replace(
     regex,
     '<span class="text-green-400 font-bold bg-green-400/10 rounded px-1">$1</span>'
   );

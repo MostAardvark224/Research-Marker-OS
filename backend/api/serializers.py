@@ -68,8 +68,10 @@ class GroupedAnnotationsSerializer(serializers.ModelSerializer):
         fields = ("document__title", "document__pk", "annotations")
 
     def get_annotations(self, document_instance):
-        non_empty_q = Q(highlight_data__isnull=False) | Q(
-            sticky_note_data__isnull=False
+        non_empty_q = (
+            Q(highlight_data__isnull=False)
+            | Q(sticky_note_data__isnull=False)
+            | Q(notepad__isnull=False)
         )
 
         filtered_annotations = models.Annotations.objects.filter(

@@ -757,7 +757,8 @@ class SearchNotesView(APIView):
         documents = models.Document.objects.filter(
         annotations__in = models.Annotations.objects.filter(
             Q(highlight_data__isnull = False) | 
-            Q(sticky_note_data__isnull = False) 
+            Q(sticky_note_data__isnull = False) |
+            Q(notepad__isnull = False)
         )
         ).distinct()
 
