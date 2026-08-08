@@ -2479,7 +2479,7 @@ watch(currentPage, () => {
         aria-label="PDF reader"
         @pointerdown="focusPdfReader"
         @keydown="handleReaderArrowNavigation"
-        class="flex-1 overflow-auto bg-slate-950 p-8 flex flex-col items-center gap-4 outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500/50"
+        class="flex-1 overflow-auto bg-slate-950 p-8 flex flex-col items-center gap-4 outline-none"
         :class="{ 'hide-annotations': isAnnotationsHidden }"
         style="overflow-anchor: none; scroll-behavior: auto"
       >
