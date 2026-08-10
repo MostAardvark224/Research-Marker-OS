@@ -46,6 +46,25 @@ const undoStack = ref([]);
 const redoStack = ref([]);
 
 const activeStickyNoteId = ref(null);
+const stickyNoteTextareaRefs = new Map();
+
+const setStickyNoteTextareaRef = (noteId, element) => {
+  if (element) {
+    stickyNoteTextareaRefs.set(noteId, element);
+  } else {
+    stickyNoteTextareaRefs.delete(noteId);
+  }
+};
+
+const focusStickyNoteEditor = async (noteId) => {
+  await nextTick();
+  const textarea = stickyNoteTextareaRefs.get(noteId);
+  if (!textarea) return;
+
+  textarea.focus();
+  const cursorPosition = textarea.value.length;
+  textarea.setSelectionRange(cursorPosition, cursorPosition);
+};
 
 const pageContainerRefs = ref([]);
 const canvasRefs = ref([]);
@@ -425,6 +444,7 @@ const restoreReaderFocusAfterInteraction = (e) => {
   if (isTextEntryTarget(e.target)) return;
 
   nextTick(() => {
+    if (isTextEntryTarget(document.activeElement)) return;
     mainScrollContainer.value?.focus({ preventScroll: true });
   });
 };
@@ -737,6 +757,7 @@ const handleLayerClick = async (event, pageNum) => {
   activeStickyNoteId.value = newSticky.id;
   changeSidebarTab("stickyNotes");
   ensureSidebarOpen();
+  await focusStickyNoteEditor(newSticky.id);
 
   await saveAnnotationsToBackend();
 };
@@ -2778,6 +2799,7 @@ watch(currentPage, () => {
 
               <textarea
                 v-else
+                :ref="(el) => setStickyNoteTextareaRef(note.id, el)"
                 v-model="note.content"
                 @click.stop
                 class="w-full bg-slate-900/50 text-slate-300 text-sm p-2 rounded border border-slate-700/50 focus:outline-none focus:border-indigo-500/50 resize-none h-20 custom-scrollbar font-mono"
