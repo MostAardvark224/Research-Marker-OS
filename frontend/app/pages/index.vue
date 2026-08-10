@@ -329,20 +329,12 @@
                       name="material-symbols:drag-indicator"
                       class="text-sm flex-shrink-0 opacity-40"
                     />
-                    <Icon
-                      name="material-symbols:description-outline"
-                      class="text-sm flex-shrink-0"
-                    />
-                    <input
-                      type="checkbox"
+                    <AppCheckbox
                       :checked="doc.is_read"
                       :disabled="isUpdatingReadStatus(doc.id)"
-                      :aria-label="`Mark ${doc.title} as ${doc.is_read ? 'unread' : 'read'}`"
+                      :label="`Mark ${doc.title} as ${doc.is_read ? 'unread' : 'read'}`"
                       :title="doc.is_read ? 'Mark as unread' : 'Mark as read'"
-                      class="h-3.5 w-3.5 flex-shrink-0 cursor-pointer accent-blue-500 disabled:cursor-wait disabled:opacity-60"
-                      @dragstart.stop.prevent
-                      @click.stop
-                      @dblclick.stop
+                      size="small"
                       @change.stop="setDocumentRead(doc, $event)"
                     />
                     <span class="truncate">{{ doc.title }}</span>
@@ -383,7 +375,7 @@
             </div>
 
             <div v-else class="flex-1 flex flex-col gap-3 min-h-0">
-              <div class="flex items-center justify-between text-xs">
+              <div class="flex min-h-8 items-center justify-between gap-3 text-xs">
                 <p :class="`${colorScheme.textSecondary}`">
                   Showing
                   <span :class="`font-semibold ${colorScheme.textPrimary}`">
@@ -391,6 +383,46 @@
                   </span>
                   paper<span v-if="filteredPapers.length !== 1">s</span>
                 </p>
+                <Transition name="bulk-actions">
+                  <div
+                    v-if="selectedPaperCount"
+                    class="flex flex-wrap items-center justify-end gap-1.5 rounded-lg border border-blue-500/20 bg-blue-500/10 p-1"
+                  >
+                    <span class="px-2 font-semibold text-blue-300">
+                      {{ selectedPaperCount }} selected
+                    </span>
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-1 rounded-md px-2 py-1.5 font-medium text-slate-300 transition-colors hover:bg-blue-500/15 hover:text-white disabled:cursor-wait disabled:opacity-50"
+                      :disabled="isBulkActionRunning"
+                      title="Mark selected papers as read"
+                      @click="setSelectedDocumentsRead(true)"
+                    >
+                      <Icon name="material-symbols:done-all" class="text-base text-blue-400" />
+                      Mark read
+                    </button>
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-1 rounded-md px-2 py-1.5 font-medium text-slate-300 transition-colors hover:bg-slate-700/70 hover:text-white disabled:cursor-wait disabled:opacity-50"
+                      :disabled="isBulkActionRunning"
+                      title="Mark selected papers as unread"
+                      @click="setSelectedDocumentsRead(false)"
+                    >
+                      <Icon name="material-symbols:remove-done" class="text-base" />
+                      Mark unread
+                    </button>
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-1 rounded-md px-2 py-1.5 font-medium text-red-300 transition-colors hover:bg-red-500/15 hover:text-red-200 disabled:cursor-wait disabled:opacity-50"
+                      :disabled="isBulkActionRunning"
+                      title="Delete selected papers"
+                      @click="promptDeleteSelected"
+                    >
+                      <Icon name="material-symbols:delete-outline" class="text-base" />
+                      Delete
+                    </button>
+                  </div>
+                </Transition>
               </div>
 
               <div
@@ -401,6 +433,16 @@
                     <tr
                       :class="`${colorScheme.tableHeaderBg} text-[0.7rem] md:text-xs uppercase tracking-wide ${colorScheme.tableHeaderText} border-b ${colorScheme.tableHeaderBorder}`"
                     >
+                      <th scope="col" class="w-12 px-3 py-3 text-center font-semibold">
+                        <AppCheckbox
+                          :checked="allFilteredPapersSelected"
+                          :indeterminate="someFilteredPapersSelected"
+                          :disabled="isBulkActionRunning"
+                          label="Select all visible papers"
+                          title="Select all visible papers"
+                          @change.stop="toggleAllFilteredPapers"
+                        />
+                      </th>
                       <th
                         scope="col"
                         class="px-4 py-3 text-left w-14 font-semibold"
@@ -419,9 +461,9 @@
                       </th>
                       <th
                         scope="col"
-                        class="px-4 py-3 text-left font-semibold min-w-[10rem]"
+                        class="px-4 py-3 text-center font-semibold min-w-[10rem]"
                       >
-                        Searchable
+                        Ran OCR
                       </th>
                       <th
                         scope="col"
@@ -441,7 +483,7 @@
                     <tr
                       v-for="(paper, index) in filteredPapers"
                       :key="paper.id"
-                      draggable="sortBy === 'custom' && !searchQuery.trim()"
+                      :draggable="sortBy === 'custom' && !searchQuery.trim()"
                       @dragstart="onTableDragStart($event, paper, index)"
                       @dragover.prevent="onTableDragOver(index)"
                       @drop.prevent="onTableDrop($event, index)"
@@ -457,9 +499,21 @@
                         index % 2 === 0
                           ? `${colorScheme.tableRowEven}`
                           : `${colorScheme.tableRowOdd}`,
+                        selectedPaperIds.has(paper.id)
+                          ? 'bg-blue-500/10 ring-1 ring-inset ring-blue-500/20'
+                          : '',
                         tableDragOverIndex === index ? 'ring-1 ring-inset ring-blue-500/40' : '',
                       ]"
                     >
+                      <td class="px-3 py-3 text-center align-middle">
+                        <AppCheckbox
+                          :checked="selectedPaperIds.has(paper.id)"
+                          :disabled="isBulkActionRunning"
+                          :label="`Select ${paper.title}`"
+                          :title="selectedPaperIds.has(paper.id) ? 'Deselect paper' : 'Select paper'"
+                          @change.stop="togglePaperSelection(paper.id, $event)"
+                        />
+                      </td>
                       <td
                         :class="`px-3 py-3 text-sm ${colorScheme.tableCellText} align-middle`"
                       >
@@ -497,7 +551,7 @@
                         {{ formatDate(paper.uploaded_at) }}
                       </td>
 
-                      <td class="px-[40px] py-3 align-middle text-left">
+                      <td class="px-4 py-3 text-center align-middle">
                         <div
                           v-if="paper.searchable"
                           :class="`inline-flex h-7 w-7 items-center justify-center rounded-full ${colorScheme.tableCellNumber} border ${colorScheme.tableCellNumberBorder} font-mono text-xs`"
@@ -519,16 +573,11 @@
                       </td>
 
                       <td class="px-4 py-3 text-center align-middle">
-                        <input
-                          type="checkbox"
+                        <AppCheckbox
                           :checked="paper.is_read"
                           :disabled="isUpdatingReadStatus(paper.id)"
-                          :aria-label="`Mark ${paper.title} as ${paper.is_read ? 'unread' : 'read'}`"
+                          :label="`Mark ${paper.title} as ${paper.is_read ? 'unread' : 'read'}`"
                           :title="paper.is_read ? 'Mark as unread' : 'Mark as read'"
-                          class="h-4 w-4 cursor-pointer accent-blue-500 disabled:cursor-wait disabled:opacity-60"
-                          @dragstart.stop.prevent
-                          @click.stop
-                          @dblclick.stop
                           @change.stop="setDocumentRead(paper, $event)"
                         />
                       </td>
@@ -573,10 +622,7 @@
                             <button
                               :class="`group inline-flex h-8 w-8 items-center justify-center rounded-lg ${colorScheme.actionBtnDeleteHover} transition-all duration-200`"
                               title="Delete Paper"
-                              @click="
-                                paperToDelete = paper;
-                                showDeleteModal = true;
-                              "
+                              @click="promptDeletePaper(paper)"
                             >
                               <Icon
                                 name="material-symbols:delete-outline"
@@ -619,8 +665,9 @@
 
     <DeletePaperModal
       v-if="showDeleteModal"
-      :paper-title="paperToDelete?.title"
-      @close="showDeleteModal = false"
+      :paper-title="papersToDelete[0]?.title"
+      :paper-count="papersToDelete.length"
+      @close="closeDeleteModal"
       @confirm="deletePaper"
     />
 
@@ -757,7 +804,9 @@ const searchQuery = ref("");
 const sortBy = ref("custom");
 
 const showDeleteModal = ref(false);
-const paperToDelete = ref(null);
+const papersToDelete = ref([]);
+const selectedPaperIds = reactive(new Set());
+const isBulkActionRunning = ref(false);
 
 const paperToRename = ref(null);
 const newPaperTitle = ref("");
@@ -1039,21 +1088,58 @@ async function sendDocuments() {
   }
 }
 
-// Handles deleting a paper
+function promptDeletePaper(paper) {
+  papersToDelete.value = [paper];
+  showDeleteModal.value = true;
+}
+
+function promptDeleteSelected() {
+  papersToDelete.value = [...selectedPapers.value];
+  showDeleteModal.value = papersToDelete.value.length > 0;
+}
+
+function closeDeleteModal() {
+  showDeleteModal.value = false;
+  papersToDelete.value = [];
+}
+
+// Handles deleting one or more papers
 async function deletePaper() {
-  const id = paperToDelete.value?.id;
+  const papers = [...papersToDelete.value];
+  if (!papers.length || isBulkActionRunning.value) return;
+
+  isBulkActionRunning.value = true;
   try {
-    await $fetch(`${apiBaseURL}/documents/${id}/`, {
-      method: "DELETE",
+    const results = await Promise.allSettled(
+      papers.map((paper) =>
+        $fetch(`${apiBaseURL}/documents/${paper.id}/`, { method: "DELETE" }),
+      ),
+    );
+
+    const failedPapers = [];
+    results.forEach((result, index) => {
+      if (result.status === "fulfilled") {
+        selectedPaperIds.delete(papers[index].id);
+      } else {
+        failedPapers.push(papers[index]);
+      }
     });
-    showDeleteModal.value = false;
-    paperToDelete.value = null;
+
+    closeDeleteModal();
     await fetchPastPapers();
+
+    if (failedPapers.length) {
+      console.error("Error deleting papers:", failedPapers);
+      alert(
+        `${failedPapers.length} paper${failedPapers.length === 1 ? "" : "s"} could not be deleted.`,
+      );
+    }
   } catch (error) {
-    console.error("Error deleting paper:", error);
+    console.error("Error deleting papers:", error);
     alert("Delete Failed.");
-    showDeleteModal.value = false;
-    paperToDelete.value = null;
+    closeDeleteModal();
+  } finally {
+    isBulkActionRunning.value = false;
   }
 }
 
@@ -1120,6 +1206,66 @@ async function setDocumentRead(paper, event) {
     alert("Read Status Update Failed.");
   } finally {
     updatingReadDocumentIds.delete(paper.id);
+  }
+}
+
+function togglePaperSelection(paperId, event) {
+  if (event.target.checked) {
+    selectedPaperIds.add(paperId);
+  } else {
+    selectedPaperIds.delete(paperId);
+  }
+}
+
+function toggleAllFilteredPapers(event) {
+  for (const paper of filteredPapers.value) {
+    if (event.target.checked) {
+      selectedPaperIds.add(paper.id);
+    } else {
+      selectedPaperIds.delete(paper.id);
+    }
+  }
+}
+
+async function setSelectedDocumentsRead(isRead) {
+  const papers = [...selectedPapers.value];
+  if (!papers.length || isBulkActionRunning.value) return;
+
+  isBulkActionRunning.value = true;
+  const previousValues = new Map(
+    papers.map((paper) => [paper.id, Boolean(paper.is_read)]),
+  );
+
+  for (const paper of papers) {
+    paper.is_read = isRead;
+    updatingReadDocumentIds.add(paper.id);
+  }
+
+  const results = await Promise.allSettled(
+    papers.map((paper) =>
+      $fetch(`${apiBaseURL}/documents/${paper.id}/`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: { is_read: isRead },
+      }),
+    ),
+  );
+
+  let failedCount = 0;
+  results.forEach((result, index) => {
+    const paper = papers[index];
+    if (result.status === "rejected") {
+      paper.is_read = previousValues.get(paper.id);
+      failedCount += 1;
+    }
+    updatingReadDocumentIds.delete(paper.id);
+  });
+
+  isBulkActionRunning.value = false;
+  if (failedCount) {
+    alert(
+      `Read status could not be updated for ${failedCount} paper${failedCount === 1 ? "" : "s"}.`,
+    );
   }
 }
 
@@ -1403,6 +1549,29 @@ const filteredPapers = computed(() => {
   return list;
 });
 
+const selectedPapers = computed(() =>
+  currentDocuments.value.filter((paper) => selectedPaperIds.has(paper.id)),
+);
+
+const selectedPaperCount = computed(() => selectedPapers.value.length);
+
+const allFilteredPapersSelected = computed(
+  () =>
+    filteredPapers.value.length > 0 &&
+    filteredPapers.value.every((paper) => selectedPaperIds.has(paper.id)),
+);
+
+const someFilteredPapersSelected = computed(
+  () =>
+    !allFilteredPapersSelected.value &&
+    filteredPapers.value.some((paper) => selectedPaperIds.has(paper.id)),
+);
+
+watch(activeFolderId, () => {
+  selectedPaperIds.clear();
+  closeDeleteModal();
+});
+
 function formatDate(isoString) {
   if (!isoString) return "—";
 
@@ -1471,3 +1640,16 @@ provide("folderActions", {
   isUpdatingReadStatus,
 });
 </script>
+
+<style scoped>
+.bulk-actions-enter-active,
+.bulk-actions-leave-active {
+  transition: opacity 150ms ease, transform 150ms ease;
+}
+
+.bulk-actions-enter-from,
+.bulk-actions-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+</style>
