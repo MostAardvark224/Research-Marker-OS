@@ -169,20 +169,12 @@
           name="material-symbols:drag-indicator"
           class="text-sm flex-shrink-0 opacity-40"
         />
-        <Icon
-          name="material-symbols:description-outline"
-          class="text-sm flex-shrink-0"
-        />
-        <input
-          type="checkbox"
+        <AppCheckbox
           :checked="doc.is_read"
           :disabled="actions.isUpdatingReadStatus(doc.id)"
-          :aria-label="`Mark ${doc.title} as ${doc.is_read ? 'unread' : 'read'}`"
+          :label="`Mark ${doc.title} as ${doc.is_read ? 'unread' : 'read'}`"
           :title="doc.is_read ? 'Mark as unread' : 'Mark as read'"
-          class="h-3.5 w-3.5 flex-shrink-0 cursor-pointer accent-blue-500 disabled:cursor-wait disabled:opacity-60"
-          @dragstart.stop.prevent
-          @click.stop
-          @dblclick.stop
+          size="small"
           @change.stop="actions.setDocumentRead(doc, $event)"
         />
         <span class="truncate">{{ doc.title }}</span>

@@ -20,17 +20,22 @@
 
         <div class="text-center">
           <h3 class="text-lg font-semibold leading-6 text-slate-100">
-            Delete this paper?
+            {{ paperCount === 1 ? "Delete this paper?" : `Delete ${paperCount} papers?` }}
           </h3>
           <div class="mt-2">
-            <p class="text-sm text-slate-400">
+            <p v-if="paperCount === 1" class="text-sm text-slate-400">
               Are you sure you want to delete
               <span class="text-slate-200 font-medium break-words">
                 "{{ paperTitle }}" </span
               >? This action cannot be undone.
             </p>
+            <p v-else class="text-sm text-slate-400">
+              Are you sure you want to delete the {{ paperCount }} selected papers? This action
+              cannot be undone.
+            </p>
             <div class="text-sm font-bold mt-3 px-2 text-white">
-              This will also delete the physical file on your machine.
+              This will also delete the physical {{ paperCount === 1 ? "file" : "files" }} on your
+              machine.
             </div>
           </div>
         </div>
@@ -61,6 +66,10 @@ defineProps({
   paperTitle: {
     type: String,
     default: "Untitled Paper",
+  },
+  paperCount: {
+    type: Number,
+    default: 1,
   },
 });
 
