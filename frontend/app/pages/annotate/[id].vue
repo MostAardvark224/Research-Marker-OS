@@ -23,6 +23,14 @@ const RENDERED_PAGE_BUFFER = 2;
 
 const loading = ref(true);
 const error = ref(null);
+const paperTitle = ref("");
+
+useHead({
+  title: () =>
+    paperTitle.value
+      ? `${paperTitle.value} | Research Marker`
+      : "Research Marker",
+});
 
 let pdfjsLib = null;
 let AnnotationFactory = null;
@@ -1975,9 +1983,12 @@ async function fetchPaper() {
   loading.value = true;
   error.value = null;
   try {
-    const res = await fetch(`${apiBaseURL}/get-paper/${id}/`, {
-      method: "GET",
-    });
+    const [res] = await Promise.all([
+      fetch(`${apiBaseURL}/get-paper/${id}/`, {
+        method: "GET",
+      }),
+      fetchPaperTitle(),
+    ]);
     if (!res.ok) throw new Error("Failed to fetch PDF from server");
 
     const blob = await res.blob();
@@ -1996,6 +2007,16 @@ async function fetchPaper() {
     console.error("Error fetching paper:", err);
     error.value = err.message;
     loading.value = false;
+  }
+}
+
+async function fetchPaperTitle() {
+  try {
+    const paper = await $fetch(`${apiBaseURL}/documents/${id}/`);
+    paperTitle.value = paper?.title?.trim() || "Untitled Paper";
+  } catch (err) {
+    console.warn("Failed to fetch paper title", err);
+    paperTitle.value = "Untitled Paper";
   }
 }
 
@@ -2194,7 +2215,7 @@ async function publishActivePaperContext() {
       method: "POST",
       body: {
         document_id: Number(id),
-        document_title: "",
+        document_title: paperTitle.value,
         current_page: currentPage.value,
       },
     });
@@ -2470,6 +2491,16 @@ watch(currentPage, () => {
         </button>
       </div>
     </header>
+
+    <div
+      class="flex h-9 shrink-0 items-center border-b border-slate-800 bg-slate-900/80 px-4 text-sm"
+      :title="paperTitle || 'Untitled Paper'"
+    >
+      <Icon name="ph:file-pdf" class="mr-2 h-4 w-4 shrink-0 text-indigo-400" />
+      <h1 class="truncate font-medium text-slate-200">
+        {{ paperTitle || "Untitled Paper" }}
+      </h1>
+    </div>
 
     <div class="flex flex-1 overflow-hidden relative">
       <main
