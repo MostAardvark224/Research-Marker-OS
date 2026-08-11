@@ -22,9 +22,15 @@ User facing controls:
 
 Backend/Internal features:
 
+Research marker should not have any permissions to write to the user's system (outside of the script running worker, which should spin down as soon as all scripts are completed)
+
+The renderer should have literally no permissions (write, network, etc.) - should prevent most malicious content from being executed.   
+
 Malware scanning before first open:
 - Some sort of clamscam/malware scan to check the pdf for malicous content.     
     - if scan comes back positive, we should not allow the user to use the pdf and we should inform them.
+        - use anyway button though so they can still open the pdf.
 
 Safe mode when opening pdf for reading:
 - notes should be same across both modes
+- rebuild 
