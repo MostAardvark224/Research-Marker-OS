@@ -3,7 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 import logging
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import requests
@@ -229,7 +229,7 @@ class GeminiEmbeddingProvider(EmbeddingProvider):
         try:
             response = self._client.models.embed_content(
                 model=self.spec.model,
-                contents=self._as_contents(texts),
+                contents=cast(Any, self._as_contents(texts)),
                 config=types.EmbedContentConfig(
                     output_dimensionality=self.spec.dimensions
                 ),

@@ -3,6 +3,10 @@ from api.utils import generate_new_django_key, get_app_data_dir, load_env_vars, 
 import os
 import sys
 
+import django_stubs_ext
+
+django_stubs_ext.monkeypatch()
+
 # for loading OCR models saved within the app code file
 def get_app_base_dir():
     if getattr(sys, 'frozen', False):

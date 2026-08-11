@@ -16,6 +16,7 @@ import base64
 import re
 import colorsys
 import math
+from typing import Any, cast
 from django.db.models import Avg
 from api.utils import load_env_vars
 import fitz
@@ -515,8 +516,9 @@ def extract_pdf_text(pdf_paths, word_limit=7000):
 
             doc = fitz.open(path)
             pages = []
-            for index, page in enumerate(doc, start=1):
-                text = page.get_text("text").strip()
+            for index in range(1, len(doc) + 1):
+                page = doc[index - 1]
+                text = str(page.get_text("text") or "").strip()
                 if text:
                     pages.append(f"[Page {index}]\n{text}")
             doc.close()
@@ -631,7 +633,7 @@ def name_chat(provider, api_key, user_prompt, model=None):
     User Prompt: {user_prompt}"""
 
     try:
-        return send_prompt(
+        titled = send_prompt(
             provider=provider,
             api_key=api_key,
             model=model,
@@ -639,7 +641,8 @@ def name_chat(provider, api_key, user_prompt, model=None):
             chat_id=None,
             system_prompt="Return only the requested chat title.",
             temperature=0.3,
-        ).strip()[:80]
+        )
+        return (titled or "").strip()[:80]
     except Exception as e:
         print(f"Failed naming chat with {provider}: {e}")
         return "Research Chat"
@@ -952,7 +955,8 @@ def _render_pdf_pages_as_png_base64(pdf_paths, scale=AI_PDF_RENDER_SCALE):
         doc = None
         try:
             doc = fitz.open(path)
-            for page_index, page in enumerate(doc):
+            for page_index in range(len(doc)):
+                page = doc[page_index]
                 if len(images) >= MAX_AI_PDF_IMAGES_PER_PROMPT:
                     break
                 pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False)
@@ -979,7 +983,7 @@ def _openai_user_content_with_pdf_images(prompt, pdf_paths):
     if not images:
         return None
 
-    content = [{
+    content: list[dict[str, object]] = [{
         "type": "text",
         "text": (
             f"{prompt}\n\n"
@@ -1126,7 +1130,7 @@ def send_prompt_gemini(api_key, model, prompt, pdf_count=0, pdf_paths=None, chat
 
     chat = client.chats.create(
         model=model,
-        history=get_gemini_chat_history(chat_id),
+        history=cast(Any, get_gemini_chat_history(chat_id)),
         config=types.GenerateContentConfig(
             system_instruction=system_prompt,
             temperature=temperature

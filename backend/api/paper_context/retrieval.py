@@ -13,7 +13,7 @@ from api import models
 from api.errors import DocumentNotFound, PageOutOfRange
 from api.utils import get_app_data_dir
 from .ingestion import ensure_document_ingested
-from .types import PageContext, RetrievedChunk
+from .types import ContextReason, PageContext, RetrievedChunk
 
 
 @dataclass(slots=True)
@@ -170,7 +170,12 @@ def get_active_document() -> dict | None:
     }
 
 
-def _to_page_context(page: models.DocumentPage, *, include_image: bool, reason: str) -> PageContext:
+def _to_page_context(
+    page: models.DocumentPage,
+    *,
+    include_image: bool,
+    reason: ContextReason,
+) -> PageContext:
     return PageContext(
         document_id=page.document_id,
         document_hash=page.document.document_hash,
@@ -192,7 +197,7 @@ def get_page(
     page_number: int,
     *,
     include_image: bool = False,
-    reason: str = "explicit_page_reference",
+    reason: ContextReason = "explicit_page_reference",
 ) -> PageContext:
     document = ensure_document_ingested(document_id)
     if page_number < 1 or page_number > document.page_count:

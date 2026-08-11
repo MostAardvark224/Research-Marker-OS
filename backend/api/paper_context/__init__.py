@@ -6,7 +6,20 @@ submodules without Django settings in its isolated scanner process.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .builder import build_paper_context, format_paper_context
+    from .ingestion import clear_paper_context, ensure_document_ingested, ingest_document
+    from .retrieval import (
+        get_active_document,
+        get_current_page,
+        get_current_selection,
+        get_figure_context,
+        get_page,
+        get_pages,
+        search_document,
+    )
 
 __all__ = [
     "build_paper_context",

@@ -105,7 +105,7 @@ class CodexProvider(AIProvider):
         with self._lock:
             if self._sdk is not None:
                 return self.get_status()
-            if Codex is None:
+            if Codex is None or CodexConfig is None:
                 return self.get_status()
             try:
                 config = CodexConfig(
@@ -363,6 +363,7 @@ class CodexProvider(AIProvider):
         session_dir = self._conversation_dir(conversation.id)
         session_dir.mkdir(parents=True, exist_ok=True)
         try:
+            assert ApprovalMode is not None and Sandbox is not None
             thread = self._require_sdk().thread_start(
                 approval_mode=ApprovalMode.deny_all,
                 cwd=str(session_dir.resolve()),
@@ -388,6 +389,7 @@ class CodexProvider(AIProvider):
             raise ProviderUnavailable("This conversation has no Codex thread to resume.")
         session_dir = self._conversation_dir(conversation.id)
         session_dir.mkdir(parents=True, exist_ok=True)
+        assert ApprovalMode is not None and Sandbox is not None
         return self._require_sdk().thread_resume(
             conversation.codex_thread_id,
             approval_mode=ApprovalMode.deny_all,
@@ -558,6 +560,7 @@ class CodexProvider(AIProvider):
         resolved_model = model or self.default_model()
         developer = (system_prompt or "").strip() or SMART_COLLECTION_INSTRUCTIONS
         try:
+            assert ApprovalMode is not None and Sandbox is not None
             thread = sdk.thread_start(
                 approval_mode=ApprovalMode.deny_all,
                 cwd=str(session_dir.resolve()),

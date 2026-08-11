@@ -1136,7 +1136,7 @@ class AIChatView(APIView):
                 citation_data = [
                     citation.to_dict()
                     for citation in extract_citations(
-                        model_response,
+                        model_response or "",
                         document_id=paper_context.document_id,
                         allowed_pages=allowed_pages,
                     )
@@ -1366,7 +1366,12 @@ class PollSmartCollection(APIView):
             models.SmartCollectionJob.Status.FAILED: "failed",
             models.SmartCollectionJob.Status.CANCELLED: "cancelled",
         }
-        return Response({"state": state_map[job.status], "job": serialize_job(job)})
+        return Response(
+            {
+                "state": state_map[models.SmartCollectionJob.Status(job.status)],
+                "job": serialize_job(job),
+            }
+        )
 
 
 class SmartCollectionJobView(APIView):

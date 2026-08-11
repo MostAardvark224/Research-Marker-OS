@@ -195,6 +195,7 @@ class IngestionTests(TestCase):
         )
         self.assertEqual(context.referenced_pages, [1])
         self.assertEqual(context.page_text[0].page_number, 1)
+        assert context.selected_text is not None
         self.assertEqual(context.selected_text.page_number, 2)
         self.assertFalse(context.retrieved_chunks)
 
@@ -246,8 +247,8 @@ class CodexProviderTests(TestCase):
 
         class FakeClient:
             def __init__(self):
-                self.params = None
-                self.inputs = None
+                self.params: dict | None = None
+                self.inputs: list | None = None
                 self.notifications = iter([delta, completed])
 
             def turn_start(self, thread_id, inputs, params):
@@ -306,6 +307,8 @@ class CodexProviderTests(TestCase):
 
         self.assertEqual(events[-1]["type"], "completed")
         self.assertTrue(events[-1]["citations"][0]["valid"])
+        assert client.params is not None
+        assert client.inputs is not None
         self.assertEqual(client.params["sandboxPolicy"], READ_ONLY_SANDBOX_POLICY)
         self.assertFalse(client.params["sandboxPolicy"]["networkAccess"])
         self.assertEqual(client.inputs[1]["type"], "localImage")
@@ -354,8 +357,10 @@ class CodexProviderTests(TestCase):
                 requires_openai_auth=True,
             ),
         )
+        limits = provider.rate_limits()
+        assert limits is not None
         self.assertEqual(
-            provider.rate_limits()["rateLimits"]["primary"]["usedPercent"],
+            limits["rateLimits"]["primary"]["usedPercent"],
             42,
         )
 

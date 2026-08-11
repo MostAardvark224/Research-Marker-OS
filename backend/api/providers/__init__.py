@@ -6,7 +6,18 @@ submodules without Django settings in its isolated scanner process.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .base import AIProvider
+    from .codex import CodexProvider, get_codex_provider
+    from .embeddings import (
+        EmbeddingProvider,
+        EmbeddingSpec,
+        build_embedding_provider,
+        embedding_provider_catalog,
+    )
+    from .legacy import APIKeyProviderAdapter
 
 __all__ = [
     "AIProvider",

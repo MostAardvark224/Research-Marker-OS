@@ -21,6 +21,7 @@ django-picklefield==3.4.0
 django-q2==1.10.0
 django-storages==1.14.6
 django-types==0.24.0
+django-stubs-ext==6.0.9
 djangorestframework==3.17.1
 feedparser==6.0.12
 flatbuffers==25.12.19

@@ -7,6 +7,12 @@
 User facing controls: 
 - optional safety check at upload time (box for the user to check for malware scanning)
 
+**CHANGING THIS**
+    - safe mode is basically: minimal perms in reader, can't write to anything outside of research marker.
+    - Not doing a pdf rerender yet - expensive for big pdfs and most papers are from trusted sources (i.e. arxiv).
+    - safety check at upload time will still be implemented.
+
+**OLD NOTES**
 - optional safety mechanisms at read/open time (i.e. user can open the pdf is safe mode or they can just open it raw if its from a trusted source)
     - default is set in upload modal
     - in settings modal they can change default open mode between safe and raw. This will switch files between sanitized and raw.

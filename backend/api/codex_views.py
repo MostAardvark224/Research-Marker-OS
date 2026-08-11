@@ -186,8 +186,17 @@ class CodexConversationStreamView(APIView):
                 provider="codex",
             )
             question = str(request.data.get("question", ""))
+            document_id = conversation.document_id
+            if document_id is None:
+                return Response(
+                    {
+                        "error": "document_not_found",
+                        "message": "This conversation is not linked to a document.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
             context = build_paper_context(
-                document_id=conversation.document_id,
+                document_id=document_id,
                 question=question,
                 current_page=_optional_int(request.data.get("current_page")),
                 selected_text=str(request.data.get("selected_text", "")),
@@ -213,7 +222,7 @@ class CodexConversationStreamView(APIView):
         def stream():
             try:
                 for event in event_stream:
-                    yield json.dumps(event, separators=(",", ":")) + "\n"
+                    yield (json.dumps(event, separators=(",", ":")) + "\n").encode("utf-8")
             except Exception as exc:
                 if isinstance(exc, ResearchMarkerError):
                     payload = exc.as_dict()
@@ -224,7 +233,7 @@ class CodexConversationStreamView(APIView):
                         "message": message,
                         "details": {"technical_message": message},
                     }
-                yield json.dumps({"type": "error", **payload}, separators=(",", ":")) + "\n"
+                yield (json.dumps({"type": "error", **payload}, separators=(",", ":")) + "\n").encode("utf-8")
 
         response = StreamingHttpResponse(stream(), content_type="application/x-ndjson")
         response["Cache-Control"] = "no-cache, no-transform"

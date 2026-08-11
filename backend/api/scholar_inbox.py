@@ -91,7 +91,7 @@ def _extract_paper_links(soup: BeautifulSoup) -> list[dict[str, str]]:
     extracted: list[dict[str, str]] = []
     for link in candidates:
         title = _truncate_title(link.get_text(" ", strip=True))
-        href = (link.get("href") or "").strip()
+        href = str(link.get("href") or "").strip()
         if not title or not href:
             continue
         # Skip obvious non-paper chrome links.

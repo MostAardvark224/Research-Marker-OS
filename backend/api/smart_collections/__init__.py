@@ -7,7 +7,15 @@ Heavy symbols are exported lazily for callers that use ``api.smart_collections``
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .config import (
+        SmartCollectionConfig,
+        get_smart_collection_config,
+        resolve_embedding_spec,
+    )
+    from .service import build_smart_collection, serialize_job
 
 __all__ = [
     "SmartCollectionConfig",

@@ -5,7 +5,7 @@ from datetime import timedelta
 import json
 import logging
 import re
-from typing import Any
+from typing import Any, cast
 
 from django.db import transaction
 from django.utils import timezone
@@ -426,6 +426,8 @@ def _vectors_for(
     for item in annotations:
         if not _embedding_is_current(item, spec):
             continue
+        if item.embedding_binary is None:
+            continue
         vector = np.frombuffer(item.embedding_binary, dtype=np.float32)
         if vector.shape != (spec.dimensions,) or not np.isfinite(vector).all():
             continue
@@ -485,7 +487,7 @@ def _representative_content(
     fallback: dict[str, str] = {}
     for annotation_id in sorted(cluster_map):
         labels = cluster_map[annotation_id]
-        major = int(labels["major"])
+        major = int(labels["major"] if labels["major"] is not None else -1)
         if major >= 0:
             key = f"major:{major}"
             fallback[key] = f"Research Topic {major + 1}"
@@ -523,23 +525,29 @@ def _generate(config: SmartCollectionConfig, prompt: str, system_prompt: str) ->
     if config.generation_provider == "codex":
         from api.providers.codex import get_codex_provider
 
-        return retryer(
-            get_codex_provider().generate_text,
-            prompt,
-            system_prompt=system_prompt,
-            model=config.generation_model,
+        return str(
+            retryer(
+                get_codex_provider().generate_text,
+                prompt,
+                system_prompt=system_prompt,
+                model=config.generation_model,
+            )
+            or ""
         )
 
     env = load_env_vars()
-    return retryer(
-        send_prompt,
-        provider=config.generation_provider,
-        api_key=get_provider_api_key(config.generation_provider, env),
-        model=config.generation_model,
-        prompt=prompt,
-        system_prompt=system_prompt,
-        temperature=0.2,
-        base_url=get_provider_base_url(config.generation_provider, env),
+    return str(
+        retryer(
+            send_prompt,
+            provider=config.generation_provider,
+            api_key=get_provider_api_key(config.generation_provider, env),
+            model=config.generation_model,
+            prompt=prompt,
+            system_prompt=system_prompt,
+            temperature=0.2,
+            base_url=get_provider_base_url(config.generation_provider, env),
+        )
+        or ""
     )
 
 
@@ -617,7 +625,7 @@ def _coordinates(ids: list[int], matrix: np.ndarray) -> dict[int, list[float]]:
         random_state=42,
         n_jobs=1,
     )
-    result = reducer.fit_transform(matrix)
+    result = cast(np.ndarray, reducer.fit_transform(matrix))
     return {
         annotation_id: [float(result[index][0]), float(result[index][1])]
         for index, annotation_id in enumerate(ids)
@@ -754,7 +762,7 @@ def build_smart_collection(
     labels = _label_clusters(job, config, samples, fallback)
     topic_map: dict[int, dict[str, str | None]] = {}
     for annotation_id, cluster in cluster_map.items():
-        major_number = int(cluster["major"])
+        major_number = int(cluster["major"] if cluster["major"] is not None else -1)
         sub_number = cluster["sub"]
         major_label = (
             "Uncategorized"

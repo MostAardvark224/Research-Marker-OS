@@ -137,7 +137,8 @@ def _save_output_doc(input_path: str, output_path: str, page_texts: list[str]) -
         doc = fitz.open(input_path)
         output_doc = fitz.open()
 
-        for page_num, page in enumerate(doc):
+        for page_num in range(len(doc)):
+            page = doc[page_num]
             new_page = output_doc.new_page(width=page.rect.width, height=page.rect.height)
             new_page.show_pdf_page(new_page.rect, doc, page_num)
             _insert_hidden_page_text(new_page, page_texts[page_num] if page_num < len(page_texts) else "")
@@ -168,7 +169,8 @@ def create_searchable_pdf_with_paddleocr(input_path: str, output_path: str) -> N
         doc = fitz.open(input_path)
         output_doc = fitz.open()
 
-        for page_num, page in enumerate(doc):
+        for page_num in range(len(doc)):
+            page = doc[page_num]
             pix = None
             img_bytes = None
             try:
@@ -223,7 +225,8 @@ def _ocr_pdf_with_openai(input_path: str, output_path: str, api_key: str, model:
     page_texts: list[str] = []
     doc = fitz.open(input_path)
     try:
-        for page_number, page in enumerate(doc, start=1):
+        for page_number in range(1, len(doc) + 1):
+            page = doc[page_number - 1]
             image_b64 = base64.b64encode(_render_page_png_bytes(page)).decode("utf-8")
             data = _request_json(
                 "POST",
@@ -262,7 +265,8 @@ def _ocr_pdf_with_gemini(input_path: str, output_path: str, api_key: str, model:
     page_texts: list[str] = []
     doc = fitz.open(input_path)
     try:
-        for page_number, page in enumerate(doc, start=1):
+        for page_number in range(1, len(doc) + 1):
+            page = doc[page_number - 1]
             image_b64 = base64.b64encode(_render_page_png_bytes(page)).decode("utf-8")
             data = _request_json(
                 "POST",
@@ -352,7 +356,7 @@ def create_searchable_pdf(
     env_vars = load_env_vars()
     provider = normalize_ocr_provider(provider)
     provider_config = OCR_PROVIDER_CONFIG[provider]
-    model = model or provider_config["default_model"]
+    resolved_model: str = model or str(provider_config["default_model"])
 
     if provider == "paddleocr":
         create_searchable_pdf_with_paddleocr(input_path, output_path)
@@ -364,11 +368,11 @@ def create_searchable_pdf(
         raise OCRError(f"{provider_config['label']} API key is not configured in Settings.")
 
     if provider == "openai":
-        _ocr_pdf_with_openai(input_path, output_path, api_key, model)
+        _ocr_pdf_with_openai(input_path, output_path, api_key, resolved_model)
     elif provider == "gemini":
-        _ocr_pdf_with_gemini(input_path, output_path, api_key, model)
+        _ocr_pdf_with_gemini(input_path, output_path, api_key, resolved_model)
     elif provider == "mistral":
-        _ocr_pdf_with_mistral(input_path, output_path, api_key, model)
+        _ocr_pdf_with_mistral(input_path, output_path, api_key, resolved_model)
     else:
         raise OCRError(f"Unsupported OCR provider: {provider}")
 

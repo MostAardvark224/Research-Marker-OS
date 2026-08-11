@@ -1,13 +1,20 @@
-from django.db import models
-import numpy as np
-from django.utils import timezone
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
 import hashlib
-import json
-from django.db import transaction
 import re
 import uuid
 
+from django.db import models
+import numpy as np
+
+if TYPE_CHECKING:
+    from django.db.models.manager import RelatedManager
+
+
 class Folder(models.Model):
+    id: int
+    parent_id: int | None
     name = models.CharField(max_length=255)
     parent = models.ForeignKey(
         "self",
@@ -18,6 +25,10 @@ class Folder(models.Model):
     )
     sort_order = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    if TYPE_CHECKING:
+        subfolders: RelatedManager[Folder]
+        documents: RelatedManager[Document]
 
     class Meta:
         ordering = ["sort_order", "name"]
@@ -31,6 +42,7 @@ class Folder(models.Model):
     def __str__(self):
         return self.name
 
+
 class Document(models.Model):
     class OcrStatus(models.TextChoices):
         NOT_STARTED = "not_started", "Not Started"
@@ -39,10 +51,14 @@ class Document(models.Model):
         SUCCEEDED = "succeeded", "Succeeded"
         FAILED = "failed", "Failed"
 
+    id: int
+    folder_id: int | None
     title = models.CharField(max_length=255)
     uploaded_at = models.DateField(auto_now_add=True)
-    file = models.FileField(upload_to='documents/', max_length=255)
-    folder = models.ForeignKey(Folder, related_name='documents', on_delete=models.SET_NULL, null=True)
+    file = models.FileField(upload_to="documents/", max_length=255)
+    folder = models.ForeignKey(
+        Folder, related_name="documents", on_delete=models.SET_NULL, null=True
+    )
     sort_order = models.IntegerField(default=0)
     searchable = models.BooleanField(default=False)
     ocr_provider = models.CharField(max_length=64, blank=True, default="paddleocr")
@@ -66,6 +82,12 @@ class Document(models.Model):
     context_created_at = models.DateTimeField(blank=True, null=True)
     context_updated_at = models.DateTimeField(blank=True, null=True)
 
+    if TYPE_CHECKING:
+        context_pages: RelatedManager[DocumentPage]
+        context_chunks: RelatedManager[DocumentChunk]
+        annotations: Annotations
+        chat_logs: RelatedManager[ChatLogs]
+
     def __str__(self):
         return self.title
 
@@ -77,7 +99,11 @@ class DocumentPage(models.Model):
         COMBINED = "combined", "Embedded text and OCR"
         FAILED = "failed", "Extraction failed"
 
-    document = models.ForeignKey(Document, related_name="context_pages", on_delete=models.CASCADE)
+    id: int
+    document_id: int
+    document = models.ForeignKey(
+        Document, related_name="context_pages", on_delete=models.CASCADE
+    )
     page_number = models.PositiveIntegerField()
     extracted_text = models.TextField(blank=True, default="")
     text_blocks = models.JSONField(default=list, blank=True)
@@ -111,7 +137,11 @@ class DocumentPage(models.Model):
 
 
 class DocumentChunk(models.Model):
-    document = models.ForeignKey(Document, related_name="context_chunks", on_delete=models.CASCADE)
+    id: int
+    document_id: int
+    document = models.ForeignKey(
+        Document, related_name="context_chunks", on_delete=models.CASCADE
+    )
     chunk_id = models.CharField(max_length=96, unique=True)
     start_page = models.PositiveIntegerField()
     end_page = models.PositiveIntegerField()
@@ -131,10 +161,14 @@ class DocumentChunk(models.Model):
 
 
 class Annotations(models.Model):
-    document = models.OneToOneField(Document, related_name='annotations', on_delete=models.CASCADE)
-    highlight_data = models.JSONField(null=True,)
+    id: int
+    document_id: int
+    document = models.OneToOneField(
+        Document, related_name="annotations", on_delete=models.CASCADE
+    )
+    highlight_data: Any | None = models.JSONField(null=True)
     notepad = models.TextField(null=True, blank=True)
-    sticky_note_data = models.JSONField(null=True, blank=True)
+    sticky_note_data: Any | None = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -152,9 +186,12 @@ class Annotations(models.Model):
 
     content_hash = models.CharField(max_length=64, blank=True, default="")
 
-    similar_papers = models.JSONField(default=list, blank=True)
+    similar_papers: Any = models.JSONField(default=list, blank=True)
 
-    token_count = models.IntegerField(default=0) # for bm25 calcs
+    token_count = models.IntegerField(default=0)  # for bm25 calcs
+
+    if TYPE_CHECKING:
+        bm25_entries: RelatedManager[AnnotationIndex]
 
     def generate_content_hash(self):
         # hashing fields that contribute to embedding
@@ -163,23 +200,23 @@ class Annotations(models.Model):
         # just getting the sticky note content because idc about any other data for embedding purposes
         sticky_text = ""
         data = self.sticky_note_data
-        
+
         if isinstance(data, list):
-            extracted_texts = [str(item.get("content", "")) for item in data] # type: ignore
+            extracted_texts = [str(item.get("content", "")) for item in data]  # type: ignore[union-attr]
             sticky_text = "".join(extracted_texts)
 
         notepad_content = self.notepad or ""
 
         title = self.document.title if self.document_id else ""
         content_string = f"{title}|{sticky_text}|{notepad_content}"
-        return hashlib.sha256(content_string.encode('utf-8')).hexdigest()
+        return hashlib.sha256(content_string.encode("utf-8")).hexdigest()
 
     # override save to see if embedding is needed
     def save(self, *args, **kwargs):
         # Calculate new hash
         new_hash = self.generate_content_hash()
-        
-        # Only if the hash changed do, mark it as needing update 
+
+        # Only if the hash changed do, mark it as needing update
         if new_hash != self.content_hash:
             self.content_hash = new_hash
             self.needs_embedding = True
@@ -201,14 +238,15 @@ class Annotations(models.Model):
         # Convert bytes back to a numpy array
         if not self.embedding_binary:
             return None
-        return np.frombuffer(self.embedding_binary, dtype=np.float32) # type: ignore
+        return np.frombuffer(self.embedding_binary, dtype=np.float32)  # type: ignore[arg-type]
 
     """
-    most useful for bm25 
-    unformatted string of text 
+    most useful for bm25
+    unformatted string of text
     includes doc title, major_topic, sub_topic, highlight_data, sticky_note_data, notepad
     """
-    def get_meaningful_text_unformatted(self): 
+
+    def get_meaningful_text_unformatted(self):
         title = self.document.title
         major_topic = self.major_topic
         sub_topic = self.sub_topic
@@ -216,13 +254,28 @@ class Annotations(models.Model):
         sticky_note_data = self.sticky_note_data
         notepad = self.notepad
 
-        formatted_highlights = " ".join(h["text"] for h in highlight_data) if highlight_data else "" # type: ignore
-        
-        formatted_sticky = " ".join(f"{s.get('tag', '')} {s.get('content', '')}" for s in sticky_note_data) if sticky_note_data else "" # type: ignore
+        formatted_highlights = (
+            " ".join(h["text"] for h in highlight_data) if highlight_data else ""
+        )  # type: ignore[index, union-attr]
 
-        fields = [title, major_topic, sub_topic, formatted_highlights, formatted_sticky, notepad]
+        formatted_sticky = (
+            " ".join(
+                f"{s.get('tag', '')} {s.get('content', '')}" for s in sticky_note_data
+            )
+            if sticky_note_data
+            else ""
+        )  # type: ignore[union-attr]
 
-        output = " ".join(fields)
+        fields = [
+            title,
+            major_topic,
+            sub_topic,
+            formatted_highlights,
+            formatted_sticky,
+            notepad,
+        ]
+
+        output = " ".join(str(field or "") for field in fields)
 
         # rough tokenization that finds each word
         tokens = re.findall(r"\b\w+(?:['\-]\w+)*\b", output)
@@ -231,27 +284,38 @@ class Annotations(models.Model):
 
     def __str__(self):
         return f"Annotation for {self.document.title} at {self.created_at}"
-    
+
+
 # for bm25
-class SearchTerm(models.Model): 
+class SearchTerm(models.Model):
+    id: int
     word = models.CharField(max_length=255)
     idf = models.FloatField(default=0.0)
     docs_containing = models.IntegerField(default=0)
 
+
 # one for each term and annotation
-class AnnotationIndex(models.Model): 
+class AnnotationIndex(models.Model):
+    id: int
+    term_id: int
+    annotation_id: int
     term = models.ForeignKey(SearchTerm, on_delete=models.CASCADE)
-    annotation = models.ForeignKey(Annotations, on_delete=models.CASCADE, related_name="bm25_entries")
-    frequency = models.IntegerField() 
-    field_boost = models.FloatField(default=1.0) # Bonus for matches in major_topic
+    annotation = models.ForeignKey(
+        Annotations, on_delete=models.CASCADE, related_name="bm25_entries"
+    )
+    frequency = models.IntegerField()
+    field_boost = models.FloatField(default=1.0)  # Bonus for matches in major_topic
 
     class Meta:
-        unique_together = ('term', 'annotation')
-        indexes = [models.Index(fields=['term', 'annotation'])]
+        unique_together = ("term", "annotation")
+        indexes = [models.Index(fields=["term", "annotation"])]
 
-class ChatLogs(models.Model): 
+
+class ChatLogs(models.Model):
+    id: int
+    document_id: int | None
     name = models.CharField(max_length=255)
-    content = models.JSONField(default=list)
+    content: Any = models.JSONField(default=list)
     provider = models.CharField(max_length=32, default="legacy", db_index=True)
     document = models.ForeignKey(
         Document,
@@ -264,13 +328,16 @@ class ChatLogs(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, null=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-class SmartCollections(models.Model): 
-    annotation_ids = models.JSONField(default=list, blank=True)
+
+class SmartCollections(models.Model):
+    id: int
+    source_job_id: uuid.UUID | None
+    annotation_ids: Any = models.JSONField(default=list, blank=True)
     is_ready = models.BooleanField(default=False)
     updated_at = models.DateTimeField(auto_now=True)
-    reading_recommendations = models.JSONField(blank=True, null=True)
-    colors = models.JSONField(blank=True, null=True)
-    source_job = models.ForeignKey(
+    reading_recommendations: Any | None = models.JSONField(blank=True, null=True)
+    colors: Any | None = models.JSONField(blank=True, null=True)
+    source_job = models.ForeignKey["SmartCollectionJob"](
         "SmartCollectionJob",
         related_name="published_collections",
         on_delete=models.SET_NULL,
@@ -304,7 +371,7 @@ class SmartCollectionJob(models.Model):
     generation_model = models.CharField(max_length=128)
     total_items = models.PositiveIntegerField(default=0)
     processed_items = models.PositiveIntegerField(default=0)
-    warnings = models.JSONField(default=list, blank=True)
+    warnings: Any = models.JSONField(default=list, blank=True)
     error_code = models.CharField(max_length=64, blank=True, default="")
     error_message = models.TextField(blank=True, default="")
     cancel_requested = models.BooleanField(default=False)
@@ -312,6 +379,9 @@ class SmartCollectionJob(models.Model):
     started_at = models.DateTimeField(blank=True, null=True)
     finished_at = models.DateTimeField(blank=True, null=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    if TYPE_CHECKING:
+        published_collections: RelatedManager[SmartCollections]
 
     class Meta:
         ordering = ["-created_at"]
