@@ -1,10 +1,13 @@
 import uuid
 from datetime import timedelta
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.test import SimpleTestCase, TestCase
+from django.urls import reverse
 from django.utils import timezone
 from django_q.models import Task
+from rest_framework.test import APIClient
 
 from api import models
 from api.smart_collections.service import QUEUED_STALE_AFTER, reconcile_stale_job
@@ -103,3 +106,156 @@ class SmartCollectionReconciliationTests(TestCase):
 
         self.assertEqual(reconciled.status, models.SmartCollectionJob.Status.FAILED)
         self.assertEqual(reconciled.error_code, "worker_not_running")
+
+
+class SmartCollectionAPITests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+
+    def _annotation(self):
+        document = models.Document.objects.create(
+            title="Paper", file="documents/paper.pdf"
+        )
+        return models.Annotations.objects.create(document=document, notepad="Research note")
+
+    def _job(self, **overrides):
+        values = {
+            "embedding_provider": "test-embeddings",
+            "embedding_model": "embedding-model",
+            "embedding_dimensions": 8,
+            "generation_provider": "test-generation",
+            "generation_model": "generation-model",
+        }
+        values.update(overrides)
+        return models.SmartCollectionJob.objects.create(**values)
+
+    def test_create_requires_at_least_one_annotation(self):
+        response = self.client.post(reverse("smart-collection"), {}, format="json")
+        self.assertEqual(response.status_code, 422)
+        self.assertEqual(response.data["error"], "no_annotations")
+
+    @patch("api.views.queue_smart_collection_job", return_value="task-123")
+    @patch("api.views.get_smart_collection_config")
+    def test_create_records_job_and_queues_it(self, get_config, queue):
+        self._annotation()
+        get_config.return_value = SimpleNamespace(
+            embedding=SimpleNamespace(provider="local", model="embed", dimensions=16),
+            generation_provider="gemini",
+            generation_model="flash",
+        )
+
+        response = self.client.post(
+            reverse("smart-collection"),
+            {"embedding_provider": "local", "generation_provider": "gemini"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 202)
+        job = models.SmartCollectionJob.objects.get()
+        self.assertEqual(job.task_id, "task-123")
+        self.assertEqual(job.total_items, 1)
+        queue.assert_called_once_with(str(job.id))
+
+    @patch("api.views.queue_smart_collection_job", side_effect=RuntimeError("worker unavailable"))
+    @patch("api.views.get_smart_collection_config")
+    def test_queue_failure_marks_job_failed(self, get_config, _queue):
+        self._annotation()
+        get_config.return_value = SimpleNamespace(
+            embedding=SimpleNamespace(provider="local", model="embed", dimensions=16),
+            generation_provider="gemini",
+            generation_model="flash",
+        )
+        response = self.client.post(reverse("smart-collection"), {}, format="json")
+        self.assertEqual(response.status_code, 503)
+        job = models.SmartCollectionJob.objects.get()
+        self.assertEqual(job.status, models.SmartCollectionJob.Status.FAILED)
+        self.assertTrue(job.error_code)
+
+    @patch("api.views.reconcile_stale_job", side_effect=lambda job: job)
+    def test_create_returns_existing_active_job(self, _reconcile):
+        active = self._job(task_id="active-task")
+        response = self.client.post(reverse("smart-collection"), {}, format="json")
+        self.assertEqual(response.status_code, 202)
+        self.assertIs(response.data["already_running"], True)
+        self.assertEqual(response.data["job"]["id"], str(active.id))
+
+    def test_get_returns_empty_contract_without_published_collection(self):
+        response = self.client.get(reverse("smart-collection"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["data"], [])
+        self.assertEqual(response.data["colors"], {})
+
+    def test_get_serializes_ready_collection(self):
+        annotation = self._annotation()
+        annotation.major_topic = "Methods"
+        annotation.sub_topic = "Testing"
+        annotation.x_coordinate = 1.5
+        annotation.y_coordinate = 2.5
+        annotation.similar_papers = [{"id": 2}]
+        annotation.save()
+        models.SmartCollections.objects.create(
+            annotation_ids=[annotation.id],
+            is_ready=True,
+            colors={"Methods": "#fff"},
+            reading_recommendations={"next": annotation.id},
+        )
+        response = self.client.get(reverse("smart-collection"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["data"][0]["major_topic"], "Methods")
+        self.assertEqual(response.data["colors"], {"Methods": "#fff"})
+
+    @patch("api.views.reconcile_stale_job", side_effect=lambda job: job)
+    def test_poll_supports_task_id_and_missing_job(self, _reconcile):
+        job = self._job(task_id="task-abc", status=models.SmartCollectionJob.Status.RUNNING)
+        found = self.client.get(
+            reverse("poll-smart-collection", kwargs={"task_id": "task-abc"})
+        )
+        missing = self.client.get(
+            reverse("poll-smart-collection", kwargs={"task_id": "unknown"})
+        )
+        self.assertEqual(found.status_code, 200)
+        self.assertEqual(found.data["state"], "running")
+        self.assertEqual(found.data["job"]["id"], str(job.id))
+        self.assertEqual(missing.status_code, 404)
+
+    def test_poll_null_is_a_no_task_state(self):
+        response = self.client.get(
+            reverse("poll-smart-collection", kwargs={"task_id": "null"})
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["state"], "no_task")
+
+    @patch("api.views.reconcile_stale_job", side_effect=lambda job: job)
+    def test_job_detail_and_cancel(self, _reconcile):
+        job = self._job()
+        detail_url = reverse("smart-collection-job", kwargs={"job_id": job.id})
+        detail = self.client.get(detail_url)
+        cancelled = self.client.delete(detail_url)
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(cancelled.status_code, 202)
+        job.refresh_from_db()
+        self.assertIs(job.cancel_requested, True)
+
+    def test_unknown_job_returns_404(self):
+        response = self.client.get(
+            reverse("smart-collection-job", kwargs={"job_id": uuid.uuid4()})
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.data["error"], "job_not_found")
+
+    def test_reading_recommendations_empty_and_populated(self):
+        empty = self.client.get(reverse("reading-recommendations"))
+        models.SmartCollections.objects.create(
+            is_ready=True, reading_recommendations={"next": [1, 2]}
+        )
+        populated = self.client.get(reverse("reading-recommendations"))
+        self.assertEqual(empty.data["recommendations"], {})
+        self.assertEqual(populated.data["recommendations"], {"next": [1, 2]})
+
+    @patch("api.views.get_smart_collection_config", return_value=SimpleNamespace())
+    @patch("api.views.regenerate_recommendations", return_value={"next": [3]})
+    def test_regenerate_recommendations(self, regenerate, _config):
+        response = self.client.post(reverse("reading-recommendations"), {}, format="json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["recommendations"], {"next": [3]})
+        regenerate.assert_called_once()

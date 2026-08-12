@@ -8,6 +8,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import requests
+from django.core.exceptions import ValidationError
 from django.core.files import File
 from django.db.models import Q, Max
 from django.http import FileResponse
@@ -474,9 +475,16 @@ class AnnotationsViewSet(viewsets.ModelViewSet):
     # Get or create so that it works on every post req
     def create(self, request, *args, **kwargs):
         doc_id = request.data.get('document', None)
-        
+        try:
+            document = models.Document.objects.get(pk=doc_id)
+        except (models.Document.DoesNotExist, TypeError, ValueError):
+            return Response(
+                {"document": ["A valid document is required."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         annotation, created = models.Annotations.objects.get_or_create(
-            document=models.Document.objects.get(pk=doc_id), 
+            document=document,
             defaults={
                 'highlight_data': request.data.get('highlight_data', {}),
                 'notepad': request.data.get('notepad', ''),
@@ -1349,7 +1357,7 @@ class PollSmartCollection(APIView):
         if job is None:
             try:
                 job = models.SmartCollectionJob.objects.get(pk=task_id)
-            except (models.SmartCollectionJob.DoesNotExist, ValueError):
+            except (models.SmartCollectionJob.DoesNotExist, ValidationError, ValueError):
                 return Response(
                     {
                         "state": "not_found",
