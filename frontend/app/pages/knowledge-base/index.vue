@@ -725,7 +725,7 @@
 
 <script setup>
 const {
-  public: { frontendOrigin, apiBaseURL },
+  public: { apiBaseURL },
 } = useRuntimeConfig();
 import { marked } from "marked";
 import DOMPurify from "dompurify";
@@ -1146,10 +1146,8 @@ const highlightMatch = (text) => {
 
 // when result card clicked, send to url
 function sendToPaper(result) {
-  // default frontend origin is localhost:3000, if this isn't working check ur env vars
   const doc_id = result.paper_id;
-  const url = `${frontendOrigin}/annotate/${doc_id}`;
-  window.open(url, "_blank"); // opens in a new window
+  navigateTo(`/annotate/${doc_id}`);
 }
 
 // HEADER: AI

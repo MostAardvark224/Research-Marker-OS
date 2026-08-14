@@ -1,10 +1,19 @@
 const { app, BrowserWindow, ipcMain, shell } = require("electron");
 const path = require("path");
+const { pathToFileURL } = require("url");
 const fs = require("fs");
 const { spawn } = require("child_process");
 const { autoUpdater } = require("electron-updater");
 const log = require("electron-log");
 const crypto = require("crypto");
+const {
+  installSessionGuards,
+  installWindowGuards,
+} = require("./security.cjs");
+
+// Make every renderer use Chromium's OS-level sandbox, including windows that
+// may be added later. This must run before the app becomes ready.
+app.enableSandbox();
 
 autoUpdater.logger = log;
 autoUpdater.autoDownload = true;
@@ -368,6 +377,10 @@ function createSplashWindow() {
     backgroundColor: SPLASH_BG,
     webPreferences: {
       nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
     },
   });
 
@@ -377,6 +390,9 @@ function createSplashWindow() {
   );
 
   log.info("Attempting to load splash from:", splashPath);
+  const splashUrl = pathToFileURL(splashPath).href;
+  installSessionGuards(splashWindow.webContents.session, { isDev });
+  installWindowGuards(splashWindow, splashUrl);
   splashWindow.loadFile(splashPath);
   splashWindow.webContents.once("did-finish-load", () => {
     setSplashProgress(8, "Initializing Research Marker…");
@@ -450,6 +466,9 @@ function createWindow() {
       preload: resolvePath("preload.cjs", "electron/preload.cjs"),
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
     },
     icon: resolvePath(
       "../app/assets/icons/icon.png",
@@ -457,14 +476,41 @@ function createWindow() {
     ),
   });
 
+  mainWindow.webContents.on(
+    "did-fail-load",
+    (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+      if (isMainFrame) {
+        log.error(
+          `Renderer failed to load ${validatedURL}: ${errorCode} ${errorDescription}`,
+        );
+      }
+    },
+  );
+  mainWindow.webContents.on("render-process-gone", (_event, details) => {
+    log.error("Renderer process exited unexpectedly:", details);
+  });
   if (isDev) {
-    mainWindow.loadURL("http://localhost:3000");
+    mainWindow.webContents.on("console-message", (details) => {
+      const level = details.level === "error" ? "error" : "info";
+      log[level](`[Renderer] ${details.message}`);
+    });
+  }
+
+  if (isDev) {
+    const applicationUrl = "http://localhost:3000";
+    installSessionGuards(mainWindow.webContents.session, { isDev });
+    installWindowGuards(mainWindow, applicationUrl);
+    mainWindow.loadURL(applicationUrl);
     mainWindow.webContents.openDevTools();
   } else {
-    mainWindow.loadFile(
-      path.join(app.getAppPath(), ".output/public/index.html"),
-      { hash: "/" },
+    const applicationPath = path.join(
+      app.getAppPath(),
+      ".output/public/index.html",
     );
+    const applicationUrl = pathToFileURL(applicationPath).href;
+    installSessionGuards(mainWindow.webContents.session, { isDev });
+    installWindowGuards(mainWindow, applicationUrl);
+    mainWindow.loadFile(applicationPath, { hash: "/" });
   }
 
   mainWindow.webContents.on("did-start-loading", () => {
@@ -497,6 +543,7 @@ ipcMain.on("splash:progress", (_event, payload = {}) => {
 });
 
 ipcMain.on("app:ready", () => {
+  log.info("Renderer signaled ready");
   finishSplashAndShowMain("Ready");
 });
 
@@ -516,6 +563,13 @@ ipcMain.handle("codex:open-auth-url", async (_event, rawUrl) => {
     return { ok: false, reason: "Authentication URL is not allowlisted." };
   }
   await shell.openExternal(parsed.toString());
+  return { ok: true };
+});
+
+ipcMain.handle("app:open-project-page", async () => {
+  await shell.openExternal(
+    "https://github.com/MostAardvark224/Research-Marker-OS",
+  );
   return { ok: true };
 });
 

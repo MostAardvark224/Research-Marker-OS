@@ -57,6 +57,15 @@ export default defineNuxtConfig({
       title:
         "Research Marker | Research Paper Annotator | Understand Scientific Papers!",
 
+      meta: [
+        {
+          "http-equiv": "Content-Security-Policy",
+          content: isDev
+            ? "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*; worker-src 'self' blob:; object-src 'none'; media-src 'none'; frame-src 'none'; child-src 'none'; form-action 'none'; base-uri 'self'"
+            : "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' http://127.0.0.1:*; worker-src 'self' blob:; object-src 'none'; media-src 'none'; frame-src 'none'; child-src 'none'; form-action 'none'; base-uri 'self'",
+        },
+      ],
+
       htmlAttrs: {
         lang: "en",
       },

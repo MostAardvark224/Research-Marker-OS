@@ -50,16 +50,17 @@
               name="material-symbols:settings"
               :class="`ml-3 text-2xl ${colorScheme.headerText} cursor-pointer hover:text-blue-400 transition-colors`"
             />
-            <NuxtLink
-              to="https://github.com/MostAardvark224/Research-Marker-OS"
-              target="_blank"
+            <button
+              type="button"
+              aria-label="Open the Research Marker project page"
+              @click="openProjectPage"
               class="flex items-center"
             >
               <Icon
                 name="uil:github"
                 :class="`ml-3 text-2xl ${colorScheme.headerText} hover:text-gray-400 transition-colors`"
               />
-            </NuxtLink>
+            </button>
 
             <div class="flex items-center gap-2">
               <button
@@ -684,6 +685,10 @@
 const {
   public: { apiBaseURL },
 } = useRuntimeConfig();
+
+function openProjectPage() {
+  window.electronAPI?.openProjectPage?.();
+}
 
 // Colors
 const colorScheme = ref({

@@ -1824,6 +1824,10 @@ async function renderPage(pageNum, force = false) {
       canvasContext: context,
       transform: transform,
       viewport: viewport,
+      // Native PDF annotations may contain links, launch actions, file
+      // attachments, forms, and media. Research Marker renders only passive
+      // page content and its own separately managed annotation overlay.
+      annotationMode: pdfjsLib.AnnotationMode.DISABLE,
     };
 
     const renderTask = page.render(renderContext);
@@ -1904,7 +1908,14 @@ async function loadPdf(data) {
     Object.values(renderTasks).forEach((task) => task.cancel?.());
     Object.keys(renderTasks).forEach((key) => delete renderTasks[key]);
 
-    const loadingTask = pdfjsLib.getDocument(data);
+    const loadingTask = pdfjsLib.getDocument({
+      data,
+      // Never allow PDF.js to generate executable code from PDF content.
+      isEvalSupported: false,
+      // XFA is an interactive form technology and is outside the passive
+      // document feature set supported by this reader.
+      enableXfa: false,
+    });
     pdfDoc = await loadingTask.promise;
     totalPages.value = pdfDoc.numPages;
 
