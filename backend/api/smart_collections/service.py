@@ -9,10 +9,8 @@ from typing import Any, cast
 
 from django.db import transaction
 from django.utils import timezone
-import hdbscan
 import numpy as np
 import requests
-import umap
 from tenacity import (
     Retrying,
     retry_if_exception,
@@ -442,6 +440,8 @@ def _vectors_for(
 
 
 def _cluster(ids: list[int], matrix: np.ndarray) -> dict[int, dict[str, int | None]]:
+    import hdbscan
+
     count = len(ids)
     if count < 4:
         return {
@@ -612,6 +612,8 @@ def _label_clusters(
 
 
 def _coordinates(ids: list[int], matrix: np.ndarray) -> dict[int, list[float]]:
+    import umap
+
     count = len(ids)
     if count == 1:
         return {ids[0]: [0.0, 0.0]}

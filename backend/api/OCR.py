@@ -12,12 +12,10 @@ import os
 import shutil
 from typing import Any
 
-import fitz
 import requests
 from django.utils import timezone
-from django_q.tasks import async_task
 
-from api.paddle_ocr_engine import PaddleOCREngineError, run_paddle_ocr_on_image
+from api.task_queue import enqueue_task
 from api.utils import load_env_vars
 
 OCR_RENDER_SCALE = 2
@@ -65,7 +63,7 @@ def _queue_context_ingestion(document) -> None:
     document.context_status = "queued"
     document.context_error = ""
     document.save(update_fields=["context_status", "context_error"])
-    async_task("api.paper_context.ingestion.ingest_document", document.pk)
+    enqueue_task("api.paper_context.ingestion.ingest_document", document.pk)
 
 
 def normalize_ocr_provider(provider: str | None) -> str:
@@ -107,6 +105,8 @@ def _request_json(method: str, url: str, **kwargs: Any) -> dict[str, Any]:
 
 
 def _render_page_png_bytes(page: fitz.Page) -> bytes:
+    import fitz
+
     pix = page.get_pixmap(matrix=fitz.Matrix(OCR_RENDER_SCALE, OCR_RENDER_SCALE))
     try:
         return pix.tobytes("png")
@@ -130,6 +130,8 @@ def _insert_hidden_page_text(page: fitz.Page, text: str) -> None:
 
 
 def _save_output_doc(input_path: str, output_path: str, page_texts: list[str]) -> None:
+    import fitz
+
     temp_output_path = output_path + ".tmp"
     doc: fitz.Document | None = None
     output_doc: fitz.Document | None = None
@@ -161,6 +163,13 @@ def _save_output_doc(input_path: str, output_path: str, page_texts: list[str]) -
 
 
 def create_searchable_pdf_with_paddleocr(input_path: str, output_path: str) -> None:
+    import fitz
+    from api.paddle_ocr_engine import (
+        PaddleOCREngineError,
+        release_paddle_ocr_engine,
+        run_paddle_ocr_on_image,
+    )
+
     temp_output_path = output_path + ".tmp"
     doc: fitz.Document | None = None
     output_doc: fitz.Document | None = None
@@ -218,10 +227,13 @@ def create_searchable_pdf_with_paddleocr(input_path: str, output_path: str) -> N
             doc.close()
         if os.path.exists(temp_output_path):
             os.remove(temp_output_path)
+        release_paddle_ocr_engine()
         gc.collect()
 
 
 def _ocr_pdf_with_openai(input_path: str, output_path: str, api_key: str, model: str) -> None:
+    import fitz
+
     page_texts: list[str] = []
     doc = fitz.open(input_path)
     try:
@@ -262,6 +274,8 @@ def _ocr_pdf_with_openai(input_path: str, output_path: str, api_key: str, model:
 
 
 def _ocr_pdf_with_gemini(input_path: str, output_path: str, api_key: str, model: str) -> None:
+    import fitz
+
     page_texts: list[str] = []
     doc = fitz.open(input_path)
     try:

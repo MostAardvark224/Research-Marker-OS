@@ -15,7 +15,7 @@ from api.paper_context.builder import build_paper_context
 from api.paper_context.citations import extract_citations
 from api.paper_context.ingestion import clear_paper_context, ingest_document
 from api.paper_context.mentions import InvalidMentionSyntax, parse_mentions
-from api.paper_context.retrieval import search_document
+from api.paper_context.retrieval import get_page, search_document
 from api.paper_context.types import ContextLimits, PageContext, PaperContext
 from api.providers.codex import CodexProvider, READ_ONLY_SANDBOX_POLICY
 
@@ -142,9 +142,12 @@ class IngestionTests(TestCase):
         self.assertTrue(self.document.context_pages.get(page_number=2).visually_complex)
         self.assertTrue(self.document.context_pages.get(page_number=3).visually_complex)
         self.assertEqual(self.document.context_pages.get(page_number=4).rotation, 90)
-        self.assertTrue(
-            Path(self.document.context_pages.get(page_number=5).page_image_path).is_file()
-        )
+        scanned_page = self.document.context_pages.get(page_number=5)
+        self.assertTrue(Path(scanned_page.thumbnail_path).is_file())
+        self.assertFalse(Path(scanned_page.page_image_path).is_file())
+        page_context = get_page(self.document.id, 5, include_image=True)
+        self.assertIsNotNone(page_context.image_path)
+        self.assertTrue(Path(page_context.image_path).is_file())
         self.assertTrue(search_document(self.document.id, "retrieval results"))
         self.assertEqual(ingest_document(self.document.id, allow_ocr=False), "cached")
 

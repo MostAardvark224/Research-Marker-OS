@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 
 from django.http import StreamingHttpResponse
-from django_q.tasks import async_task
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -11,11 +10,22 @@ from rest_framework.views import APIView
 from api import models, serializers
 from api.errors import DocumentNotFound, ResearchMarkerError
 from api.paper_context.builder import build_paper_context
-from api.paper_context.ingestion import clear_paper_context, ensure_document_ingested
 from api.paper_context.retrieval import get_page, update_active_context
 from api.paper_context.types import ContextLimits
 from api.providers.codex import get_codex_provider
 from api.user_preferences import deep_get, load_user_preferences
+from api.task_queue import enqueue_task
+
+
+def async_task(*args, **kwargs):
+    """Compatibility wrapper that also wakes the on-demand Django-Q worker."""
+    return enqueue_task(*args, **kwargs)
+
+
+def clear_paper_context(*args, **kwargs):
+    from api.paper_context.ingestion import clear_paper_context as implementation
+
+    return implementation(*args, **kwargs)
 
 
 def _error_response(exc: Exception) -> Response:

@@ -5,13 +5,12 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from django_q.tasks import async_task
-
 from api import models
 from api.OCR import normalize_ocr_provider
 from api.scholar_inbox import ScholarInboxError, _truncate_title, fetch_scholar_inbox_papers
 from api.user_preferences import load_user_preferences, write_user_preferences
 from api.utils import load_env_vars
+from api.task_queue import enqueue_task
 
 
 def _stamp_last_import_date() -> None:
@@ -230,7 +229,7 @@ def queue_scholar_auto_import() -> str | None:
     if amount_to_import == 0 or amount_to_import == "0":
         return None
 
-    return async_task(
+    return enqueue_task(
         "api.scholar_inbox_import.run_scholar_auto_import",
         timeout=1800,
     )

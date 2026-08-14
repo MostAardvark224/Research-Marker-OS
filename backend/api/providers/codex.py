@@ -28,12 +28,37 @@ from api.paper_context.types import PaperContext
 from api.utils import get_app_data_dir
 from .base import AIProvider
 
-try:
-    from openai_codex import ApprovalMode, Codex, CodexConfig, Sandbox
-    from openai_codex.generated.v2_all import GetAccountRateLimitsResponse
-except ImportError:  # Packaged builds surface an actionable Not Installed state.
-    ApprovalMode = Codex = CodexConfig = Sandbox = None
-    GetAccountRateLimitsResponse = None
+ApprovalMode = Codex = CodexConfig = Sandbox = None
+GetAccountRateLimitsResponse = None
+_CODEX_IMPORT_ATTEMPTED = False
+_CODEX_IMPORT_LOCK = RLock()
+
+
+def _load_codex_sdk() -> bool:
+    global ApprovalMode, Codex, CodexConfig, Sandbox
+    global GetAccountRateLimitsResponse, _CODEX_IMPORT_ATTEMPTED
+    with _CODEX_IMPORT_LOCK:
+        if _CODEX_IMPORT_ATTEMPTED:
+            return Codex is not None
+        _CODEX_IMPORT_ATTEMPTED = True
+        try:
+            from openai_codex import (
+                ApprovalMode as LoadedApprovalMode,
+                Codex as LoadedCodex,
+                CodexConfig as LoadedCodexConfig,
+                Sandbox as LoadedSandbox,
+            )
+            from openai_codex.generated.v2_all import (
+                GetAccountRateLimitsResponse as LoadedRateLimitsResponse,
+            )
+        except ImportError:
+            return False
+        ApprovalMode = LoadedApprovalMode
+        Codex = LoadedCodex
+        CodexConfig = LoadedCodexConfig
+        Sandbox = LoadedSandbox
+        GetAccountRateLimitsResponse = LoadedRateLimitsResponse
+        return True
 
 LOGGER = logging.getLogger(__name__)
 SESSION_RETENTION_HOURS = 24
@@ -95,7 +120,7 @@ class CodexProvider(AIProvider):
             return None
 
     def _require_sdk(self) -> Any:
-        if Codex is None:
+        if not _load_codex_sdk():
             raise ProviderNotInstalled(_sdk_missing_message())
         if self._sdk is None:
             self.connect()
@@ -105,7 +130,7 @@ class CodexProvider(AIProvider):
         with self._lock:
             if self._sdk is not None:
                 return self.get_status()
-            if Codex is None or CodexConfig is None:
+            if not _load_codex_sdk() or CodexConfig is None:
                 return self.get_status()
             try:
                 config = CodexConfig(
@@ -152,7 +177,7 @@ class CodexProvider(AIProvider):
         return root.model_dump(by_alias=True, mode="json"), bool(response.requires_openai_auth)
 
     def get_status(self) -> dict[str, Any]:
-        if Codex is None:
+        if self.sdk_version is None:
             return {
                 "state": "not_installed",
                 "installed": False,
@@ -247,16 +272,12 @@ class CodexProvider(AIProvider):
             self._login_handles.pop(handle.login_id, None)
 
     def start_chatgpt_login(self) -> dict[str, Any]:
-        if Codex is None:
-            raise ProviderNotInstalled(_sdk_missing_message())
         handle = self._require_sdk().login_chatgpt()
         self._login_handles[handle.login_id] = handle
         Thread(target=self._watch_login, args=(handle,), daemon=True).start()
         return {"login_id": handle.login_id, "auth_url": handle.auth_url, "type": "chatgpt"}
 
     def start_device_code_login(self) -> dict[str, Any]:
-        if Codex is None:
-            raise ProviderNotInstalled(_sdk_missing_message())
         handle = self._require_sdk().login_chatgpt_device_code()
         self._login_handles[handle.login_id] = handle
         Thread(target=self._watch_login, args=(handle,), daemon=True).start()

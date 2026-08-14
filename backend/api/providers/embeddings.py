@@ -7,8 +7,6 @@ from typing import Any, cast
 
 import numpy as np
 import requests
-from google import genai
-from google.genai import types
 from tenacity import (
     Retrying,
     retry_if_exception_type,
@@ -205,6 +203,10 @@ class GeminiEmbeddingProvider(EmbeddingProvider):
                 "Add a Gemini API key in Settings before using Gemini embeddings."
             )
         super().__init__(spec, batch_size=batch_size)
+        from google import genai
+        from google.genai import types
+
+        self._types = types
         self._client = genai.Client(
             api_key=api_key,
             http_options=types.HttpOptions(
@@ -213,10 +215,12 @@ class GeminiEmbeddingProvider(EmbeddingProvider):
         )
 
     @staticmethod
-    def _as_contents(texts: list[str]) -> list[types.Content]:
+    def _as_contents(texts: list[str]) -> list[Any]:
         # gemini-embedding-2 runs list[str] through t_contents(), which merges
         # every string into one multi-part Content and returns a single vector.
         # Pass one Content per text so batch embedding stays 1:1.
+        from google.genai import types
+
         return [
             types.Content(
                 role="user",
@@ -230,7 +234,7 @@ class GeminiEmbeddingProvider(EmbeddingProvider):
             response = self._client.models.embed_content(
                 model=self.spec.model,
                 contents=cast(Any, self._as_contents(texts)),
-                config=types.EmbedContentConfig(
+                config=self._types.EmbedContentConfig(
                     output_dimensionality=self.spec.dimensions
                 ),
             )

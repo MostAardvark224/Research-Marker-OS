@@ -165,7 +165,7 @@ STORAGES = {
         },
     }   
 
-Q_WORKERS = int(os.getenv("DJANGO_Q_WORKERS", "1" if IS_FROZEN else "2"))
+Q_WORKERS = int(os.getenv("DJANGO_Q_WORKERS", "1"))
 
 # Django Q config
 Q_CLUSTER = {

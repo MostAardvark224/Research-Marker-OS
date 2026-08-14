@@ -3,10 +3,9 @@ from __future__ import annotations
 import logging
 
 from django.utils import timezone
-from django_q.tasks import async_task
-
 from api import models
 from api.providers.embeddings import EmbeddingSpec
+from api.task_queue import enqueue_task
 from .config import SmartCollectionConfig
 from .service import (
     SmartCollectionCancelled,
@@ -19,6 +18,11 @@ LOGGER = logging.getLogger(__name__)
 SMART_COLLECTION_TASK_HOOK = (
     "api.smart_collections.tasks.finalize_smart_collection_task"
 )
+
+
+def async_task(*args, **kwargs):
+    """Compatibility wrapper that also wakes the on-demand Django-Q worker."""
+    return enqueue_task(*args, **kwargs)
 
 
 def queue_smart_collection_job(job_id: str) -> str:

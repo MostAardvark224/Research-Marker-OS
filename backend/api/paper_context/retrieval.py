@@ -12,7 +12,6 @@ from django.db import connection
 from api import models
 from api.errors import DocumentNotFound, PageOutOfRange
 from api.utils import get_app_data_dir
-from .ingestion import ensure_document_ingested
 from .types import ContextReason, PageContext, RetrievedChunk
 
 
@@ -176,6 +175,8 @@ def _to_page_context(
     include_image: bool,
     reason: ContextReason,
 ) -> PageContext:
+    from .ingestion import ensure_document_ingested, ensure_page_image
+
     return PageContext(
         document_id=page.document_id,
         document_hash=page.document.document_hash,
@@ -199,6 +200,8 @@ def get_page(
     include_image: bool = False,
     reason: ContextReason = "explicit_page_reference",
 ) -> PageContext:
+    from .ingestion import ensure_document_ingested, ensure_page_image
+
     document = ensure_document_ingested(document_id)
     if page_number < 1 or page_number > document.page_count:
         raise PageOutOfRange(
@@ -212,6 +215,8 @@ def get_page(
             f"Page {page_number} has not been ingested.",
             details={"page_number": page_number, "page_count": document.page_count},
         ) from exc
+    if include_image:
+        ensure_page_image(page)
     return _to_page_context(page, include_image=include_image, reason=reason)
 
 
@@ -222,6 +227,8 @@ def get_pages(
     *,
     include_images: bool = False,
 ) -> list[PageContext]:
+    from .ingestion import ensure_document_ingested, ensure_page_image
+
     document = ensure_document_ingested(document_id)
     if start_page < 1 or end_page < start_page or end_page > document.page_count:
         raise PageOutOfRange(
@@ -232,12 +239,18 @@ def get_pages(
                 "page_count": document.page_count,
             },
         )
-    return [
-        _to_page_context(page, include_image=include_images, reason="explicit_page_reference")
-        for page in document.context_pages.select_related("document").filter(
+    pages = list(
+        document.context_pages.select_related("document").filter(
             page_number__gte=start_page,
             page_number__lte=end_page,
         )
+    )
+    if include_images:
+        for page in pages:
+            ensure_page_image(page)
+    return [
+        _to_page_context(page, include_image=include_images, reason="explicit_page_reference")
+        for page in pages
     ]
 
 
@@ -289,6 +302,8 @@ def _fallback_search(document_id: int, query: str, limit: int) -> list[Retrieved
 
 
 def search_document(document_id: int, query: str, limit: int = 6) -> list[RetrievedChunk]:
+    from .ingestion import ensure_document_ingested
+
     ensure_document_ingested(document_id)
     tokens = re.findall(r"[\w-]+", query)
     if not tokens:

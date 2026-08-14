@@ -1,16 +1,12 @@
 # File where all calls to AI model provider are handled 
-from google import genai
-from google.genai import types
 import pathlib
 import api.models as models
 import api.serializers as serializers
 from django.utils import timezone
 import os
 import numpy as np 
-import hdbscan
 from collections import defaultdict
 import random
-import umap
 import json
 import base64
 import re
@@ -19,7 +15,6 @@ import math
 from typing import Any, cast
 from django.db.models import Avg
 from api.utils import load_env_vars
-import fitz
 import requests
 import time
 
@@ -506,6 +501,8 @@ def get_all_provider_models(env_vars_override=None, force_refresh=False):
     return providers
 
 def extract_pdf_text(pdf_paths, word_limit=7000):
+    import fitz
+
     chunks = []
     words_used = 0
 
@@ -566,6 +563,8 @@ def extract_pdf_pages(pdf_paths, page_numbers, output_dir):
     Build single-page PDFs for the given 1-indexed page numbers.
     Returns a list of Paths to the extracted page files.
     """
+    import fitz
+
     page_numbers = normalize_page_numbers(page_numbers)
     if not page_numbers:
         return []
@@ -950,6 +949,8 @@ def _openai_user_content_with_pdfs(prompt, pdf_paths):
 
 def _render_pdf_pages_as_png_base64(pdf_paths, scale=AI_PDF_RENDER_SCALE):
     """Rasterize PDF pages to PNG base64 strings for local/vision OpenAI-compatible servers."""
+    import fitz
+
     images = []
     for path in _pdf_paths_with_bytes(pdf_paths):
         doc = None
@@ -1123,6 +1124,9 @@ def send_prompt(
     raise ValueError(f"Unsupported model provider: {provider}")
 
 def send_prompt_gemini(api_key, model, prompt, pdf_count=0, pdf_paths=None, chat_id=None, system_prompt=SYSTEM_PROMPT, temperature=0.7):
+    from google import genai
+    from google.genai import types
+
     client = genai.Client(
         api_key=api_key,
         http_options=types.HttpOptions(timeout=120_000),
@@ -1348,6 +1352,8 @@ def embed_annotations():
 
 # clusters embeddings into major and sub clusters for the creation of a smart collection
 def cluster_embeddings(): 
+    import hdbscan
+
     # creating clusters using hbdscan
     # uses all notes that have embeddings
     total_embeddings = models.Annotations.objects.filter(
@@ -1458,6 +1464,9 @@ def get_representative_samples(cluster_results, max_major=7, max_sub=3):
 # func for labeling a major/sub cluster
 # takes pks from Annotation model, formats those rows to be sent to the model, gets back label for cluster
 def label_cluster(pks_to_use):
+    from google import genai
+    from google.genai import types
+
     client = genai.Client(api_key=backup_gemini_key) 
     model = "gemini-flash-latest"
 
@@ -1537,6 +1546,8 @@ def reduce_dimensions(data_dict, target_dim=128):
     return reduced_dict
 
 def umap_dim_reduction_to_2d(data_dict, n_neighbors=15): 
+    import umap
+
     ids = list(data_dict.keys())
     
     # stack vectors into np matrix (n x dimensions)
@@ -1559,6 +1570,9 @@ def umap_dim_reduction_to_2d(data_dict, n_neighbors=15):
 
 # generates new user reading recs based on their given context (papers)
 def generate_reading_recommendations(annot_ids): 
+    from google import genai
+    from google.genai import types
+
     client = genai.Client(api_key=backup_gemini_key) 
     model = "gemini-3-flash-preview" 
 
@@ -2008,5 +2022,4 @@ def run_smart_collection():
         )
     
     
-
 

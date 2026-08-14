@@ -339,9 +339,9 @@ def queue_startup_scripts() -> str | None:
         }
     )
 
-    from django_q.tasks import async_task
+    from api.task_queue import enqueue_task
 
-    return async_task(
+    return enqueue_task(
         "api.startup_scripts.run_startup_scripts",
         paths,
         timeout=SCRIPT_TIMEOUT_SECONDS + 60,

@@ -9,6 +9,7 @@ import math
 from pathlib import Path
 import re
 import shutil
+import tempfile
 from typing import Any
 
 import fitz
@@ -18,7 +19,11 @@ from django.utils import timezone
 
 from api import models
 from api.errors import DocumentNotFound, OCRFailed, PageExtractionFailed
-from api.paddle_ocr_engine import PaddleOCREngineError, run_paddle_ocr_on_image
+from api.paddle_ocr_engine import (
+    PaddleOCREngineError,
+    release_paddle_ocr_engine,
+    run_paddle_ocr_on_image,
+)
 from api.utils import get_app_data_dir
 
 LOGGER = logging.getLogger(__name__)
@@ -28,6 +33,7 @@ OCR_CONFIGURATION = "rapidocr-ppocrv4-default-v1"
 SPARSE_TEXT_CHARACTERS = 80
 MAX_RENDER_DIMENSION = 3200
 THUMBNAIL_DIMENSION = 360
+DATABASE_BATCH_SIZE = 100
 
 
 def _sha256(path: Path) -> str:
@@ -91,19 +97,78 @@ def _needs_ocr(text: str, page: fitz.Page) -> bool:
     return image_area / page_area > 0.85 and len(compact) < 350
 
 
-def _render_page(page: fitz.Page, image_path: Path, thumbnail_path: Path) -> bytes:
+def _write_bytes_atomic(path: Path, data: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=path.parent, delete=False) as handle:
+        temp_path = Path(handle.name)
+        handle.write(data)
+    try:
+        temp_path.replace(path)
+    finally:
+        temp_path.unlink(missing_ok=True)
+
+
+def _render_page_image(page: fitz.Page, image_path: Path) -> bytes:
     scale = RENDER_DPI / 72
     longest = max(page.rect.width, page.rect.height) * scale
     if longest > MAX_RENDER_DIMENSION:
         scale *= MAX_RENDER_DIMENSION / longest
     pix = page.get_pixmap(matrix=fitz.Matrix(scale, scale), alpha=False, colorspace=fitz.csRGB)
-    png_bytes = pix.tobytes("png")
-    image_path.parent.mkdir(parents=True, exist_ok=True)
-    image_path.write_bytes(png_bytes)
-    with Image.open(image_path) as image:
-        image.thumbnail((THUMBNAIL_DIMENSION, THUMBNAIL_DIMENSION))
-        image.save(thumbnail_path, format="PNG", optimize=True)
-    return png_bytes
+    try:
+        png_bytes = pix.tobytes("png")
+        _write_bytes_atomic(image_path, png_bytes)
+        return png_bytes
+    finally:
+        del pix
+
+
+def _render_thumbnail(page: fitz.Page, thumbnail_path: Path) -> None:
+    longest = max(page.rect.width, page.rect.height, 1)
+    scale = min(1.0, THUMBNAIL_DIMENSION / longest)
+    pix = page.get_pixmap(
+        matrix=fitz.Matrix(scale, scale),
+        alpha=False,
+        colorspace=fitz.csRGB,
+    )
+    try:
+        _write_bytes_atomic(thumbnail_path, pix.tobytes("png"))
+    finally:
+        del pix
+
+
+def ensure_page_image(page_record: models.DocumentPage) -> str:
+    """Materialize a full page PNG only when a context consumer requests it."""
+    image_path = Path(page_record.page_image_path) if page_record.page_image_path else None
+    if image_path is not None and image_path.is_file():
+        return str(image_path)
+
+    document = page_record.document
+    if not document.file:
+        raise DocumentNotFound(f"Document {document.pk} has no PDF file.")
+    if image_path is None:
+        image_path = (
+            _cache_root(document.document_hash)
+            / "pages"
+            / f"page-{page_record.page_number}.png"
+        )
+
+    pdf = fitz.open(Path(document.file.path).resolve())
+    try:
+        if page_record.page_number < 1 or page_record.page_number > pdf.page_count:
+            raise PageExtractionFailed(
+                "The requested page image is outside the PDF page range.",
+                details={"page_number": page_record.page_number},
+            )
+        page = pdf.load_page(page_record.page_number - 1)
+        _render_page_image(page, image_path)
+    finally:
+        pdf.close()
+
+    resolved = str(image_path.resolve())
+    if page_record.page_image_path != resolved:
+        page_record.page_image_path = resolved
+        page_record.save(update_fields=["page_image_path"])
+    return resolved
 
 
 def _ocr_cache_key(document_hash: str, page_number: int) -> str:
@@ -170,41 +235,44 @@ def _page_text(blocks: list[dict]) -> str:
     return "\n\n".join(block["text"] for block in blocks if block.get("text")).strip()
 
 
-def _header_footer_candidates(page_data: list[dict]) -> set[str]:
-    counts: Counter[str] = Counter()
-    for item in page_data:
-        height = max(item["height"], 1)
-        seen: set[str] = set()
-        for block in item["blocks"]:
-            y0, y1 = block["bbox"][1], block["bbox"][3]
-            if y0 <= height * 0.08 or y1 >= height * 0.92:
-                for line in block["text"].splitlines():
-                    normalized = re.sub(r"\s+", " ", line).strip()
-                    if 4 <= len(normalized) <= 160:
-                        seen.add(normalized)
-        counts.update(seen)
-    threshold = max(3, math.ceil(len(page_data) * 0.7))
+def _page_margin_candidates(item: dict) -> set[str]:
+    height = max(item["height"], 1)
+    seen: set[str] = set()
+    for block in item["blocks"]:
+        y0, y1 = block["bbox"][1], block["bbox"][3]
+        if y0 <= height * 0.08 or y1 >= height * 0.92:
+            for line in block["text"].splitlines():
+                normalized = re.sub(r"\s+", " ", line).strip()
+                if 4 <= len(normalized) <= 160:
+                    seen.add(normalized)
+    return seen
+
+
+def _header_footer_candidates(counts: Counter[str], page_count: int) -> set[str]:
+    threshold = max(3, math.ceil(page_count * 0.7))
     return {text for text, count in counts.items() if count >= threshold}
 
 
-def _remove_repeated_margins(page_data: list[dict]) -> None:
-    repeated = _header_footer_candidates(page_data)
+def _remove_repeated_margins(item: dict, repeated: set[str]) -> None:
     if not repeated:
         return
-    for item in page_data:
-        height = max(item["height"], 1)
-        retained: list[dict] = []
-        for block in item["blocks"]:
-            y0, y1 = block["bbox"][1], block["bbox"][3]
-            is_margin = y0 <= height * 0.08 or y1 >= height * 0.92
-            lines = block["text"].splitlines()
-            if is_margin:
-                lines = [line for line in lines if re.sub(r"\s+", " ", line).strip() not in repeated]
-            text = _safe_text("\n".join(lines))
-            if text:
-                retained.append({**block, "text": text})
-        item["blocks"] = retained
-        item["text"] = _page_text(retained)
+    height = max(item["height"], 1)
+    retained: list[dict] = []
+    for block in item["blocks"]:
+        y0, y1 = block["bbox"][1], block["bbox"][3]
+        is_margin = y0 <= height * 0.08 or y1 >= height * 0.92
+        lines = block["text"].splitlines()
+        if is_margin:
+            lines = [
+                line
+                for line in lines
+                if re.sub(r"\s+", " ", line).strip() not in repeated
+            ]
+        text = _safe_text("\n".join(lines))
+        if text:
+            retained.append({**block, "text": text})
+    item["blocks"] = retained
+    item["text"] = _page_text(retained)
 
 
 def _complexity(page: fitz.Page, blocks: list[dict], text: str, confidence: float | None) -> list[str]:
@@ -283,14 +351,24 @@ def _rebuild_fts(document_id: int) -> None:
             rows = models.DocumentChunk.objects.filter(document_id=document_id).values_list(
                 "chunk_id", "document_id", "chunk_text", "section_title"
             )
-            cursor.executemany(
-                """
-                INSERT INTO api_documentchunk_fts
-                (chunk_id, document_id, chunk_text, section_title)
-                VALUES (%s, %s, %s, %s)
-                """,
-                list(rows),
-            )
+            iterator = rows.iterator(chunk_size=DATABASE_BATCH_SIZE)
+            while True:
+                batch = []
+                for _ in range(DATABASE_BATCH_SIZE):
+                    try:
+                        batch.append(next(iterator))
+                    except StopIteration:
+                        break
+                if not batch:
+                    break
+                cursor.executemany(
+                    """
+                    INSERT INTO api_documentchunk_fts
+                    (chunk_id, document_id, chunk_text, section_title)
+                    VALUES (%s, %s, %s, %s)
+                    """,
+                    batch,
+                )
     except Exception as exc:
         LOGGER.warning("SQLite FTS5 unavailable; retrieval will use a local fallback: %s", exc)
 
@@ -322,8 +400,12 @@ def ingest_document(document_id: int, *, allow_ocr: bool = True, force: bool = F
     pages_dir = cache_root / "pages"
     pages_dir.mkdir(parents=True, exist_ok=True)
 
-    page_data: list[dict] = []
     pdf: fitz.Document | None = None
+    staging = tempfile.TemporaryDirectory(prefix="ingestion-", dir=cache_root)
+    staging_dir = Path(staging.name)
+    state_paths: list[Path] = []
+    margin_counts: Counter[str] = Counter()
+    ocr_engine_used = False
     try:
         pdf = fitz.open(pdf_path)
         for page_index in range(pdf.page_count):
@@ -338,7 +420,7 @@ def ingest_document(document_id: int, *, allow_ocr: bool = True, force: bool = F
             except Exception as exc:
                 extraction_error = str(exc)
             text = _page_text(embedded)
-            png_bytes = _render_page(page, image_path, thumbnail_path)
+            _render_thumbnail(page, thumbnail_path)
             blocks = embedded
             ocr_used = False
             confidence = None
@@ -346,8 +428,10 @@ def ingest_document(document_id: int, *, allow_ocr: bool = True, force: bool = F
             cache_key = _ocr_cache_key(document_hash, page_number)
 
             if allow_ocr and _needs_ocr(text, page):
+                png_bytes = _render_page_image(page, image_path)
                 cache_path = pages_dir / f"page-{page_number}.ocr.json"
                 try:
+                    ocr_engine_used = True
                     ocr_blocks, confidence = _ocr_page(
                         png_bytes=png_bytes,
                         page=page,
@@ -369,26 +453,31 @@ def ingest_document(document_id: int, *, allow_ocr: bool = True, force: bool = F
             if not text and extraction_error:
                 source_type = models.DocumentPage.SourceType.FAILED
             reasons = _complexity(page, blocks, text, confidence)
-            page_data.append(
-                {
-                    "page_number": page_number,
-                    "blocks": blocks,
-                    "text": text,
-                    "page_image_path": str(image_path.resolve()),
-                    "thumbnail_path": str(thumbnail_path.resolve()),
-                    "source_type": source_type,
-                    "ocr_used": ocr_used,
-                    "ocr_confidence": confidence,
-                    "width": float(page.rect.width),
-                    "height": float(page.rect.height),
-                    "rotation": int(page.rotation),
-                    "visually_complex": bool(reasons),
-                    "complexity_reasons": reasons,
-                    "extraction_error": extraction_error,
-                    "ocr_cache_key": cache_key if ocr_used else "",
-                }
-            )
-        _remove_repeated_margins(page_data)
+            item = {
+                "page_number": page_number,
+                "blocks": blocks,
+                "text": text,
+                # Keep the deterministic destination even before the full image
+                # is materialized so consumers can create it on first request.
+                "page_image_path": str(image_path.resolve()),
+                "thumbnail_path": str(thumbnail_path.resolve()),
+                "source_type": source_type,
+                "ocr_used": ocr_used,
+                "ocr_confidence": confidence,
+                "width": float(page.rect.width),
+                "height": float(page.rect.height),
+                "rotation": int(page.rotation),
+                "visually_complex": bool(reasons),
+                "complexity_reasons": reasons,
+                "extraction_error": extraction_error,
+                "ocr_cache_key": cache_key if ocr_used else "",
+            }
+            margin_counts.update(_page_margin_candidates(item))
+            state_path = staging_dir / f"page-{page_number}.json"
+            state_path.write_text(json.dumps(item), encoding="utf-8")
+            state_paths.append(state_path)
+
+        repeated_margins = _header_footer_candidates(margin_counts, pdf.page_count)
 
         now = timezone.now()
         with transaction.atomic():
@@ -414,33 +503,52 @@ def ingest_document(document_id: int, *, allow_ocr: bool = True, force: bool = F
             )
             document.context_pages.all().delete()
             document.context_chunks.all().delete()
-            pages = [
-                models.DocumentPage(
-                    document=document,
-                    page_number=item["page_number"],
-                    extracted_text=item["text"],
-                    text_blocks=item["blocks"],
-                    page_image_path=item["page_image_path"],
-                    thumbnail_path=item["thumbnail_path"],
-                    source_type=item["source_type"],
-                    ocr_used=item["ocr_used"],
-                    ocr_confidence=item["ocr_confidence"],
-                    width=item["width"],
-                    height=item["height"],
-                    rotation=item["rotation"],
-                    visually_complex=item["visually_complex"],
-                    complexity_reasons=item["complexity_reasons"],
-                    extraction_error=item["extraction_error"],
-                    ocr_cache_key=item["ocr_cache_key"],
-                    renderer_version=RENDERER_VERSION,
-                )
-                for item in page_data
-            ]
-            models.DocumentPage.objects.bulk_create(pages)
+
+            pages: list[models.DocumentPage] = []
             chunks: list[models.DocumentChunk] = []
-            for item in page_data:
+            for state_path in state_paths:
+                item = json.loads(state_path.read_text(encoding="utf-8"))
+                _remove_repeated_margins(item, repeated_margins)
+                pages.append(
+                    models.DocumentPage(
+                        document=document,
+                        page_number=item["page_number"],
+                        extracted_text=item["text"],
+                        text_blocks=item["blocks"],
+                        page_image_path=item["page_image_path"],
+                        thumbnail_path=item["thumbnail_path"],
+                        source_type=item["source_type"],
+                        ocr_used=item["ocr_used"],
+                        ocr_confidence=item["ocr_confidence"],
+                        width=item["width"],
+                        height=item["height"],
+                        rotation=item["rotation"],
+                        visually_complex=item["visually_complex"],
+                        complexity_reasons=item["complexity_reasons"],
+                        extraction_error=item["extraction_error"],
+                        ocr_cache_key=item["ocr_cache_key"],
+                        renderer_version=RENDERER_VERSION,
+                    )
+                )
                 chunks.extend(_chunks_for_page(document, item["page_number"], item["text"]))
-            models.DocumentChunk.objects.bulk_create(chunks)
+                if len(pages) >= DATABASE_BATCH_SIZE:
+                    models.DocumentPage.objects.bulk_create(
+                        pages, batch_size=DATABASE_BATCH_SIZE
+                    )
+                    pages.clear()
+                if len(chunks) >= DATABASE_BATCH_SIZE:
+                    models.DocumentChunk.objects.bulk_create(
+                        chunks, batch_size=DATABASE_BATCH_SIZE
+                    )
+                    chunks.clear()
+            if pages:
+                models.DocumentPage.objects.bulk_create(
+                    pages, batch_size=DATABASE_BATCH_SIZE
+                )
+            if chunks:
+                models.DocumentChunk.objects.bulk_create(
+                    chunks, batch_size=DATABASE_BATCH_SIZE
+                )
         _rebuild_fts(document.id)
         return "success"
     except (DocumentNotFound, OCRFailed):
@@ -458,6 +566,9 @@ def ingest_document(document_id: int, *, allow_ocr: bool = True, force: bool = F
     finally:
         if pdf is not None:
             pdf.close()
+        staging.cleanup()
+        if ocr_engine_used:
+            release_paddle_ocr_engine()
 
 
 def ensure_document_ingested(document_id: int) -> models.Document:

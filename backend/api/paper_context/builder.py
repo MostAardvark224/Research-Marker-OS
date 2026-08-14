@@ -4,7 +4,6 @@ from pathlib import Path
 import re
 
 from api.errors import ContextLimitExceeded
-from .ingestion import ensure_document_ingested
 from .mentions import InvalidMentionSyntax, parse_mentions
 from .retrieval import get_page, search_document, update_active_context
 from .types import ContextLimits, PaperContext, SelectionContext
@@ -51,6 +50,8 @@ def build_paper_context(
     include_page_image: bool = False,
     limits: ContextLimits | None = None,
 ) -> PaperContext:
+    from .ingestion import ensure_document_ingested
+
     limits = limits or ContextLimits()
     document = ensure_document_ingested(document_id)
     mentions = parse_mentions(

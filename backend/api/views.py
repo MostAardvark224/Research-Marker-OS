@@ -14,7 +14,6 @@ from django.db.models import Q, Max
 from django.http import FileResponse
 from django.utils.text import get_valid_filename
 from django.utils import timezone
-from django_q.tasks import async_task
 from rest_framework import status, viewsets
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
@@ -38,15 +37,8 @@ from api.ai import (
 )
 from api.scholar_inbox import ScholarInboxError
 from api.scholar_inbox_import import import_scholar_inbox_papers
-from api.smart_collections.config import get_smart_collection_config
-from api.smart_collections.service import (
-    reconcile_stale_job,
-    regenerate_recommendations,
-    safe_failure,
-    serialize_job,
-)
-from api.smart_collections.tasks import queue_smart_collection_job
 from api.startup_scripts import get_startup_scripts_status, sanitize_startup_script_paths
+from api.task_queue import enqueue_task
 from api.user_preferences import deep_get, load_user_preferences, write_user_preferences
 from api.utils import (
     get_env_vars_potential_list,
@@ -56,6 +48,47 @@ from api.utils import (
 )
 
 MAX_SCHOLAR_PDF_BYTES = 100 * 1024 * 1024
+
+
+def async_task(*args, **kwargs):
+    """Compatibility wrapper that also wakes the on-demand Django-Q worker."""
+    return enqueue_task(*args, **kwargs)
+
+
+def get_smart_collection_config(*args, **kwargs):
+    from api.smart_collections.config import get_smart_collection_config as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def reconcile_stale_job(*args, **kwargs):
+    from api.smart_collections.service import reconcile_stale_job as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def regenerate_recommendations(*args, **kwargs):
+    from api.smart_collections.service import regenerate_recommendations as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def safe_failure(*args, **kwargs):
+    from api.smart_collections.service import safe_failure as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def serialize_job(*args, **kwargs):
+    from api.smart_collections.service import serialize_job as implementation
+
+    return implementation(*args, **kwargs)
+
+
+def queue_smart_collection_job(*args, **kwargs):
+    from api.smart_collections.tasks import queue_smart_collection_job as implementation
+
+    return implementation(*args, **kwargs)
 
 # to bool helper method for flag parsing
 def to_bool(value):

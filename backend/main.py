@@ -1,12 +1,9 @@
-import atexit
 import multiprocessing
 import os
 import socket
-import subprocess
 import sys
 import threading
 import time
-from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -25,12 +22,15 @@ from django.core.asgi import get_asgi_application
 from django.core.management import call_command
 
 django.setup()
-application = get_asgi_application()
 
 # Packaged worker entry: must run in its own process so signal handlers work.
 if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "qcluster":
-    call_command("qcluster")
+    from api.task_queue import run_qcluster_until_idle
+
+    run_qcluster_until_idle()
     raise SystemExit(0)
+
+application = get_asgi_application()
 
 
 def _reserve_port(host: str = "127.0.0.1") -> int:
@@ -71,21 +71,13 @@ def _wait_for_port(host: str, port: int, timeout_seconds: float = 60.0) -> bool:
     return False
 
 
-def _queue_deferred_startup_work(start_qcluster: bool = True) -> None:
+def _queue_deferred_startup_work() -> None:
     """
     Run after the API is accepting connections.
 
-    qcluster is deferred too: spawning the frozen worker binary before uvicorn
-    binds doubles cold-start I/O and was a major part of the slow boot.
+    Queue optional startup work after the first UI requests can be served. The
+    enqueue helper starts a worker only when one of these features is enabled.
     """
-    global qcluster_proc
-
-    if start_qcluster and qcluster_proc is None:
-        try:
-            qcluster_proc = _start_qcluster_process()
-        except Exception as exc:
-            print(f"Q Cluster Error: {exc}", flush=True)
-
     # Brief pause so the first UI fetches can land before heavy workers.
     time.sleep(0.75)
     try:
@@ -120,44 +112,12 @@ def _announce_when_listening(port: int) -> None:
     """
     if _wait_for_port("127.0.0.1", port):
         print(f"http://127.0.0.1:{port}", flush=True)
-        _queue_deferred_startup_work(start_qcluster=True)
+        _queue_deferred_startup_work()
         return
 
     print(f"Timed out waiting for API to bind on 127.0.0.1:{port}", flush=True)
     print(f"http://127.0.0.1:{port}", flush=True)
-    _queue_deferred_startup_work(start_qcluster=True)
-
-
-def _start_qcluster_process() -> subprocess.Popen:
-    """
-    django-q registers POSIX signal handlers, which only work in a process main
-    thread. Spawning a sibling process avoids the threaded `call_command` failure.
-    """
-    print("Starting background task worker (qcluster)...", flush=True)
-    if getattr(sys, "frozen", False):
-        cmd = [sys.executable, "qcluster"]
-    else:
-        cmd = [sys.executable, str(Path(__file__).resolve()), "qcluster"]
-
-    return subprocess.Popen(
-        cmd,
-        env=os.environ.copy(),
-        stdout=sys.stdout,
-        stderr=sys.stderr,
-    )
-
-
-qcluster_proc = None
-
-
-def _stop_qcluster() -> None:
-    if qcluster_proc is None or qcluster_proc.poll() is not None:
-        return
-    qcluster_proc.terminate()
-    try:
-        qcluster_proc.wait(timeout=5)
-    except Exception:
-        qcluster_proc.kill()
+    _queue_deferred_startup_work()
 
 
 if __name__ == "__main__":
@@ -170,8 +130,6 @@ if __name__ == "__main__":
         print("Migrations applied successfully.", flush=True)
     except Exception as e:
         print(f"Error applying migrations: {e}", flush=True)
-
-    atexit.register(_stop_qcluster)
 
     port = _reserve_port()
     _write_mcp_discovery(port)
@@ -186,8 +144,4 @@ if __name__ == "__main__":
     import uvicorn
 
     # Keep uvicorn on the main thread (required for clean lifecycle / signals).
-    # qcluster + startup scripts start only after this port is accepting traffic.
-    try:
-        uvicorn.run(application, host="127.0.0.1", port=port)
-    finally:
-        _stop_qcluster()
+    uvicorn.run(application, host="127.0.0.1", port=port)

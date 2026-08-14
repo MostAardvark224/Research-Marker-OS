@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
+from array import array
 import hashlib
 import re
 import uuid
 
 from django.db import models
-import numpy as np
 
 if TYPE_CHECKING:
     from django.db.models.manager import RelatedManager
@@ -230,14 +230,16 @@ class Annotations(models.Model):
         super().save(*args, **kwargs)
 
     def set_embedding(self, float_list):
-        # Convert list to a numpy float32 array and then to bytes
-        self.embedding_binary = np.array(float_list, dtype=np.float32).tobytes()
+        # Keep model import lightweight; NumPy is only needed by consumers that
+        # perform vector math, not by every Django process loading the ORM.
+        self.embedding_binary = array("f", float_list).tobytes()
         self.needs_embedding = False
 
     def get_embedding(self):
-        # Convert bytes back to a numpy array
         if not self.embedding_binary:
             return None
+        import numpy as np
+
         return np.frombuffer(self.embedding_binary, dtype=np.float32)  # type: ignore[arg-type]
 
     """

@@ -14,13 +14,16 @@ from __future__ import annotations
 
 import os
 import sys
+import gc
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
-from rapidocr_onnxruntime import RapidOCR
 
-_OCR_ENGINE: RapidOCR | None = None
+if TYPE_CHECKING:
+    from rapidocr_onnxruntime import RapidOCR
+
+_OCR_ENGINE: Any | None = None
 
 
 class PaddleOCREngineError(Exception):
@@ -48,9 +51,11 @@ def _validate_bundled_models() -> None:
         )
 
 
-def get_paddle_ocr_engine() -> RapidOCR:
+def get_paddle_ocr_engine() -> Any:
     global _OCR_ENGINE
     if _OCR_ENGINE is None:
+        from rapidocr_onnxruntime import RapidOCR
+
         _validate_bundled_models()
         print("Loading bundled PaddleOCR PP-OCRv4 ONNX models")
         _OCR_ENGINE = RapidOCR(
@@ -60,6 +65,18 @@ def get_paddle_ocr_engine() -> RapidOCR:
             rec_keys_path=get_model_path("ppocr_keys_v1.txt"),
         )
     return _OCR_ENGINE
+
+
+def release_paddle_ocr_engine() -> None:
+    """Drop ONNX sessions so a completed OCR job can return memory to the OS."""
+    global _OCR_ENGINE
+    engine, _OCR_ENGINE = _OCR_ENGINE, None
+    if engine is not None:
+        close = getattr(engine, "close", None)
+        if callable(close):
+            close()
+        del engine
+    gc.collect()
 
 
 def run_paddle_ocr_on_image(img_bytes: bytes) -> list[list[Any]]:
