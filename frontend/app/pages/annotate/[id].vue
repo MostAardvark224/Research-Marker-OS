@@ -139,6 +139,8 @@ const persistSidebarWidth = () => {
 };
 
 const currentPage = ref(1);
+const pageNumberInput = ref(1);
+let pageNumberInputOrigin = 1;
 const lastPage = route.query.page;
 const zoomFromQuery = route.query.zoom;
 onMounted(() => {
@@ -351,7 +353,11 @@ const setNotepadTextareaRef = (element) => {
 
 const renderNotepadLine = (line) => {
   if (!line) return "&nbsp;";
-  const html = marked.parse(line);
+  const citationMarkdown = line.replace(
+    /~\[(\d+)\]~/g,
+    (_match, page) => `[\\[${page}\\]](#notepad-page-${page})`,
+  );
+  const html = marked.parse(citationMarkdown);
   return DOMPurify.sanitize(html, {
     ADD_TAGS: [
       "math",
@@ -455,6 +461,21 @@ const blurNotepadDocumentSelection = (event) => {
 
 const activateNotepadLine = (lineIndex) => {
   focusNotepadLine(lineIndex);
+};
+
+const handleNotepadRenderedLineClick = (event, lineIndex) => {
+  const citation = event.target.closest?.('a[href^="#notepad-page-"]');
+  if (!citation) {
+    activateNotepadLine(lineIndex);
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  const match = citation.getAttribute("href")?.match(/^#notepad-page-(\d+)$/);
+  if (!match) return;
+
+  navigateToPageWithHistory(Number(match[1]));
 };
 
 const updateNotepadLine = (lineIndex, event) => {
@@ -597,6 +618,19 @@ const insertFormat = (format) => {
       insertion = `$$\n${text.substring(start, end) || ""}\n$$`;
       newCursorPos = start + insertion.length - 3;
       break;
+    case "quote": {
+      const quote = text.substring(start, end);
+      insertion = `> ${quote}`;
+      newCursorPos = start + insertion.length;
+      break;
+    }
+    case "citation": {
+      const selection = text.substring(start, end);
+      const page = /^\d+$/.test(selection) ? selection : currentPage.value;
+      insertion = `~[${page}]~`;
+      newCursorPos = start + insertion.length;
+      break;
+    }
   }
 
   // Update State
@@ -1318,6 +1352,12 @@ const performUndo = async () => {
   const action = undoStack.value.pop();
   if (!action) return;
 
+  if (action.type === "navigate") {
+    scrollToPage(action.fromPage);
+    redoStack.value.push(action);
+    return;
+  }
+
   if (action.type === "add") {
     if (action.data.type === "highlight") {
       savedHighlights.value = savedHighlights.value.filter(
@@ -1363,6 +1403,12 @@ const performUndo = async () => {
 const performRedo = async () => {
   const action = redoStack.value.pop();
   if (!action) return;
+
+  if (action.type === "navigate") {
+    scrollToPage(action.toPage);
+    undoStack.value.push(action);
+    return;
+  }
 
   if (action.type === "add") {
     if (action.data.type === "highlight") {
@@ -2224,6 +2270,55 @@ const scrollToPage = (pageNumber) => {
   scrollToPagePosition(pageNumber, 0, { align: "start" });
 };
 
+const navigateToPageWithHistory = (
+  pageNumber,
+  originPage = currentPage.value,
+) => {
+  const destination = Number(pageNumber);
+  if (
+    !Number.isInteger(destination) ||
+    destination < 1 ||
+    destination > totalPages.value
+  ) {
+    pageNumberInput.value = currentPage.value;
+    return;
+  }
+
+  const origin = Number(originPage);
+  if (origin === destination) return;
+
+  undoStack.value.push({
+    type: "navigate",
+    fromPage: origin,
+    toPage: destination,
+  });
+  redoStack.value = [];
+  scrollToPage(destination);
+};
+
+const beginPageNumberEdit = () => {
+  pageNumberInputOrigin = currentPage.value;
+};
+
+const commitPageNumberEdit = () => {
+  const destination = Number(pageNumberInput.value);
+  if (
+    !Number.isInteger(destination) ||
+    destination < 1 ||
+    destination > totalPages.value
+  ) {
+    pageNumberInput.value = currentPage.value;
+    return;
+  }
+
+  if (destination === pageNumberInputOrigin) {
+    pageNumberInput.value = currentPage.value;
+    return;
+  }
+
+  navigateToPageWithHistory(destination, pageNumberInputOrigin);
+};
+
 // Scroll so a specific unscaled page Y (sticky/highlight) lands in view
 const scrollToPagePosition = (pageNumber, yUnscaled = 0, options = {}) => {
   if (pageNumber < 1 || pageNumber > totalPages.value) return;
@@ -2817,7 +2912,9 @@ async function postPage() {
 
 let pageUpdateDebounce = null;
 let activeContextDebounce = null;
-watch(currentPage, () => {
+watch(currentPage, (page) => {
+  pageNumberInput.value = page;
+
   if (activeContextDebounce) clearTimeout(activeContextDebounce);
   activeContextDebounce = setTimeout(() => {
     publishActivePaperContext();
@@ -2894,8 +2991,9 @@ watch(currentPage, () => {
           >
             <input
               type="number"
-              v-model="currentPage"
-              @change="scrollToPage(currentPage)"
+              v-model="pageNumberInput"
+              @focus="beginPageNumberEdit"
+              @change="commitPageNumberEdit"
               :max="totalPages"
               min="1"
               class="w-10 bg-transparent py-1 text-center text-sm font-medium text-slate-200 outline-none focus:bg-slate-700 transition-colors [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
@@ -3434,7 +3532,7 @@ watch(currentPage, () => {
           <div
             class="flex items-center justify-between px-4 py-2 border-b border-slate-800 bg-slate-900 shrink-0"
           >
-            <div class="flex gap-2">
+            <div class="flex gap-1">
               <button
                 @mousedown.prevent
                 @click="insertFormat('bold')"
@@ -3468,6 +3566,24 @@ watch(currentPage, () => {
               >
                 <Icon name="ph:sigma" class="w-4 h-4" />
               </button>
+              <button
+                @mousedown.prevent
+                @click="insertFormat('quote')"
+                class="toolbar-btn"
+                title="Important quote"
+                aria-label="Insert important quote"
+              >
+                <Icon name="ph:exclamation-mark" class="w-4 h-4" />
+              </button>
+              <button
+                @mousedown.prevent
+                @click="insertFormat('citation')"
+                class="toolbar-btn"
+                title="Cite current page"
+                aria-label="Insert current page citation"
+              >
+                <Icon name="ph:link" class="w-4 h-4" />
+              </button>
             </div>
           </div>
 
@@ -3499,6 +3615,7 @@ watch(currentPage, () => {
                 class="notepad-line"
                 :class="{
                   'notepad-line--active': activeNotepadLine === lineIndex,
+                  'notepad-line--quote': /^\s*>\s/.test(line),
                 }"
               >
                 <textarea
@@ -3523,7 +3640,7 @@ watch(currentPage, () => {
                   tabindex="0"
                   :aria-label="`Edit line ${lineIndex + 1}`"
                   v-html="renderNotepadLine(line)"
-                  @click="activateNotepadLine(lineIndex)"
+                  @click="handleNotepadRenderedLineClick($event, lineIndex)"
                   @keydown.enter.prevent="activateNotepadLine(lineIndex)"
                   @keydown.space.prevent="activateNotepadLine(lineIndex)"
                 ></div>
@@ -4068,8 +4185,8 @@ watch(currentPage, () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border-radius: 4px;
   color: #94a3b8;
   transition: all 0.2s;
@@ -4097,6 +4214,11 @@ watch(currentPage, () => {
 .notepad-line--active {
   border-left-color: rgb(99 102 241 / 0.8);
   background: rgb(30 41 59 / 0.55);
+}
+
+.notepad-line--quote {
+  border-left-color: rgb(245 158 11 / 0.9);
+  background: rgb(245 158 11 / 0.06);
 }
 
 .notepad-line-editor {
@@ -4161,6 +4283,13 @@ watch(currentPage, () => {
   margin: 0;
 }
 
+.notepad-rendered-line :deep(blockquote) {
+  border-radius: 0 0.25rem 0.25rem 0;
+  background: rgb(245 158 11 / 0.08);
+  padding: 0.45rem 0.75rem;
+  color: rgb(241 245 249);
+}
+
 .notepad-rendered-line :deep(ul),
 .notepad-rendered-line :deep(ol) {
   padding-left: 1.25rem;
@@ -4201,6 +4330,24 @@ watch(currentPage, () => {
 .notepad-rendered-line :deep(a) {
   color: rgb(129 140 248);
   text-decoration: underline;
+}
+
+.notepad-rendered-line :deep(a[href^="#notepad-page-"]) {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 0.25rem;
+  background: rgb(79 70 229 / 0.2);
+  padding: 0.05rem 0.3rem;
+  color: rgb(165 180 252);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.8em;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.notepad-rendered-line :deep(a[href^="#notepad-page-"]:hover) {
+  background: rgb(79 70 229 / 0.35);
+  color: rgb(224 231 255);
 }
 
 .notepad-rendered-line :deep(.katex-display) {
