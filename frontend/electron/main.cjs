@@ -121,6 +121,8 @@ fi
 
 let mainWindow;
 let splashWindow;
+let sidebarWindow;
+let sidebarDocumentId = null;
 let pythonProcess;
 let apiPort = null;
 let isAppReady = false;
@@ -527,10 +529,131 @@ function createWindow() {
     setSplashProgress(92, "Loading library…");
     scheduleSplashFallback();
   });
+
+  mainWindow.on("closed", () => {
+    mainWindow = null;
+    if (sidebarWindow && !sidebarWindow.isDestroyed()) {
+      sidebarWindow.close();
+    }
+  });
+}
+
+function createSidebarWindow(documentId) {
+  sidebarDocumentId = documentId;
+  sidebarWindow = new BrowserWindow({
+    width: 420,
+    height: 760,
+    minWidth: 300,
+    minHeight: 420,
+    show: false,
+    title: "Sidebar — Research Marker",
+    backgroundColor: SPLASH_BG,
+    webPreferences: {
+      preload: resolvePath("preload.cjs", "electron/preload.cjs"),
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+    },
+    icon: resolvePath(
+      "../app/assets/icons/icon.png",
+      "app/assets/icons/icon.png",
+    ),
+  });
+
+  const routeHash = `/annotate/${documentId}?sidebarPopout=1`;
+  if (isDev) {
+    const applicationUrl = "http://localhost:3000";
+    installSessionGuards(sidebarWindow.webContents.session, { isDev });
+    installWindowGuards(sidebarWindow, applicationUrl);
+    const sidebarUrl = new URL(applicationUrl);
+    sidebarUrl.hash = routeHash;
+    sidebarWindow.loadURL(sidebarUrl.toString());
+  } else {
+    const applicationPath = path.join(
+      app.getAppPath(),
+      ".output/public/index.html",
+    );
+    const applicationUrl = pathToFileURL(applicationPath).href;
+    installSessionGuards(sidebarWindow.webContents.session, { isDev });
+    installWindowGuards(sidebarWindow, applicationUrl);
+    sidebarWindow.loadFile(applicationPath, { hash: routeHash });
+  }
+
+  sidebarWindow.once("ready-to-show", () => sidebarWindow?.show());
+  sidebarWindow.on("closed", () => {
+    const closedDocumentId = sidebarDocumentId;
+    sidebarWindow = null;
+    sidebarDocumentId = null;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("sidebar:popout-closed", {
+        documentId: closedDocumentId,
+      });
+    }
+  });
 }
 
 ipcMain.handle("get-api-port", () => {
   return apiPort;
+});
+
+ipcMain.handle("sidebar:pop-out", (event, payload = {}) => {
+  if (!mainWindow || event.sender.id !== mainWindow.webContents.id) {
+    return { ok: false, reason: "Only the main viewer can open the sidebar." };
+  }
+
+  const documentId = String(payload.documentId ?? "");
+  if (!/^\d+$/.test(documentId)) {
+    return { ok: false, reason: "Invalid document id." };
+  }
+
+  if (sidebarWindow && !sidebarWindow.isDestroyed()) {
+    sidebarWindow.show();
+    sidebarWindow.focus();
+    return { ok: true, alreadyOpen: true };
+  }
+
+  createSidebarWindow(documentId);
+  return { ok: true, alreadyOpen: false };
+});
+
+ipcMain.handle("sidebar:focus-popout", (event) => {
+  if (!mainWindow || event.sender.id !== mainWindow.webContents.id) {
+    return { ok: false };
+  }
+  if (!sidebarWindow || sidebarWindow.isDestroyed()) {
+    return { ok: false };
+  }
+  sidebarWindow.show();
+  sidebarWindow.focus();
+  return { ok: true };
+});
+
+ipcMain.handle("sidebar:close-popout", (event) => {
+  if (!sidebarWindow || sidebarWindow.isDestroyed()) {
+    return { ok: false };
+  }
+  if (event.sender.id !== sidebarWindow.webContents.id) {
+    return { ok: false };
+  }
+  sidebarWindow.close();
+  return { ok: true };
+});
+
+ipcMain.on("sidebar:reveal-annotation", (event, payload = {}) => {
+  if (
+    !sidebarWindow ||
+    sidebarWindow.isDestroyed() ||
+    event.sender.id !== sidebarWindow.webContents.id ||
+    String(payload.documentId ?? "") !== sidebarDocumentId
+  ) {
+    return;
+  }
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("sidebar:reveal-annotation", payload);
+    mainWindow.show();
+  }
 });
 
 ipcMain.on("splash:progress", (_event, payload = {}) => {

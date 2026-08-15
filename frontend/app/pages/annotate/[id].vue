@@ -17,6 +17,9 @@ const {
 // General States
 const route = useRoute();
 const id = route.params.id;
+const isSidebarPopout = route.query.sidebarPopout === "1";
+const canPopOutSidebar =
+  typeof window !== "undefined" && Boolean(window.electronAPI?.popOutSidebar);
 const DEFAULT_ZOOM = 200;
 const MAX_CANVAS_DEVICE_PIXEL_RATIO = 2.25;
 const RENDERED_PAGE_BUFFER = 2;
@@ -115,6 +118,7 @@ const storedSidebarWidth = (() => {
   }
 })();
 const isSidebarOpen = ref(storedSidebarOpen);
+const isSidebarPoppedOut = ref(false);
 const sidebarWidth = ref(storedSidebarWidth);
 const persistSidebarOpen = () => {
   try {
@@ -297,10 +301,7 @@ const handleMainScroll = () => {
   }, 80);
 };
 
-// katex rendering for sticky and notepad
-const isNotepadPreview = ref(false);
-
-// Use the KaTeX plugin
+// KaTeX rendering for sticky notes.
 const renderContent = (text) => {
   if (!text) return "";
 
@@ -330,22 +331,254 @@ const renderContent = (text) => {
 };
 
 const notepadTextarea = ref(null);
+const activeNotepadLine = ref(0);
+const isNotepadSelectingAll = ref(false);
+const notepadLines = computed(() => notepadData.value.split("\n"));
+
+watch(notepadLines, (lines) => {
+  if (activeNotepadLine.value >= lines.length) {
+    activeNotepadLine.value = Math.max(0, lines.length - 1);
+  }
+});
+
+const setNotepadTextareaRef = (element) => {
+  // Vue may clear the old row ref after assigning the newly active row.
+  // Ignoring that transient null keeps keyboard focus on the live editor.
+  if (!element) return;
+  notepadTextarea.value = element;
+  nextTick(resizeNotepadEditor);
+};
+
+const renderNotepadLine = (line) => {
+  if (!line) return "&nbsp;";
+  const html = marked.parse(line);
+  return DOMPurify.sanitize(html, {
+    ADD_TAGS: [
+      "math",
+      "semantics",
+      "mrow",
+      "mi",
+      "mo",
+      "mn",
+      "msup",
+      "mfrac",
+      "msqrt",
+      "mtext",
+      "annotation",
+      "annotation-xml",
+    ],
+    ADD_ATTR: ["xmlns", "display", "class", "style", "aria-hidden"],
+  });
+};
+
+const resizeNotepadEditor = () => {
+  const textarea = notepadTextarea.value;
+  if (!textarea) return;
+  textarea.style.height = "auto";
+  textarea.style.height = `${Math.max(32, textarea.scrollHeight)}px`;
+};
+
+const focusNotepadLine = (lineIndex, column = null) => {
+  const lastLineIndex = Math.max(0, notepadLines.value.length - 1);
+  activeNotepadLine.value = Math.min(
+    lastLineIndex,
+    Math.max(0, lineIndex),
+  );
+  nextTick(() => {
+    const textarea = notepadTextarea.value;
+    if (!textarea) return;
+    textarea.focus();
+    const cursor = Math.min(
+      textarea.value.length,
+      column === null ? textarea.value.length : Math.max(0, column),
+    );
+    textarea.setSelectionRange(cursor, cursor);
+    resizeNotepadEditor();
+  });
+};
+
+const setNotepadCursorFromOffset = (offset) => {
+  const beforeCursor = notepadData.value.slice(0, Math.max(0, offset));
+  const linesBeforeCursor = beforeCursor.split("\n");
+  focusNotepadLine(
+    linesBeforeCursor.length - 1,
+    linesBeforeCursor.at(-1)?.length ?? 0,
+  );
+};
+
+const getNotepadPositionFromOffset = (offset) => {
+  const beforeCursor = notepadData.value.slice(0, Math.max(0, offset));
+  const linesBeforeCursor = beforeCursor.split("\n");
+  return {
+    line: linesBeforeCursor.length - 1,
+    column: linesBeforeCursor.at(-1)?.length ?? 0,
+  };
+};
+
+const beginNotepadSelectAll = () => {
+  isNotepadSelectingAll.value = true;
+  nextTick(() => {
+    const textarea = notepadTextarea.value;
+    if (!textarea) return;
+    textarea.focus({ preventScroll: true });
+    textarea.select();
+    resizeNotepadEditor();
+  });
+};
+
+const leaveNotepadDocumentSelection = (offset, { focus = true } = {}) => {
+  const position = getNotepadPositionFromOffset(offset);
+  isNotepadSelectingAll.value = false;
+  activeNotepadLine.value = position.line;
+  if (focus) {
+    focusNotepadLine(position.line, position.column);
+  }
+};
+
+const handleNotepadDocumentInput = (event) => {
+  const offset = event.currentTarget.selectionStart;
+  notepadData.value = event.currentTarget.value;
+  leaveNotepadDocumentSelection(offset);
+};
+
+const finishNotepadDocumentSelection = (event) => {
+  const textarea = event.currentTarget;
+  if (textarea.selectionStart !== textarea.selectionEnd) return;
+  leaveNotepadDocumentSelection(textarea.selectionStart);
+};
+
+const blurNotepadDocumentSelection = (event) => {
+  leaveNotepadDocumentSelection(event.currentTarget.selectionStart, {
+    focus: false,
+  });
+};
+
+const activateNotepadLine = (lineIndex) => {
+  focusNotepadLine(lineIndex);
+};
+
+const updateNotepadLine = (lineIndex, event) => {
+  const value = event.target.value;
+  const cursor = event.target.selectionStart;
+  const selectionEnd = event.target.selectionEnd;
+  const replacementLines = value.split("\n");
+  const lines = [...notepadLines.value];
+  lines.splice(lineIndex, 1, ...replacementLines);
+  notepadData.value = lines.join("\n");
+
+  if (replacementLines.length > 1) {
+    const beforeCursor = value.slice(0, cursor).split("\n");
+    focusNotepadLine(
+      lineIndex + beforeCursor.length - 1,
+      beforeCursor.at(-1)?.length ?? 0,
+    );
+  } else {
+    nextTick(() => {
+      const textarea = notepadTextarea.value;
+      if (!textarea || activeNotepadLine.value !== lineIndex) return;
+      textarea.focus({ preventScroll: true });
+      textarea.setSelectionRange(cursor, selectionEnd);
+      resizeNotepadEditor();
+    });
+  }
+};
+
+const splitNotepadLine = (lineIndex, event) => {
+  event.preventDefault();
+  const textarea = event.currentTarget;
+  const line = notepadLines.value[lineIndex] ?? "";
+  const start = textarea.selectionStart;
+  const end = textarea.selectionEnd;
+  const lines = [...notepadLines.value];
+  lines.splice(lineIndex, 1, line.slice(0, start), line.slice(end));
+  notepadData.value = lines.join("\n");
+  focusNotepadLine(lineIndex + 1, 0);
+};
+
+const mergeNotepadLineBackward = (lineIndex, event) => {
+  const textarea = event.currentTarget;
+  if (
+    lineIndex === 0 ||
+    textarea.selectionStart !== 0 ||
+    textarea.selectionEnd !== 0
+  ) {
+    return;
+  }
+
+  event.preventDefault();
+  const lines = [...notepadLines.value];
+  const previousLength = lines[lineIndex - 1].length;
+  lines.splice(
+    lineIndex - 1,
+    2,
+    lines[lineIndex - 1] + lines[lineIndex],
+  );
+  notepadData.value = lines.join("\n");
+  focusNotepadLine(lineIndex - 1, previousLength);
+};
+
+const mergeNotepadLineForward = (lineIndex, event) => {
+  const textarea = event.currentTarget;
+  const line = notepadLines.value[lineIndex] ?? "";
+  if (
+    lineIndex >= notepadLines.value.length - 1 ||
+    textarea.selectionStart !== line.length ||
+    textarea.selectionEnd !== line.length
+  ) {
+    return;
+  }
+
+  event.preventDefault();
+  const lines = [...notepadLines.value];
+  lines.splice(lineIndex, 2, lines[lineIndex] + lines[lineIndex + 1]);
+  notepadData.value = lines.join("\n");
+  focusNotepadLine(lineIndex, line.length);
+};
+
+const moveNotepadCursorVertically = (lineIndex, direction, event) => {
+  if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+  const nextLine = lineIndex + direction;
+  if (nextLine < 0 || nextLine >= notepadLines.value.length) return;
+  event.preventDefault();
+  focusNotepadLine(nextLine, event.currentTarget.selectionStart);
+};
+
+const handleNotepadLineKeydown = (lineIndex, event) => {
+  switch (event.key) {
+    case "Enter":
+      splitNotepadLine(lineIndex, event);
+      break;
+    case "Backspace":
+      mergeNotepadLineBackward(lineIndex, event);
+      break;
+    case "Delete":
+      mergeNotepadLineForward(lineIndex, event);
+      break;
+    case "ArrowUp":
+      moveNotepadCursorVertically(lineIndex, -1, event);
+      break;
+    case "ArrowDown":
+      moveNotepadCursorVertically(lineIndex, 1, event);
+      break;
+  }
+};
 
 // Formatting Helper
 const insertFormat = (format) => {
   const textarea = notepadTextarea.value;
   if (!textarea) return;
 
-  const start = textarea.selectionStart;
-  const end = textarea.selectionEnd;
+  const lineStart = isNotepadSelectingAll.value
+    ? 0
+    : notepadLines.value
+        .slice(0, activeNotepadLine.value)
+        .reduce((offset, line) => offset + line.length + 1, 0);
+  const start = lineStart + textarea.selectionStart;
+  const end = lineStart + textarea.selectionEnd;
   const text = notepadData.value;
 
   let insertion = "";
   let newCursorPos = end;
-
-  // Helper: Check if we are at the start of the file or line
-  const isStart = start === 0;
-  const prefix = isStart ? "" : "\n\n";
 
   switch (format) {
     case "bold":
@@ -361,8 +594,7 @@ const insertFormat = (format) => {
       newCursorPos = start + insertion.length - 1;
       break;
     case "math-block":
-      // Math blocks still need newlines to render cleanly
-      insertion = `${prefix}$$\n${text.substring(start, end) || ""}\n$$`;
+      insertion = `$$\n${text.substring(start, end) || ""}\n$$`;
       newCursorPos = start + insertion.length - 3;
       break;
   }
@@ -371,11 +603,8 @@ const insertFormat = (format) => {
   notepadData.value =
     text.substring(0, start) + insertion + text.substring(end);
 
-  // Restore Focus
-  nextTick(() => {
-    textarea.focus();
-    textarea.setSelectionRange(newCursorPos, newCursorPos);
-  });
+  isNotepadSelectingAll.value = false;
+  setNotepadCursorFromOffset(newCursorPos);
 };
 
 // keyboard shortcuts
@@ -387,8 +616,13 @@ const handleKeyboardShortcuts = (e) => {
   const isNotepadFocused = document.activeElement === notepadTextarea.value;
 
   if (isNotepadFocused) {
+    // Select the complete note, including lines currently rendered as Markdown.
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
+      e.preventDefault();
+      beginNotepadSelectAll();
+    }
     // Bold: Ctrl + B or Cmd + B
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") {
+    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") {
       e.preventDefault();
       insertFormat("bold");
     }
@@ -1245,6 +1479,7 @@ function changeSidebarTab(tabName) {
   sidebarActiveTab.value = tabName;
   persistSidebarActiveTab();
   if (tabName !== "chat") showChatHistory.value = false;
+  if (tabName === "notepad") nextTick(resizeNotepadEditor);
 }
 const activeSidebarTabLabel = computed(
   () => sidebarTabs.find((t) => t.id === sidebarActiveTab.value)?.label ?? "",
@@ -1259,7 +1494,7 @@ const highlightsByPage = computed(() =>
   }),
 );
 
-// Sidebar font size (scales content proportionally; headers stay larger than body)
+// Sidebar scale applies to the complete panel, including its rail and controls.
 const SIDEBAR_FONT_MIN = 0.85;
 const SIDEBAR_FONT_MAX = 1.4;
 const SIDEBAR_FONT_STEP = 0.1;
@@ -1297,6 +1532,87 @@ const decreaseSidebarFont = () => {
     Math.round((sidebarFontScale.value - SIDEBAR_FONT_STEP) * 10) / 10,
   );
   persistSidebarFontScale();
+};
+const sidebarScaleStyle = computed(() => ({
+  transform: `scale(${sidebarFontScale.value})`,
+  width: `${100 / sidebarFontScale.value}%`,
+  height: `${100 / sidebarFontScale.value}%`,
+}));
+
+let sidebarSyncChannel = null;
+let isApplyingSidebarSync = false;
+
+const cloneForSidebarSync = (value) => JSON.parse(JSON.stringify(value));
+
+const postSidebarState = () => {
+  if (!sidebarSyncChannel || isApplyingSidebarSync) return;
+  sidebarSyncChannel.postMessage({
+    type: "state",
+    activeTab: sidebarActiveTab.value,
+    fontScale: sidebarFontScale.value,
+    highlights: cloneForSidebarSync(savedHighlights.value),
+    stickyNotes: cloneForSidebarSync(stickyNoteData.value),
+    notepad: notepadData.value,
+    currentPage: currentPage.value,
+    capturedSelection: capturedSelection.value,
+    capturedSelectionPage: capturedSelectionPage.value,
+  });
+};
+
+const applySidebarState = async (message) => {
+  isApplyingSidebarSync = true;
+  if (SIDEBAR_TAB_IDS.has(message.activeTab)) {
+    sidebarActiveTab.value = message.activeTab;
+    persistSidebarActiveTab();
+  }
+  if (Number.isFinite(message.fontScale)) {
+    sidebarFontScale.value = Math.min(
+      SIDEBAR_FONT_MAX,
+      Math.max(SIDEBAR_FONT_MIN, message.fontScale),
+    );
+    persistSidebarFontScale();
+  }
+  if (Array.isArray(message.highlights)) {
+    savedHighlights.value = message.highlights;
+  }
+  if (Array.isArray(message.stickyNotes)) {
+    stickyNoteData.value = message.stickyNotes;
+  }
+  if (typeof message.notepad === "string") {
+    notepadData.value = message.notepad;
+  }
+  if (isSidebarPopout && Number.isInteger(message.currentPage)) {
+    currentPage.value = message.currentPage;
+  }
+  if (isSidebarPopout && typeof message.capturedSelection === "string") {
+    capturedSelection.value = message.capturedSelection;
+    capturedSelectionPage.value = Number.isInteger(message.capturedSelectionPage)
+      ? message.capturedSelectionPage
+      : null;
+  }
+
+  if (!isSidebarPopout) {
+    await nextTick();
+    Array.from(visiblePages.value).forEach((pageNum) => {
+      queuePageRender(pageNum, true);
+    });
+    processRenderQueue();
+  }
+  await nextTick();
+  isApplyingSidebarSync = false;
+};
+
+const setupSidebarSync = () => {
+  if (typeof BroadcastChannel === "undefined") return;
+  sidebarSyncChannel = new BroadcastChannel(`annotate-sidebar-${id}`);
+  sidebarSyncChannel.addEventListener("message", (event) => {
+    if (event.data?.type === "request-state") {
+      postSidebarState();
+    } else if (event.data?.type === "state") {
+      applySidebarState(event.data);
+    }
+  });
+  sidebarSyncChannel.postMessage({ type: "request-state" });
 };
 
 // --- Chat Tab ---
@@ -1710,6 +2026,7 @@ const parseChatInputParts = (text) => {
 // Notepad
 let saveNotepadDebounce = null;
 watch(notepadData, () => {
+  if (isApplyingSidebarSync) return;
   if (saveNotepadDebounce) clearTimeout(saveNotepadDebounce);
   saveNotepadDebounce = setTimeout(() => {
     saveAnnotationsToBackend();
@@ -1720,6 +2037,7 @@ let saveStickyDebounce = null;
 watch(
   stickyNoteData,
   () => {
+    if (isApplyingSidebarSync) return;
     if (saveStickyDebounce) clearTimeout(saveStickyDebounce);
     saveStickyDebounce = setTimeout(() => {
       saveAnnotationsToBackend();
@@ -1728,11 +2046,36 @@ watch(
   { deep: true },
 );
 
+watch(
+  [
+    savedHighlights,
+    stickyNoteData,
+    notepadData,
+    sidebarActiveTab,
+    sidebarFontScale,
+    currentPage,
+    capturedSelection,
+    capturedSelectionPage,
+  ],
+  () => postSidebarState(),
+  { deep: true },
+);
+
 const focusStickyNote = (noteId) => {
   const note = stickyNoteData.value.find((n) => n.id === noteId);
   if (!note) return;
   activeStickyNoteId.value = noteId;
   activeHighlightId.value = null;
+  if (isSidebarPopout && window.electronAPI?.revealSidebarAnnotation) {
+    window.electronAPI.revealSidebarAnnotation({
+      documentId: String(id),
+      type: "stickyNote",
+      annotationId: noteId,
+      page: note.page,
+      y: note.y,
+    });
+    return;
+  }
   scrollToPagePosition(note.page, note.y);
 };
 
@@ -1742,6 +2085,16 @@ const focusHighlight = (highlightId) => {
   activeHighlightId.value = highlightId;
   activeStickyNoteId.value = null;
   const y = highlight.rects?.[0]?.y ?? 0;
+  if (isSidebarPopout && window.electronAPI?.revealSidebarAnnotation) {
+    window.electronAPI.revealSidebarAnnotation({
+      documentId: String(id),
+      type: "highlight",
+      annotationId: highlightId,
+      page: highlight.page,
+      y,
+    });
+    return;
+  }
   scrollToPagePosition(highlight.page, y);
 };
 
@@ -1808,7 +2161,28 @@ const stopResize = () => {
   persistSidebarWidth();
 };
 
-const toggleSidebar = () => {
+const popOutSidebar = async () => {
+  if (!window.electronAPI?.popOutSidebar) return;
+  const result = await window.electronAPI.popOutSidebar(String(id));
+  if (!result?.ok) return;
+  isSidebarPoppedOut.value = true;
+  isSidebarOpen.value = false;
+  persistSidebarOpen();
+};
+
+const returnSidebarToViewer = async () => {
+  if (window.electronAPI?.closeSidebarPopout) {
+    await window.electronAPI.closeSidebarPopout();
+  } else {
+    window.close();
+  }
+};
+
+const toggleSidebar = async () => {
+  if (isSidebarPoppedOut.value) {
+    await window.electronAPI?.focusSidebarPopout?.();
+    return;
+  }
   isSidebarOpen.value = !isSidebarOpen.value;
   persistSidebarOpen();
 };
@@ -2209,9 +2583,45 @@ watch(zoomLevel, async (newZoom, oldZoom) => {
   }, 150);
 });
 
+let removeSidebarClosedListener = null;
+let removeRevealAnnotationListener = null;
+
 onMounted(async () => {
   try {
+    setupSidebarSync();
+
+    if (!isSidebarPopout) {
+      removeSidebarClosedListener =
+        window.electronAPI?.onSidebarPopoutClosed?.((payload) => {
+          if (String(payload?.documentId ?? "") !== String(id)) return;
+          isSidebarPoppedOut.value = false;
+          isSidebarOpen.value = true;
+          persistSidebarOpen();
+        }) ?? null;
+      removeRevealAnnotationListener =
+        window.electronAPI?.onRevealSidebarAnnotation?.((payload) => {
+          if (String(payload?.documentId ?? "") !== String(id)) return;
+          const page = Number(payload.page);
+          const y = Number(payload.y) || 0;
+          if (!Number.isInteger(page)) return;
+          if (payload.type === "stickyNote") {
+            activeStickyNoteId.value = payload.annotationId;
+            activeHighlightId.value = null;
+          } else if (payload.type === "highlight") {
+            activeHighlightId.value = payload.annotationId;
+            activeStickyNoteId.value = null;
+          }
+          scrollToPagePosition(page, y);
+        }) ?? null;
+    }
+
     await initializeAiModels();
+
+    if (isSidebarPopout) {
+      await Promise.all([fetchAnnotations(), fetchPaperTitle()]);
+      loading.value = false;
+      return;
+    }
 
     const pdfjsModule = await import("pdfjs-dist");
     pdfjsLib = pdfjsModule;
@@ -2245,6 +2655,10 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  removeSidebarClosedListener?.();
+  removeRevealAnnotationListener?.();
+  sidebarSyncChannel?.close();
+  sidebarSyncChannel = null;
   document.removeEventListener("mouseup", handleTextSelection);
   document.removeEventListener("pointerdown", handleDocumentPointerDown);
   document.removeEventListener("keydown", handleKeyboardShortcuts);
@@ -2421,6 +2835,7 @@ watch(currentPage, () => {
     class="flex h-screen w-full flex-col overflow-hidden bg-slate-950 text-slate-300 font-sans selection:bg-indigo-500/30"
   >
     <header
+      v-if="!isSidebarPopout"
       class="relative flex h-16 shrink-0 items-center justify-between border-b border-slate-800 bg-slate-900 px-4 shadow-sm z-20"
     >
       <div class="flex items-center gap-4">
@@ -2657,6 +3072,7 @@ watch(currentPage, () => {
     </header>
 
     <div
+      v-if="!isSidebarPopout"
       class="flex h-9 shrink-0 items-center border-b border-slate-800 bg-slate-900/80 px-4 text-sm"
       :title="paperTitle || 'Untitled Paper'"
     >
@@ -2668,6 +3084,7 @@ watch(currentPage, () => {
 
     <div class="flex flex-1 overflow-hidden relative">
       <main
+        v-if="!isSidebarPopout"
         ref="mainScrollContainer"
         tabindex="0"
         role="document"
@@ -2736,17 +3153,29 @@ watch(currentPage, () => {
       </main>
 
       <div
-        v-if="isSidebarOpen"
+        v-if="!isSidebarPopout && isSidebarOpen"
         class="w-1 cursor-col-resize hover:bg-indigo-500/50 active:bg-indigo-500 transition-colors bg-slate-800 z-30"
         @mousedown.prevent="startResize"
       ></div>
 
       <aside
-        class="border-l border-slate-800 bg-slate-900 transition-none flex flex-col shrink-0"
-        :style="{ width: isSidebarOpen ? `${sidebarWidth}px` : '0px' }"
-        :class="{ 'border-none opacity-0 overflow-hidden': !isSidebarOpen }"
+        class="border-l border-slate-800 bg-slate-900 transition-none flex flex-col shrink-0 overflow-hidden"
+        :style="{
+          width: isSidebarPopout
+            ? '100%'
+            : isSidebarOpen
+              ? `${sidebarWidth}px`
+              : '0px',
+        }"
+        :class="{
+          'border-none opacity-0': !isSidebarPopout && !isSidebarOpen,
+        }"
+        aria-label="Annotation sidebar"
       >
-        <div class="flex flex-1 min-h-0 h-full">
+        <div
+          class="flex min-h-0 shrink-0 origin-top-left"
+          :style="sidebarScaleStyle"
+        >
           <!-- Compact vertical tab rail -->
           <nav
             class="w-9 shrink-0 border-r border-slate-800 bg-slate-950/90 flex flex-col items-center py-1.5 gap-0.5"
@@ -2793,11 +3222,8 @@ watch(currentPage, () => {
             </button>
           </nav>
 
-          <!-- Panel content (font scale applied here so hierarchy stays intact) -->
-          <div
-            class="flex-1 flex flex-col min-w-0 min-h-0"
-            :style="{ zoom: sidebarFontScale }"
-          >
+          <!-- Panel content -->
+          <div class="flex-1 flex flex-col min-w-0 min-h-0">
             <div
               class="h-9 border-b border-slate-800 flex items-center justify-between px-3 shrink-0 bg-slate-900/80"
             >
@@ -2806,18 +3232,27 @@ watch(currentPage, () => {
               }}</span>
               <div class="flex items-center gap-1 shrink-0">
                 <button
-                  v-if="sidebarActiveTab === 'notepad'"
+                  v-if="isSidebarPopout || canPopOutSidebar"
                   type="button"
-                  @click="isNotepadPreview = !isNotepadPreview"
+                  @click="isSidebarPopout ? returnSidebarToViewer() : popOutSidebar()"
                   class="p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
                   :title="
-                    isNotepadPreview
-                      ? 'Switch to Edit Mode'
-                      : 'Switch to Preview Mode'
+                    isSidebarPopout
+                      ? 'Return sidebar to PDF viewer'
+                      : 'Open sidebar in a separate window'
+                  "
+                  :aria-label="
+                    isSidebarPopout
+                      ? 'Return sidebar to PDF viewer'
+                      : 'Open sidebar in a separate window'
                   "
                 >
                   <Icon
-                    :name="isNotepadPreview ? 'ph:pencil-simple' : 'ph:eye'"
+                    :name="
+                      isSidebarPopout
+                        ? 'ph:arrow-line-left'
+                        : 'ph:arrow-square-out'
+                    "
                     class="w-3.5 h-3.5"
                   />
                 </button>
@@ -2997,7 +3432,6 @@ watch(currentPage, () => {
           class="flex-1 flex flex-col h-full overflow-hidden"
         >
           <div
-            v-if="!isNotepadPreview"
             class="flex items-center justify-between px-4 py-2 border-b border-slate-800 bg-slate-900 shrink-0"
           >
             <div class="flex gap-2">
@@ -3037,32 +3471,71 @@ watch(currentPage, () => {
             </div>
           </div>
 
-          <div class="flex-1 overflow-y-auto p-4 relative">
-            <div
-              v-if="isNotepadPreview"
-              class="prose prose-sm prose-invert max-w-none break-words prose-headings:text-indigo-300 prose-headings:font-bold prose-headings:mb-2 prose-headings:mt-4 prose-p:text-slate-300 prose-p:my-2 prose-p:leading-relaxed prose-strong:text-slate-100 prose-strong:font-semibold prose-ul:my-2 prose-li:my-0 prose-code:text-amber-300 prose-code:bg-slate-800 prose-code:px-1 prose-code:rounded prose-code:font-mono prose-code:before:content-none prose-code:after:content-none"
-              v-html="
-                renderContent(notepadData) ||
-                '<span class=\'opacity-50 italic\'>Start typing to add notes...</span>'
-              "
-            ></div>
-
+          <div
+            class="notepad-live-editor flex-1 overflow-y-auto p-3 relative custom-scrollbar"
+            role="textbox"
+            aria-label="Markdown notepad"
+            aria-multiline="true"
+          >
             <textarea
-              v-else
-              ref="notepadTextarea"
-              v-model="notepadData"
-              placeholder="# Notes
-- Use markdown
-- $E=mc^2$ for math"
-              class="w-full h-full bg-transparent text-slate-300 text-sm font-mono outline-none resize-none custom-scrollbar selection:bg-indigo-500/30 placeholder:text-slate-600"
+              v-if="isNotepadSelectingAll"
+              :ref="setNotepadTextareaRef"
+              :value="notepadData"
+              class="notepad-document-editor"
+              aria-label="Complete Markdown note selected"
+              @input="handleNotepadDocumentInput"
+              @mouseup="finishNotepadDocumentSelection"
+              @keyup="finishNotepadDocumentSelection"
+              @blur="blurNotepadDocumentSelection"
+              @keydown.escape.prevent="
+                leaveNotepadDocumentSelection($event.currentTarget.selectionStart)
+              "
             ></textarea>
+
+            <template v-else>
+              <div
+                v-for="(line, lineIndex) in notepadLines"
+                :key="lineIndex"
+                class="notepad-line"
+                :class="{
+                  'notepad-line--active': activeNotepadLine === lineIndex,
+                }"
+              >
+                <textarea
+                  v-if="activeNotepadLine === lineIndex"
+                  :ref="setNotepadTextareaRef"
+                  :value="line"
+                  rows="1"
+                  :placeholder="
+                    lineIndex === 0 && notepadData === ''
+                      ? '# Notes — Markdown and $LaTeX$ supported'
+                      : ''
+                  "
+                  class="notepad-line-editor"
+                  @input="updateNotepadLine(lineIndex, $event)"
+                  @focus="activeNotepadLine = lineIndex"
+                  @keydown="handleNotepadLineKeydown(lineIndex, $event)"
+                ></textarea>
+                <div
+                  v-else
+                  class="notepad-rendered-line"
+                  role="button"
+                  tabindex="0"
+                  :aria-label="`Edit line ${lineIndex + 1}`"
+                  v-html="renderNotepadLine(line)"
+                  @click="activateNotepadLine(lineIndex)"
+                  @keydown.enter.prevent="activateNotepadLine(lineIndex)"
+                  @keydown.space.prevent="activateNotepadLine(lineIndex)"
+                ></div>
+              </div>
+            </template>
           </div>
 
           <div
             class="h-6 bg-slate-900 border-t border-slate-800 flex items-center justify-end px-2 shrink-0"
           >
             <span class="text-[10px] text-slate-500 font-mono">
-              Markdown Supported • KaTeX Ready
+              Line {{ activeNotepadLine + 1 }} • Live Markdown • KaTeX Ready
             </span>
           </div>
         </div>
@@ -3613,6 +4086,125 @@ watch(currentPage, () => {
   word-wrap: break-word;
   word-break: break-word;
   line-height: 1.6;
+}
+
+.notepad-line {
+  min-height: 2rem;
+  border-left: 2px solid transparent;
+  border-radius: 0.25rem;
+}
+
+.notepad-line--active {
+  border-left-color: rgb(99 102 241 / 0.8);
+  background: rgb(30 41 59 / 0.55);
+}
+
+.notepad-line-editor {
+  display: block;
+  width: 100%;
+  min-height: 2rem;
+  padding: 0.35rem 0.65rem;
+  overflow: hidden;
+  resize: none;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: rgb(226 232 240);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.notepad-line-editor::placeholder {
+  color: rgb(71 85 105);
+}
+
+.notepad-document-editor {
+  display: block;
+  width: 100%;
+  min-height: 100%;
+  padding: 0.35rem 0.65rem;
+  overflow: hidden;
+  resize: none;
+  border: 0;
+  outline: none;
+  background: rgb(15 23 42 / 0.45);
+  color: rgb(226 232 240);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.notepad-rendered-line {
+  min-height: 2rem;
+  padding: 0.35rem 0.65rem;
+  cursor: text;
+  color: rgb(203 213 225);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  transition: background-color 120ms ease;
+}
+
+.notepad-rendered-line:hover,
+.notepad-rendered-line:focus-visible {
+  background: rgb(30 41 59 / 0.4);
+  outline: none;
+}
+
+.notepad-rendered-line :deep(p),
+.notepad-rendered-line :deep(ul),
+.notepad-rendered-line :deep(ol),
+.notepad-rendered-line :deep(blockquote) {
+  margin: 0;
+}
+
+.notepad-rendered-line :deep(ul),
+.notepad-rendered-line :deep(ol) {
+  padding-left: 1.25rem;
+}
+
+.notepad-rendered-line :deep(h1),
+.notepad-rendered-line :deep(h2),
+.notepad-rendered-line :deep(h3),
+.notepad-rendered-line :deep(h4),
+.notepad-rendered-line :deep(h5),
+.notepad-rendered-line :deep(h6) {
+  margin: 0;
+  color: rgb(165 180 252);
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.notepad-rendered-line :deep(h1) { font-size: 1.5rem; }
+.notepad-rendered-line :deep(h2) { font-size: 1.3rem; }
+.notepad-rendered-line :deep(h3) { font-size: 1.15rem; }
+.notepad-rendered-line :deep(h4),
+.notepad-rendered-line :deep(h5),
+.notepad-rendered-line :deep(h6) { font-size: 1rem; }
+
+.notepad-rendered-line :deep(strong) {
+  color: rgb(241 245 249);
+  font-weight: 700;
+}
+
+.notepad-rendered-line :deep(code) {
+  border-radius: 0.2rem;
+  background: rgb(30 41 59);
+  padding: 0.1rem 0.3rem;
+  color: rgb(252 211 77);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.notepad-rendered-line :deep(a) {
+  color: rgb(129 140 248);
+  text-decoration: underline;
+}
+
+.notepad-rendered-line :deep(.katex-display) {
+  margin: 0;
 }
 
 :deep(.katex-display) {
