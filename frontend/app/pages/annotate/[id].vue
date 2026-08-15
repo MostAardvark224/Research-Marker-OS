@@ -71,6 +71,25 @@ const canvasRefs = ref([]);
 const textLayerRefs = ref([]);
 const mainScrollContainer = ref(null);
 
+const textSelectionMenu = reactive({
+  visible: false,
+  x: 0,
+  y: 0,
+  text: "",
+  page: null,
+  highlightData: null,
+});
+
+const closeTextSelectionMenu = () => {
+  textSelectionMenu.visible = false;
+};
+
+const handleDocumentPointerDown = (event) => {
+  if (!event.target.closest?.(".pdf-selection-menu")) {
+    closeTextSelectionMenu();
+  }
+};
+
 const SIDEBAR_WIDTH_MIN = 200;
 const SIDEBAR_WIDTH_DEFAULT = 320;
 const storedSidebarOpen = (() => {
@@ -268,6 +287,7 @@ const processRenderQueue = async () => {
 };
 
 const handleMainScroll = () => {
+  closeTextSelectionMenu();
   isUserScrolling = true;
   if (scrollEndDebounce) clearTimeout(scrollEndDebounce);
   scrollEndDebounce = setTimeout(() => {
@@ -540,7 +560,61 @@ const mergeHighlightRects = (rects) => {
 };
 
 // Highlight Events
-const handleTextSelection = async () => {
+const getHighlightDataFromSelection = (selection) => {
+  if (!selection?.rangeCount || !selection.toString().trim()) return null;
+
+  const range = selection.getRangeAt(0);
+  let container = range.commonAncestorContainer;
+  while (container && !container.classList?.contains("textLayer")) {
+    container = container.parentNode;
+  }
+  if (!container) return null;
+
+  const page = parseInt(container.getAttribute("data-page-number"), 10);
+  if (!Number.isFinite(page)) return null;
+
+  const pageRect = container.getBoundingClientRect();
+  const scale = zoomLevel.value / 100;
+  const rects = mergeHighlightRects(
+    Array.from(range.getClientRects()).map((rect) => ({
+      x: (rect.left - pageRect.left) / scale,
+      y: (rect.top - pageRect.top) / scale,
+      width: rect.width / scale,
+      height: rect.height / scale,
+    })),
+  );
+
+  if (!rects.length) return null;
+  return { text: selection.toString(), page, rects };
+};
+
+const saveSelectionHighlight = async ({ text, page, rects }) => {
+  const newHighlight = {
+    id: crypto.randomUUID(),
+    type: "highlight",
+    page,
+    text,
+    color: selectedColor.value,
+    rects,
+  };
+
+  savedHighlights.value.push(newHighlight);
+  undoStack.value.push({ type: "add", data: newHighlight });
+  redoStack.value = [];
+
+  renderHighlight(newHighlight, textLayerRefs.value[page - 1]);
+  await saveAnnotationsToBackend();
+};
+
+const handleTextSelection = async (event) => {
+  // A secondary click should preserve the current selection for the copy menu.
+  if (
+    event?.button !== 0 ||
+    event.target.closest?.(".pdf-selection-menu")
+  ) {
+    return;
+  }
+
   // Always capture selection for @selection chat context
   const selectionRaw = window.getSelection();
   const selText = selectionRaw?.toString().trim();
@@ -565,52 +639,108 @@ const handleTextSelection = async () => {
   )
     return;
 
-  const range = selection.getRangeAt(0);
-  const selectedText = selection.toString();
+  const highlightData = getHighlightDataFromSelection(selection);
+  if (!highlightData) return;
 
-  let container = range.commonAncestorContainer;
-  while (container && !container.classList?.contains("textLayer")) {
-    container = container.parentNode;
+  selection.removeAllRanges();
+  await saveSelectionHighlight(highlightData);
+};
+
+const selectionIntersectsTextLayer = (selection) => {
+  if (!selection?.rangeCount) return false;
+
+  for (let rangeIndex = 0; rangeIndex < selection.rangeCount; rangeIndex += 1) {
+    const range = selection.getRangeAt(rangeIndex);
+    for (const textLayer of textLayerRefs.value) {
+      if (textLayer?.isConnected && range.intersectsNode(textLayer)) return true;
+    }
   }
 
-  if (!container) return;
+  return false;
+};
 
-  const pageIndex = parseInt(container.getAttribute("data-page-number"));
+const handleTextContextMenu = (event) => {
+  const selection = window.getSelection();
+  const selectedText = selection?.toString().trim();
 
-  const pageRect = container.getBoundingClientRect();
-  const rawRects = range.getClientRects();
+  if (!selectedText || !selectionIntersectsTextLayer(selection)) {
+    closeTextSelectionMenu();
+    return;
+  }
 
-  const scale = zoomLevel.value / 100;
-
-  // getClientRects() returns one box per styled span (bold, mono, math).
-  // Merge same-line fragments so the highlight looks contiguous.
-  const highlightRects = mergeHighlightRects(
-    Array.from(rawRects).map((rect) => ({
-      x: (rect.left - pageRect.left) / scale,
-      y: (rect.top - pageRect.top) / scale,
-      width: rect.width / scale,
-      height: rect.height / scale,
-    })),
+  event.preventDefault();
+  const highlightData = getHighlightDataFromSelection(selection);
+  const targetTextLayer = event.target.closest?.(".textLayer");
+  textSelectionMenu.text = selection.toString();
+  textSelectionMenu.page =
+    highlightData?.page ||
+    parseInt(targetTextLayer?.getAttribute("data-page-number"), 10) ||
+    currentPage.value;
+  textSelectionMenu.highlightData = highlightData;
+  textSelectionMenu.x = Math.max(
+    8,
+    Math.min(event.clientX, window.innerWidth - 172),
   );
+  textSelectionMenu.y = Math.max(
+    8,
+    Math.min(event.clientY, window.innerHeight - 112),
+  );
+  textSelectionMenu.visible = true;
+};
 
-  const newHighlight = {
-    id: crypto.randomUUID(),
-    type: "highlight",
-    page: pageIndex,
-    text: selectedText,
-    color: selectedColor.value,
-    rects: highlightRects,
-  };
+const copySelectedPdfText = async () => {
+  const text = textSelectionMenu.text;
+  if (!text) return;
 
-  savedHighlights.value.push(newHighlight);
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // execCommand remains useful in Electron and in browsers where the async
+    // Clipboard API is unavailable or denied.
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    textarea.remove();
+  } finally {
+    closeTextSelectionMenu();
+  }
+};
 
-  undoStack.value.push({ type: "add", data: newHighlight });
-  redoStack.value = [];
+const addSelectedPdfTextToChat = async () => {
+  const text = textSelectionMenu.text.trim();
+  if (!text) return;
 
-  renderHighlight(newHighlight, container);
-  selection.removeAllRanges();
+  capturedSelection.value = text;
+  capturedSelectionPage.value = textSelectionMenu.page || currentPage.value;
 
-  await saveAnnotationsToBackend();
+  if (!/(^|\s)@selection(?=\s|$)/i.test(chatInput.value)) {
+    const spacer = chatInput.value && !/\s$/.test(chatInput.value) ? " " : "";
+    chatInput.value += `${spacer}@selection `;
+  }
+
+  ensureSidebarOpen();
+  changeSidebarTab("chat");
+  closeTextSelectionMenu();
+
+  await nextTick();
+  const input = chatInputRef.value;
+  input?.focus();
+  input?.setSelectionRange(chatInput.value.length, chatInput.value.length);
+  syncChatInputMirror();
+};
+
+const highlightSelectedPdfText = async () => {
+  const highlightData = textSelectionMenu.highlightData;
+  if (!highlightData) return;
+
+  closeTextSelectionMenu();
+  window.getSelection()?.removeAllRanges();
+  await saveSelectionHighlight(highlightData);
 };
 
 // Converts a #rgb / #rrggbb color into an rgba() string with the given alpha
@@ -2104,6 +2234,7 @@ onMounted(async () => {
     });
     document.addEventListener("keydown", handleKeyboardShortcuts);
     document.addEventListener("mouseup", handleTextSelection);
+    document.addEventListener("pointerdown", handleDocumentPointerDown);
     document.addEventListener("click", restoreReaderFocusAfterInteraction);
     mainScrollContainer.value?.focus({ preventScroll: true });
   } catch (err) {
@@ -2115,6 +2246,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   document.removeEventListener("mouseup", handleTextSelection);
+  document.removeEventListener("pointerdown", handleDocumentPointerDown);
   document.removeEventListener("keydown", handleKeyboardShortcuts);
   document.removeEventListener("click", restoreReaderFocusAfterInteraction);
   mainScrollContainer.value?.removeEventListener("scroll", handleMainScroll);
@@ -2541,6 +2673,7 @@ watch(currentPage, () => {
         role="document"
         aria-label="PDF reader"
         @pointerdown="focusPdfReader"
+        @contextmenu="handleTextContextMenu"
         @keydown="handleReaderArrowNavigation"
         class="flex-1 overflow-auto bg-slate-950 p-8 flex flex-col items-center gap-4 outline-none"
         :class="{ 'hide-annotations': isAnnotationsHidden }"
@@ -3261,6 +3394,45 @@ watch(currentPage, () => {
           </div>
         </div>
       </aside>
+    </div>
+
+    <div
+      v-if="textSelectionMenu.visible"
+      class="pdf-selection-menu fixed z-[100] min-w-40 rounded-md border border-slate-700 bg-slate-900 p-1 shadow-xl"
+      :style="{ left: `${textSelectionMenu.x}px`, top: `${textSelectionMenu.y}px` }"
+      role="menu"
+      aria-label="Selected text actions"
+      @contextmenu.prevent
+      @pointerdown.prevent.stop
+    >
+      <button
+        type="button"
+        class="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-sm text-slate-200 hover:bg-slate-800 hover:text-white"
+        role="menuitem"
+        @click="copySelectedPdfText"
+      >
+        <Icon name="ph:copy" class="h-4 w-4" />
+        Copy
+      </button>
+      <button
+        type="button"
+        class="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-sm text-slate-200 hover:bg-slate-800 hover:text-white"
+        role="menuitem"
+        @click="addSelectedPdfTextToChat"
+      >
+        <Icon name="ph:chat-circle" class="h-4 w-4" />
+        Add to chat
+      </button>
+      <button
+        type="button"
+        class="flex w-full items-center gap-2 rounded px-2.5 py-1.5 text-left text-sm text-slate-200 hover:bg-slate-800 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+        role="menuitem"
+        :disabled="!textSelectionMenu.highlightData"
+        @click="highlightSelectedPdfText"
+      >
+        <Icon name="ph:highlighter" class="h-4 w-4" />
+        Highlight
+      </button>
     </div>
   </div>
 </template>
