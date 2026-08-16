@@ -897,44 +897,42 @@ const insertFormat = (format) => {
   const start = lineStart + textarea.selectionStart;
   const end = lineStart + textarea.selectionEnd;
   const text = notepadData.value;
+  const selection = text.substring(start, end);
+  const hasSelection = start !== end;
 
   let insertion = "";
   let newCursorPos = end;
 
   switch (format) {
     case "bold":
-      insertion = `**${text.substring(start, end) || "bold"}**`;
-      newCursorPos = start + insertion.length;
+      insertion = `**${selection}**`;
+      newCursorPos = hasSelection ? start + insertion.length : start + 2;
       break;
     case "italic":
-      insertion = `*${text.substring(start, end) || "italic"}*`;
-      newCursorPos = start + insertion.length;
+      insertion = `*${selection}*`;
+      newCursorPos = hasSelection ? start + insertion.length : start + 1;
       break;
     case "math-inline":
-      insertion = `$${text.substring(start, end) || ""}$`;
-      newCursorPos = start + insertion.length - 1;
+      insertion = `$${selection}$`;
+      newCursorPos = hasSelection ? start + insertion.length : start + 1;
       break;
     case "math-block":
-      insertion = `$$\n${text.substring(start, end) || ""}\n$$`;
-      newCursorPos = start + insertion.length - 3;
+      insertion = `$$\n${selection}\n$$`;
+      newCursorPos = hasSelection ? start + insertion.length : start + 3;
       break;
     case "code-block": {
-      const code = text.substring(start, end);
-      insertion = `\`\`\`\n${code}\n\`\`\``;
-      newCursorPos = start + 4 + code.length;
+      insertion = `\`\`\`\n${selection}\n\`\`\``;
+      newCursorPos = hasSelection ? start + insertion.length : start + 4;
       break;
     }
     case "quote": {
-      const quote = text.substring(start, end);
-      insertion = `> ${quote}`;
+      insertion = `> ${selection}`;
       newCursorPos = start + insertion.length;
       break;
     }
     case "citation": {
-      const selection = text.substring(start, end);
-      const page = /^\d+$/.test(selection) ? selection : currentPage.value;
-      insertion = `~[${page}]~`;
-      newCursorPos = start + insertion.length;
+      insertion = `~[${selection}]~`;
+      newCursorPos = hasSelection ? start + insertion.length : start + 2;
       break;
     }
   }
@@ -950,6 +948,44 @@ const insertFormat = (format) => {
 
 // keyboard shortcuts
 const handleKeyboardShortcuts = (e) => {
+  const isNotepadFocused = document.activeElement === notepadTextarea.value;
+
+  if (isNotepadFocused) {
+    const hasCommandModifier = (e.ctrlKey || e.metaKey) && !e.altKey;
+    const key = e.key.toLowerCase();
+
+    // Select the complete note, including lines currently rendered as Markdown.
+    if (hasCommandModifier && e.shiftKey && key === "a") {
+      e.preventDefault();
+      beginNotepadSelectAll();
+      return;
+    }
+    // Each live textarea represents one line, so Ctrl/Cmd+A selects that line.
+    if (hasCommandModifier && !e.shiftKey && key === "a") {
+      e.preventDefault();
+      selectActiveNotepadLine();
+      return;
+    }
+
+    const format = hasCommandModifier
+      ? {
+          "plain:b": "bold",
+          "plain:i": "italic",
+          "plain:k": "math-inline",
+          "shift:k": "math-block",
+          "shift:c": "code-block",
+          "plain:g": "quote",
+          "plain:p": "citation",
+        }[`${e.shiftKey ? "shift" : "plain"}:${key}`]
+      : null;
+
+    if (format) {
+      e.preventDefault();
+      insertFormat(format);
+    }
+    return; // Don't trigger reader or sidebar shortcuts while editing a note.
+  }
+
   const isSidebarToggle =
     (e.ctrlKey || e.metaKey) &&
     !e.altKey &&
@@ -966,48 +1002,6 @@ const handleKeyboardShortcuts = (e) => {
   const isTyping = ["INPUT", "TEXTAREA"].includes(
     document.activeElement.tagName,
   );
-  const isNotepadFocused = document.activeElement === notepadTextarea.value;
-
-  if (isNotepadFocused) {
-    // Select the complete note, including lines currently rendered as Markdown.
-    if (
-      (e.ctrlKey || e.metaKey) &&
-      e.shiftKey &&
-      e.key.toLowerCase() === "a"
-    ) {
-      e.preventDefault();
-      beginNotepadSelectAll();
-    }
-    // Each live textarea represents one line, so Ctrl/Cmd+A selects that line.
-    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
-      e.preventDefault();
-      selectActiveNotepadLine();
-    }
-    // Italic: Ctrl + I or Cmd + I
-    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "i") {
-      e.preventDefault();
-      insertFormat("italic");
-    }
-    // Inline Math: Ctrl + M
-    else if (
-      (e.ctrlKey || e.metaKey) &&
-      !e.shiftKey &&
-      e.key.toLowerCase() === "m"
-    ) {
-      e.preventDefault();
-      insertFormat("math-inline");
-    }
-    // Block Math: Ctrl + Shift + M
-    else if (
-      (e.ctrlKey || e.metaKey) &&
-      e.shiftKey &&
-      e.key.toLowerCase() === "m"
-    ) {
-      e.preventDefault();
-      insertFormat("math-block");
-    }
-    return; // wont trigger tool shortcuts while typing
-  }
 
   // viewing pdf
   if (!isTyping) {
@@ -4361,7 +4355,7 @@ watch(currentPage, (page) => {
                 @mousedown.prevent
                 @click="insertFormat('math-inline')"
                 class="toolbar-btn"
-                title="Inline Math (Ctrl+M)"
+                title="Inline Math (Ctrl+K)"
               >
                 <Icon name="ph:function" class="w-4 h-4" />
               </button>
@@ -4369,7 +4363,7 @@ watch(currentPage, (page) => {
                 @mousedown.prevent
                 @click="insertFormat('math-block')"
                 class="toolbar-btn"
-                title="Block Math (Ctrl+Shift+M)"
+                title="Block Math (Ctrl+Shift+K)"
               >
                 <Icon name="ph:sigma" class="w-4 h-4" />
               </button>
@@ -4380,6 +4374,7 @@ watch(currentPage, (page) => {
                   class="toolbar-btn"
                   aria-label="Insert code block"
                   aria-describedby="notepad-code-block-tip"
+                  title="Code block (Ctrl+Shift+C)"
                 >
                   <Icon name="ph:code-block" class="w-4 h-4" />
                 </button>
@@ -4397,7 +4392,7 @@ watch(currentPage, (page) => {
                 @mousedown.prevent
                 @click="insertFormat('quote')"
                 class="toolbar-btn"
-                title="Important quote"
+                title="Important quote (Ctrl+G)"
                 aria-label="Insert important quote"
               >
                 <Icon name="ph:exclamation-mark" class="w-4 h-4" />
@@ -4406,8 +4401,8 @@ watch(currentPage, (page) => {
                 @mousedown.prevent
                 @click="insertFormat('citation')"
                 class="toolbar-btn"
-                title="Cite current page"
-                aria-label="Insert current page citation"
+                title="Page citation (Ctrl+P)"
+                aria-label="Insert page citation"
               >
                 <Icon name="ph:link" class="w-4 h-4" />
               </button>
