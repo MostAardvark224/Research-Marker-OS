@@ -950,6 +950,18 @@ const insertFormat = (format) => {
 
 // keyboard shortcuts
 const handleKeyboardShortcuts = (e) => {
+  const isSidebarToggle =
+    (e.ctrlKey || e.metaKey) &&
+    !e.altKey &&
+    !e.shiftKey &&
+    e.key.toLowerCase() === "b";
+
+  if (isSidebarToggle && !isSidebarPopout && !isSidebarPoppedOut.value) {
+    e.preventDefault();
+    toggleSidebar();
+    return;
+  }
+
   // Check if user is typing in an input/textarea
   const isTyping = ["INPUT", "TEXTAREA"].includes(
     document.activeElement.tagName,
@@ -970,11 +982,6 @@ const handleKeyboardShortcuts = (e) => {
     else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
       e.preventDefault();
       selectActiveNotepadLine();
-    }
-    // Bold: Ctrl + B or Cmd + B
-    else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") {
-      e.preventDefault();
-      insertFormat("bold");
     }
     // Italic: Ctrl + I or Cmd + I
     else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "i") {
@@ -3889,7 +3896,7 @@ watch(currentPage, (page) => {
           @click="toggleSidebar"
           class="icon-btn active:bg-indigo-500/20"
           :class="{ 'bg-slate-800 text-indigo-400': isSidebarOpen }"
-          title="Toggle Sidebar"
+          title="Toggle Sidebar (Ctrl+B)"
         >
           <Icon name="ph:sidebar-simple" class="h-5 w-5" />
         </button>
