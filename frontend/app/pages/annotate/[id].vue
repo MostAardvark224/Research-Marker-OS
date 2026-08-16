@@ -334,7 +334,9 @@ const renderContent = (text) => {
 };
 
 const notepadTextarea = ref(null);
+const notepadEditorRoot = ref(null);
 const activeNotepadLine = ref(0);
+const isNotepadEditorFocused = ref(false);
 const isNotepadSelectingAll = ref(false);
 const notepadLines = computed(() => notepadData.value.split("\n"));
 const notepadCodeFenceLines = computed(() => {
@@ -387,6 +389,18 @@ const setNotepadTextareaRef = (element) => {
   if (!element) return;
   notepadTextarea.value = element;
   nextTick(resizeNotepadEditor);
+};
+
+const handleNotepadFocusIn = () => {
+  isNotepadEditorFocused.value = true;
+};
+
+const handleNotepadFocusOut = () => {
+  nextTick(() => {
+    isNotepadEditorFocused.value = Boolean(
+      notepadEditorRoot.value?.contains(document.activeElement),
+    );
+  });
 };
 
 const escapeNotepadCode = (line) =>
@@ -4301,10 +4315,13 @@ watch(currentPage, (page) => {
           </div>
 
           <div
+            ref="notepadEditorRoot"
             class="notepad-live-editor flex-1 overflow-y-auto p-3 relative custom-scrollbar"
             role="textbox"
             aria-label="Markdown notepad"
             aria-multiline="true"
+            @focusin="handleNotepadFocusIn"
+            @focusout="handleNotepadFocusOut"
           >
             <textarea
               v-if="isNotepadSelectingAll"
@@ -4328,7 +4345,8 @@ watch(currentPage, (page) => {
                 :key="lineIndex"
                 class="notepad-line"
                 :class="{
-                  'notepad-line--active': activeNotepadLine === lineIndex,
+                  'notepad-line--active':
+                    isNotepadEditorFocused && activeNotepadLine === lineIndex,
                   'notepad-line--quote': /^\s*>\s/.test(line),
                   'notepad-line--code':
                     notepadCodeFenceLines[lineIndex]?.insideFence,
