@@ -2273,6 +2273,9 @@ const capturedSelectionPage = ref(null);
 const showChatHistory = ref(false);
 const savedChats = ref([]);
 const isDeletingChat = ref(false);
+const showChatThinkingIndicator = computed(
+  () => chatLoading.value && chatMessages.value.at(-1)?.role !== "model",
+);
 
 const {
   aiProviders,
@@ -2303,9 +2306,111 @@ const atMenuOptions = computed(() =>
     : [...paperContextMenuOptions, ...legacyContextMenuOptions],
 );
 
+const convertChatMathDelimiters = (text) =>
+  text
+    .replace(
+      /(?<!\\)\\\[([\s\S]*?)(?<!\\)\\\]/g,
+      (_match, math) => `\n\n$$\n${math}\n$$\n\n`,
+    )
+    .replace(
+      /(?<!\\)\\\(([\s\S]*?)(?<!\\)\\\)/g,
+      (_match, math) => `$${math}$`,
+    );
+
+const findClosingCodeFence = (markdown, searchFrom, marker, markerLength) => {
+  let lineStart = searchFrom;
+
+  while (lineStart < markdown.length) {
+    const nextNewline = markdown.indexOf("\n", lineStart);
+    const lineEnd = nextNewline === -1 ? markdown.length : nextNewline;
+    const line = markdown.slice(lineStart, lineEnd);
+    const content = line.replace(/^ {0,3}/, "");
+    let markerEnd = 0;
+
+    while (content[markerEnd] === marker) markerEnd += 1;
+
+    if (
+      markerEnd >= markerLength &&
+      content.slice(markerEnd).trim().length === 0
+    ) {
+      return lineEnd;
+    }
+
+    if (nextNewline === -1) break;
+    lineStart = nextNewline + 1;
+  }
+
+  return -1;
+};
+
+const normalizeChatMathDelimiters = (markdown) => {
+  let normalized = "";
+  let plainTextStart = 0;
+  let cursor = 0;
+
+  const appendPlainText = (end) => {
+    normalized += convertChatMathDelimiters(markdown.slice(plainTextStart, end));
+  };
+
+  while (cursor < markdown.length) {
+    const character = markdown[cursor];
+
+    if (character === "`" || character === "~") {
+      let markerEnd = cursor;
+      while (markdown[markerEnd] === character) markerEnd += 1;
+      const markerLength = markerEnd - cursor;
+      const lineStart = markdown.lastIndexOf("\n", cursor - 1) + 1;
+      const linePrefix = markdown.slice(lineStart, cursor);
+      const isCodeFence = markerLength >= 3 && /^ {0,3}$/.test(linePrefix);
+
+      if (isCodeFence) {
+        const openingLineEnd = markdown.indexOf("\n", markerEnd);
+        if (openingLineEnd === -1) break;
+
+        const closingFenceEnd = findClosingCodeFence(
+          markdown,
+          openingLineEnd + 1,
+          character,
+          markerLength,
+        );
+        appendPlainText(cursor);
+
+        if (closingFenceEnd === -1) {
+          normalized += markdown.slice(cursor);
+          return normalized;
+        }
+
+        normalized += markdown.slice(cursor, closingFenceEnd);
+        cursor = closingFenceEnd;
+        plainTextStart = cursor;
+        continue;
+      }
+
+      if (character === "`") {
+        const marker = "`".repeat(markerLength);
+        const closingMarkerStart = markdown.indexOf(marker, markerEnd);
+
+        if (closingMarkerStart !== -1) {
+          appendPlainText(cursor);
+          const codeSpanEnd = closingMarkerStart + markerLength;
+          normalized += markdown.slice(cursor, codeSpanEnd);
+          cursor = codeSpanEnd;
+          plainTextStart = cursor;
+          continue;
+        }
+      }
+    }
+
+    cursor += 1;
+  }
+
+  appendPlainText(markdown.length);
+  return normalized;
+};
+
 const renderChatContent = (text) => {
   if (!text) return "";
-  const html = marked.parse(text);
+  const html = marked.parse(normalizeChatMathDelimiters(text));
   return DOMPurify.sanitize(html, {
     ADD_TAGS: ["math", "semantics", "mrow", "mi", "mo", "mn", "msup", "mfrac", "msqrt", "mtext", "annotation", "annotation-xml"],
     ADD_ATTR: ["xmlns", "display", "class", "style", "aria-hidden"],
@@ -4043,8 +4148,8 @@ watch(currentPage, (page) => {
             >
               <div
                 v-if="isSidebarSplit"
-                class="group relative z-20 w-1 shrink-0 cursor-col-resize bg-slate-700 transition-colors hover:bg-indigo-400"
-                :class="{ 'bg-indigo-400': isResizingSidebarSplit }"
+                class="group relative z-20 w-2 shrink-0 cursor-col-resize bg-slate-800/70 transition-colors hover:bg-indigo-400/15"
+                :class="{ 'bg-indigo-400/20': isResizingSidebarSplit }"
                 :style="{ order: 1 }"
                 role="separator"
                 tabindex="0"
@@ -4057,7 +4162,7 @@ watch(currentPage, (page) => {
                 @keydown="adjustSidebarSplitWithKeyboard"
               >
                 <span
-                  class="pointer-events-none absolute left-1/2 top-1/2 h-8 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-slate-500 group-hover:bg-indigo-300"
+                  class="pointer-events-none absolute left-1/2 top-1/2 h-10 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-slate-600 transition-colors group-hover:bg-indigo-300"
                 ></span>
               </div>
 
@@ -4409,7 +4514,7 @@ watch(currentPage, (page) => {
           v-show="isSidebarTabVisible('chat')"
           data-sidebar-tab="chat"
           tabindex="-1"
-          class="flex-1 flex flex-col overflow-hidden bg-slate-900/40 relative min-h-0"
+          class="chat-panel flex-1 flex flex-col overflow-hidden relative min-h-0"
           :class="sidebarPaneClasses('chat')"
           :style="sidebarPaneStyle('chat')"
           @pointerdown.capture="activateSidebarPaneForTab('chat')"
@@ -4417,74 +4522,89 @@ watch(currentPage, (page) => {
         >
           <div
             ref="chatScrollContainer"
-            class="flex-1 min-h-0 overflow-y-auto px-3 py-4 space-y-4 custom-scrollbar"
+            class="chat-transcript flex-1 min-h-0 overflow-y-auto px-3 py-5 custom-scrollbar"
           >
             <div
               v-if="chatMessages.length === 0 && !chatLoading"
-              class="flex flex-col items-center justify-center min-h-[220px] text-center px-3"
+              class="mx-auto flex min-h-full w-full max-w-sm flex-col items-center justify-center px-3 py-8 text-center"
             >
-              <div class="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-500/10 border border-indigo-500/20">
-                <Icon name="ph:chat-circle-dots" class="w-6 h-6 text-indigo-400" />
+              <div class="chat-empty-mark mb-4 flex h-11 w-11 items-center justify-center rounded-xl">
+                <Icon name="ph:sparkle" class="h-5 w-5 text-indigo-300" />
               </div>
-              <p class="text-sm font-medium text-slate-200 mb-1">Ask about this paper</p>
-              <p class="text-[11px] text-slate-500 leading-relaxed max-w-[240px]">
-                Type
-                <span class="font-mono text-indigo-300/90">@…</span>
-                to choose precise paper context — for example
-                <span class="font-mono text-indigo-300/90">@page 4</span>,
-                <span class="font-mono text-indigo-300/90">@pages 6-8</span>, or
-                <span class="font-mono text-indigo-300/90">@selection</span>.
+              <h3 class="text-sm font-semibold tracking-tight text-slate-100">
+                Research assistant
+              </h3>
+              <p class="mt-1.5 max-w-[280px] text-[11px] leading-relaxed text-slate-500">
+                Ask a question or attach precise context from the paper with an
+                <span class="font-mono text-indigo-300">@ reference</span>.
               </p>
-              <div class="mt-4 grid w-full grid-cols-2 gap-1.5">
+              <div class="mt-5 grid w-full grid-cols-2 gap-2">
                 <button
                   v-for="opt in atMenuOptions.slice(0, 4)"
                   :key="opt.tag"
                   @click="insertAtTag(opt.tag)"
-                  class="rounded-lg border border-slate-700/70 bg-slate-800/60 px-2 py-2 text-left hover:border-indigo-500/40 hover:bg-slate-800 transition-colors"
+                  class="group rounded-lg border border-slate-800 bg-slate-900/70 px-2.5 py-2.5 text-left transition-colors hover:border-slate-700 hover:bg-slate-800/80"
                 >
-                  <p class="text-[10px] font-mono text-indigo-300">{{ opt.tag }}</p>
+                  <div class="flex items-center gap-1.5">
+                    <Icon
+                      :name="opt.icon"
+                      class="h-3.5 w-3.5 shrink-0 text-slate-500 transition-colors group-hover:text-indigo-300"
+                    />
+                    <span class="truncate text-[10px] font-medium text-slate-300">
+                      {{ opt.label }}
+                    </span>
+                  </div>
+                  <p class="mt-1 truncate font-mono text-[9px] text-indigo-400/80">
+                    {{ opt.tag }}
+                  </p>
                 </button>
               </div>
               <button
                 type="button"
                 @click="toggleChatHistory"
-                class="mt-4 inline-flex items-center gap-1.5 rounded-lg border border-slate-700/70 bg-slate-800/40 px-3 py-2 text-[11px] text-slate-400 hover:text-white hover:border-indigo-500/40 transition-colors"
+                class="mt-4 inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[10px] font-medium text-slate-500 transition-colors hover:bg-slate-800/70 hover:text-slate-300"
               >
-                <Icon name="uil:history" class="w-3.5 h-3.5" />
-                Open chat history
+                <Icon name="uil:history" class="h-3.5 w-3.5" />
+                Previous conversations
               </button>
             </div>
 
-            <template v-else>
+            <div v-else class="mx-auto w-full max-w-3xl space-y-5">
               <div
                 v-for="(msg, idx) in chatMessages"
                 :key="idx"
-                class="flex gap-2.5"
+                class="flex items-start gap-2.5"
                 :class="msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'"
               >
                 <div
-                  class="w-7 h-7 shrink-0 rounded-lg flex items-center justify-center"
+                  class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border"
                   :class="
                     msg.role === 'user'
-                      ? 'bg-slate-800 border border-slate-700'
-                      : 'bg-indigo-500/15 border border-indigo-500/25'
+                      ? 'border-slate-700/80 bg-slate-800 text-slate-400'
+                      : 'border-indigo-500/20 bg-indigo-500/10 text-indigo-300'
                   "
                 >
                   <Icon
-                    :name="msg.role === 'user' ? 'ph:user' : 'ph:robot'"
-                    class="w-3.5 h-3.5"
-                    :class="msg.role === 'user' ? 'text-slate-300' : 'text-indigo-400'"
+                    :name="msg.role === 'user' ? 'ph:user' : 'ph:sparkle'"
+                    class="h-3.5 w-3.5"
                   />
                 </div>
 
-                <div
-                  class="max-w-[88%] rounded-2xl px-3 py-2.5 text-xs leading-relaxed shadow-sm"
-                  :class="{
-                    'bg-gradient-to-br from-indigo-600/90 to-indigo-700/80 text-white rounded-tr-md': msg.role === 'user',
-                    'bg-slate-800/90 text-slate-200 border border-slate-700/60 rounded-tl-md': msg.role === 'model' && !msg.isError,
-                    'bg-red-950/40 text-red-300 border border-red-800/40 rounded-tl-md': msg.isError,
-                  }"
-                >
+                <div class="min-w-0 max-w-[88%]">
+                  <p
+                    v-if="msg.role === 'user'"
+                    class="mb-1 px-1 text-right text-[9px] font-semibold uppercase tracking-[0.12em] text-slate-600"
+                  >
+                    You
+                  </p>
+                  <div
+                    class="rounded-xl px-3.5 py-3 text-[13px] leading-relaxed"
+                    :class="{
+                      'rounded-tr-sm border border-indigo-500/20 bg-indigo-500/12 text-indigo-50': msg.role === 'user',
+                      'rounded-tl-sm border border-slate-800 bg-slate-900/75 text-slate-200': msg.role === 'model' && !msg.isError,
+                      'rounded-tl-sm border border-red-800/40 bg-red-950/30 text-red-300': msg.isError,
+                    }"
+                  >
                   <div v-if="msg.role === 'user'" class="whitespace-pre-wrap break-words">
                     <template v-for="(part, i) in parseChatInputParts(msg.content)" :key="i">
                       <span
@@ -4495,80 +4615,119 @@ watch(currentPage, (page) => {
                     </template>
                   </div>
                   <template v-else>
-                    <div class="chat-prose" v-html="renderChatContent(msg.content)"></div>
                     <div
-                      v-if="msg.citations?.some((citation) => citation.valid)"
-                      class="mt-2 flex flex-wrap gap-1.5 border-t border-white/5 pt-2"
+                      v-if="!msg.content && chatLoading"
+                      class="flex items-center gap-1.5 py-0.5"
                     >
-                      <button
-                        v-for="citation in msg.citations.filter((item) => item.valid)"
-                        :key="`${citation.page_start}-${citation.page_end}-${citation.quoted_or_paraphrased_text}`"
-                        type="button"
-                        @click="scrollToPage(citation.page_start)"
-                        class="rounded-md border border-indigo-500/25 bg-indigo-500/10 px-2 py-1 text-[10px] font-medium text-indigo-200 hover:bg-indigo-500/20"
-                        :title="citation.quoted_or_paraphrased_text"
-                      >
-                        {{
-                          citation.page_start === citation.page_end
-                            ? `p. ${citation.page_start}`
-                            : `pp. ${citation.page_start}–${citation.page_end}`
-                        }}
-                      </button>
+                      <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-400"></span>
+                      <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-400 [animation-delay:150ms]"></span>
+                      <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-400 [animation-delay:300ms]"></span>
                     </div>
+                    <template v-else>
+                      <div class="chat-prose" v-html="renderChatContent(msg.content)"></div>
+                      <div
+                        v-if="msg.citations?.some((citation) => citation.valid)"
+                        class="mt-3 flex flex-wrap gap-1.5 border-t border-slate-800 pt-2.5"
+                      >
+                        <button
+                          v-for="citation in msg.citations.filter((item) => item.valid)"
+                          :key="`${citation.page_start}-${citation.page_end}-${citation.quoted_or_paraphrased_text}`"
+                          type="button"
+                          @click="scrollToPage(citation.page_start)"
+                          class="inline-flex items-center rounded-md border border-indigo-500/20 bg-indigo-500/8 px-2 py-1 text-[9px] font-medium text-indigo-300 transition-colors hover:border-indigo-500/40 hover:bg-indigo-500/15"
+                          :title="citation.quoted_or_paraphrased_text"
+                        >
+                          {{
+                            citation.page_start === citation.page_end
+                              ? `p. ${citation.page_start}`
+                              : `pp. ${citation.page_start}–${citation.page_end}`
+                          }}
+                        </button>
+                      </div>
+                    </template>
                   </template>
+                  </div>
                 </div>
               </div>
 
-              <div v-if="chatLoading" class="flex gap-2.5">
-                <div class="w-7 h-7 shrink-0 rounded-lg bg-indigo-500/15 border border-indigo-500/25 flex items-center justify-center">
-                  <Icon name="ph:robot" class="w-3.5 h-3.5 text-indigo-400" />
+              <div v-if="showChatThinkingIndicator" class="flex items-start gap-2.5">
+                <div class="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-indigo-500/20 bg-indigo-500/10">
+                  <Icon name="ph:sparkle" class="h-3.5 w-3.5 text-indigo-300" />
                 </div>
-                <div class="rounded-2xl rounded-tl-md bg-slate-800/90 border border-slate-700/60 px-3 py-2.5 flex items-center gap-1.5">
-                  <div class="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce"></div>
-                  <div class="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce [animation-delay:120ms]"></div>
-                  <div class="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-bounce [animation-delay:240ms]"></div>
+                <div>
+                  <div class="flex items-center gap-1.5 rounded-xl rounded-tl-sm border border-slate-800 bg-slate-900/75 px-3 py-3">
+                    <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-400"></span>
+                    <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-400 [animation-delay:150ms]"></span>
+                    <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-indigo-400 [animation-delay:300ms]"></span>
+                  </div>
                 </div>
               </div>
-            </template>
+            </div>
           </div>
 
           <!-- Chat history overlay (same /chatlogs/ API as knowledge-base) -->
           <div
             v-if="showChatHistory"
-            class="absolute inset-0 bg-slate-950/98 backdrop-blur-sm z-40 flex flex-col"
+            class="absolute inset-0 z-40 flex flex-col bg-slate-950/95 backdrop-blur-md"
           >
-            <div class="p-3 border-b border-slate-800">
+            <div class="flex items-center justify-between border-b border-slate-800 px-3 py-2.5">
+              <div class="flex min-w-0 items-center gap-2">
+                <div class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-800 text-slate-400">
+                  <Icon name="uil:history" class="h-3.5 w-3.5" />
+                </div>
+                <div class="min-w-0">
+                  <h3 class="text-xs font-semibold text-slate-200">Conversations</h3>
+                  <p class="text-[9px] text-slate-600">This paper</p>
+                </div>
+              </div>
               <button
                 type="button"
-                @click="startNewChat"
-                class="w-full py-2.5 rounded-xl border border-dashed border-slate-700 text-slate-400 hover:text-white hover:border-indigo-500/50 hover:bg-indigo-500/10 transition-all flex items-center justify-center gap-2 text-xs font-medium"
+                @click="toggleChatHistory"
+                class="rounded-md p-1.5 text-slate-500 transition-colors hover:bg-slate-800 hover:text-slate-200"
+                aria-label="Close chat history"
+                title="Close history"
               >
-                <Icon name="ph:plus" class="w-3.5 h-3.5" />
-                Start New Chat
+                <Icon name="ph:x" class="h-3.5 w-3.5" />
               </button>
             </div>
 
-            <div class="flex-1 overflow-y-auto p-2 custom-scrollbar">
-              <div v-if="savedChats.length === 0" class="text-center py-10">
-                <p class="text-slate-500 text-xs">No saved chats found.</p>
+            <div class="border-b border-slate-800/80 p-3">
+              <button
+                type="button"
+                @click="startNewChat"
+                class="flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-500/15 py-2.5 text-[11px] font-medium text-indigo-200 transition-colors hover:bg-indigo-500/25"
+              >
+                <Icon name="ph:plus" class="h-3.5 w-3.5" />
+                New conversation
+              </button>
+            </div>
+
+            <div class="flex-1 overflow-y-auto p-2.5 custom-scrollbar">
+              <div v-if="savedChats.length === 0" class="flex flex-col items-center py-12 text-center">
+                <Icon name="ph:chats-circle" class="mb-2 h-6 w-6 text-slate-700" />
+                <p class="text-[11px] text-slate-500">No conversations yet</p>
               </div>
 
               <div
                 v-for="chat in savedChats"
                 :key="chat.id"
                 @click="loadChat(chat.id)"
-                class="group p-2.5 rounded-xl hover:bg-white/5 cursor-pointer transition-colors border border-transparent hover:border-white/5 flex justify-between items-center mb-1"
+                @keydown.enter.self.prevent="loadChat(chat.id)"
+                @keydown.space.self.prevent="loadChat(chat.id)"
+                class="group mb-1 flex w-full items-center justify-between rounded-lg border border-transparent px-2.5 py-2.5 text-left transition-colors hover:border-slate-800 hover:bg-slate-900"
                 :class="{
-                  'bg-white/5 border-white/10': chat.id === chatId,
+                  'border-indigo-500/20 bg-indigo-500/8': chat.id === chatId,
                 }"
+                role="button"
+                tabindex="0"
               >
-                <div class="flex-1 min-w-0 pr-2">
+                <div class="min-w-0 flex-1 pr-2">
                   <h4
-                    class="text-xs text-slate-300 truncate group-hover:text-white transition-colors"
+                    class="truncate text-[11px] font-medium text-slate-300 transition-colors group-hover:text-slate-100"
                   >
                     {{ chat.name }}
                   </h4>
-                  <p class="text-[10px] text-slate-600 truncate mt-0.5">
+                  <p class="mt-1 truncate text-[9px] text-slate-600">
                     {{ new Date(chat.updated_at).toLocaleDateString() }}
                   </p>
                 </div>
@@ -4576,7 +4735,7 @@ watch(currentPage, (page) => {
                 <button
                   type="button"
                   @click="deleteChat(chat.id, $event)"
-                  class="p-1.5 rounded text-slate-600 hover:text-red-400 hover:bg-red-400/10 opacity-0 group-hover:opacity-100 transition-all"
+                  class="rounded-md p-1.5 text-slate-600 opacity-0 transition-all hover:bg-red-400/10 hover:text-red-400 group-hover:opacity-100 focus:opacity-100"
                   title="Delete Chat"
                   :disabled="isDeletingChat"
                 >
@@ -4586,13 +4745,18 @@ watch(currentPage, (page) => {
             </div>
           </div>
 
-          <div class="shrink-0 border-t border-slate-800 bg-slate-900 p-2.5">
-            <div class="rounded-xl border border-slate-700/80 bg-slate-950/80 overflow-hidden shadow-lg">
-              <div class="border-b border-slate-800 bg-slate-900/60">
-                <div class="grid grid-cols-2 gap-2 px-2.5 py-2">
+          <div class="chat-composer-wrap shrink-0 px-3 pb-3 pt-2.5">
+            <div class="chat-composer overflow-hidden rounded-xl border border-slate-700/70 bg-slate-950/90 shadow-xl shadow-black/10 transition-colors focus-within:border-indigo-500/40">
+              <div class="border-b border-slate-800/90 bg-slate-900/70">
+                <div class="flex flex-wrap items-center gap-1.5 px-2.5 py-2">
+                  <div class="flex shrink-0 items-center gap-1 text-[9px] font-semibold uppercase tracking-[0.1em] text-slate-600">
+                    <Icon name="ph:cpu" class="h-3 w-3" />
+                    Model
+                  </div>
                   <select
                     v-model="selectedAiProvider"
-                    class="ai-select min-w-0 rounded-lg border border-slate-700 px-2 py-1.5 text-[10px] outline-none focus:border-indigo-500/50"
+                    class="ai-select min-w-[84px] flex-1 rounded-md border border-slate-800 px-2 py-1.5 text-[9px] outline-none transition-colors focus:border-indigo-500/40"
+                    aria-label="AI provider"
                   >
                     <option v-for="provider in aiProviders" :key="provider.id" :value="provider.id">
                       {{ provider.label }}
@@ -4601,7 +4765,8 @@ watch(currentPage, (page) => {
                   <select
                     v-if="selectedProviderModels.length"
                     v-model="selectedAiModel"
-                    class="ai-select min-w-0 rounded-lg border border-slate-700 px-2 py-1.5 text-[10px] outline-none focus:border-indigo-500/50"
+                    class="ai-select min-w-[110px] flex-[1.5] rounded-md border border-slate-800 px-2 py-1.5 text-[9px] outline-none transition-colors focus:border-indigo-500/40"
+                    aria-label="AI model"
                   >
                     <option v-for="model in selectedProviderModels" :key="model" :value="model">
                       {{ model }}
@@ -4609,9 +4774,9 @@ watch(currentPage, (page) => {
                   </select>
                   <div
                     v-else-if="selectedAiProvider === 'codex' && !selectedProviderModels.length"
-                    class="ai-select min-w-0 rounded-lg border border-slate-700 px-2 py-1.5 text-[10px] text-slate-400"
+                    class="ai-select min-w-[110px] flex-[1.5] truncate rounded-md border border-slate-800 px-2 py-1.5 text-[9px] text-slate-500"
                   >
-                    Connect Codex in Settings
+                    Codex not connected
                   </div>
                   <input
                     v-else
@@ -4623,13 +4788,14 @@ watch(currentPage, (page) => {
                         ? 'Model id (e.g. llama3.2)'
                         : selectedProviderModelHint || 'No models available'
                     "
-                    class="ai-select min-w-0 rounded-lg border border-slate-700 px-2 py-1.5 text-[10px] outline-none focus:border-indigo-500/50 font-mono disabled:cursor-not-allowed disabled:opacity-60"
+                    class="ai-select min-w-[110px] flex-[1.5] rounded-md border border-slate-800 px-2 py-1.5 font-mono text-[9px] outline-none transition-colors focus:border-indigo-500/40 disabled:cursor-not-allowed disabled:opacity-60"
+                    aria-label="AI model id"
                     spellcheck="false"
                   />
                 </div>
                 <p
                   v-if="selectedProviderModelHint"
-                  class="px-2.5 pb-2 text-[10px] leading-relaxed text-amber-400/90"
+                  class="border-t border-slate-800/70 px-2.5 py-1.5 text-[9px] leading-relaxed text-amber-400/80"
                 >
                   {{ selectedProviderModelHint }}
                 </p>
@@ -4637,50 +4803,44 @@ watch(currentPage, (page) => {
 
               <div
                 v-if="showAtMenu"
-                class="border-b border-slate-800 max-h-36 overflow-y-auto custom-scrollbar"
+                class="max-h-40 overflow-y-auto border-b border-slate-800 bg-slate-900/60 p-1.5 custom-scrollbar"
               >
                 <button
                   v-for="opt in atMenuOptions"
                   :key="opt.tag"
                   @mousedown.prevent="insertAtTag(opt.tag)"
-                  class="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-slate-800/80 transition-colors"
+                  class="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left transition-colors hover:bg-slate-800"
                 >
-                  <Icon :name="opt.icon" class="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-                  <span class="text-[11px] font-mono text-slate-200">{{ opt.tag }}</span>
-                  <span class="text-[10px] text-slate-500 truncate">{{ opt.desc }}</span>
+                  <Icon :name="opt.icon" class="h-3.5 w-3.5 shrink-0 text-indigo-400" />
+                  <span class="font-mono text-[10px] text-slate-200">{{ opt.tag }}</span>
+                  <span class="truncate text-[9px] text-slate-500">{{ opt.desc }}</span>
                 </button>
               </div>
 
               <div
                 v-if="capturedSelection"
-                class="flex items-center gap-2 border-b border-slate-800 bg-indigo-500/5 px-2.5 py-1.5"
+                class="flex items-center gap-1.5 border-b border-slate-800 bg-indigo-500/6 px-2.5 py-2"
               >
-                <Icon name="ph:text-select" class="w-3.5 h-3.5 text-indigo-400 shrink-0" />
-                <span class="shrink-0 text-[10px] font-medium text-indigo-300">
-                  Selected text:
+                <Icon name="ph:text-select" class="h-3.5 w-3.5 shrink-0 text-indigo-400" />
+                <span class="shrink-0 text-[9px] font-semibold text-indigo-300">
+                  Selected text
                 </span>
-                <span class="text-[10px] text-indigo-200 truncate flex-1">
+                <span class="flex-1 truncate text-[9px] text-slate-400">
                   "{{ capturedSelection.slice(0, 60) }}{{ capturedSelection.length > 60 ? '…' : '' }}"
                 </span>
-                <button @click="capturedSelection = ''" class="text-slate-500 hover:text-slate-300">
-                  <Icon name="ph:x" class="w-3.5 h-3.5" />
+                <button
+                  type="button"
+                  @click="capturedSelection = ''"
+                  class="rounded p-0.5 text-slate-600 transition-colors hover:bg-slate-800 hover:text-slate-300"
+                  aria-label="Remove selected text"
+                  title="Remove selected text"
+                >
+                  <Icon name="ph:x" class="h-3.5 w-3.5" />
                 </button>
               </div>
 
-              <div
-                class="flex items-end gap-1 px-2 py-2 min-h-[52px]"
-              >
-                <button
-                  type="button"
-                  @click="toggleAtMenu"
-                  class="mb-0.5 shrink-0 rounded-lg p-2 text-slate-400 transition-colors hover:bg-slate-800 hover:text-indigo-400"
-                  :class="{ 'bg-slate-800 text-indigo-400': showAtMenu }"
-                  title="Add context"
-                >
-                  <Icon name="ph:at" class="w-4 h-4" />
-                </button>
-
-                <div class="relative flex-1 min-w-0">
+              <div class="px-2.5 pb-2 pt-1.5">
+                <div class="relative min-w-0">
                   <div
                     ref="chatMirrorRef"
                     aria-hidden="true"
@@ -4704,28 +4864,48 @@ watch(currentPage, (page) => {
                     @keydown.enter.exact.prevent="sendChatMessage"
                     @keydown.escape="showAtMenu = false"
                     rows="2"
-                    placeholder="Ask about this paper… type @ for context tags"
-                    class="chat-input-layer chat-input-textarea relative w-full min-h-[44px] max-h-28 resize-none border-0 bg-transparent text-transparent caret-slate-200 placeholder:text-slate-600 outline-none custom-scrollbar"
+                    placeholder="Ask a question about this paper…"
+                    class="chat-input-layer chat-input-textarea relative min-h-[52px] max-h-32 w-full resize-none border-0 bg-transparent text-transparent caret-slate-200 placeholder:text-slate-600 outline-none custom-scrollbar"
                   ></textarea>
                 </div>
 
-                <button
-                  v-if="chatLoading"
-                  @click="cancelChatGeneration"
-                  class="mb-0.5 shrink-0 rounded-lg bg-red-500/15 p-2 text-red-300 transition-colors hover:bg-red-500/25"
-                  title="Stop generation"
-                >
-                  <Icon name="ph:stop-fill" class="w-4 h-4" />
-                </button>
-                <button
-                  v-else
-                  @click="sendChatMessage"
-                  :disabled="chatLoading || !chatInput.trim() || !selectedProviderHasModels"
-                  class="mb-0.5 shrink-0 rounded-lg bg-indigo-600 p-2 text-white transition-colors hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
-                  title="Send"
-                >
-                  <Icon name="ph:paper-plane-tilt" class="w-4 h-4" />
-                </button>
+                <div class="mt-0.5 flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    @click="toggleAtMenu"
+                    class="inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-[9px] font-medium text-slate-500 transition-colors hover:bg-slate-800 hover:text-indigo-300"
+                    :class="{ 'bg-slate-800 text-indigo-300': showAtMenu }"
+                    title="Attach paper context"
+                  >
+                    <Icon name="ph:at" class="h-3.5 w-3.5" />
+                    Context
+                  </button>
+
+                  <span class="truncate text-[8px] text-slate-700">
+                    Enter to send · Shift+Enter for a new line
+                  </span>
+
+                  <button
+                    v-if="chatLoading"
+                    type="button"
+                    @click="cancelChatGeneration"
+                    class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-red-500/20 bg-red-500/10 text-red-300 transition-colors hover:bg-red-500/20"
+                    title="Stop generation"
+                  >
+                    <Icon name="ph:stop-fill" class="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    v-else
+                    type="button"
+                    @click="sendChatMessage"
+                    :disabled="chatLoading || !chatInput.trim() || !selectedProviderHasModels"
+                    class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-500 text-white shadow-sm shadow-indigo-950/50 transition-colors hover:bg-indigo-400 disabled:cursor-not-allowed disabled:bg-slate-800 disabled:text-slate-600 disabled:shadow-none"
+                    title="Send message"
+                    aria-label="Send message"
+                  >
+                    <Icon name="ph:arrow-up" class="h-3.5 w-3.5" />
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -4778,11 +4958,44 @@ watch(currentPage, (page) => {
 </template>
 
 <style scoped>
+.chat-panel {
+  background:
+    radial-gradient(circle at 50% -15%, rgb(99 102 241 / 0.08), transparent 38%),
+    #0b1120;
+}
+
+.chat-transcript {
+  background-image: linear-gradient(
+    to bottom,
+    rgb(15 23 42 / 0.16),
+    transparent 8rem
+  );
+}
+
+.chat-empty-mark {
+  border: 1px solid rgb(99 102 241 / 0.2);
+  background: linear-gradient(
+    145deg,
+    rgb(99 102 241 / 0.16),
+    rgb(30 41 59 / 0.35)
+  );
+  box-shadow: 0 12px 35px rgb(0 0 0 / 0.2);
+}
+
+.chat-composer-wrap {
+  border-top: 1px solid rgb(30 41 59 / 0.8);
+  background: linear-gradient(to bottom, rgb(11 17 32 / 0.86), #0b1120 32%);
+}
+
+.chat-composer {
+  backdrop-filter: blur(12px);
+}
+
 .chat-input-layer {
-  padding: 0.5rem 0.25rem;
+  padding: 0.55rem 0.25rem;
   font-family: inherit;
   font-size: 0.75rem;
-  line-height: 1.625;
+  line-height: 1.55;
   letter-spacing: normal;
   white-space: pre-wrap;
   overflow-wrap: break-word;
@@ -4794,9 +5007,9 @@ watch(currentPage, (page) => {
 }
 
 .chat-input-tag {
-  background: rgba(99, 102, 241, 0.28);
+  background: rgba(99, 102, 241, 0.22);
   color: rgb(199 210 254);
-  border-radius: 0.125rem;
+  border-radius: 0.25rem;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
 }
@@ -4807,8 +5020,8 @@ watch(currentPage, (page) => {
   margin: 0 1px;
   padding: 0.1rem 0.45rem;
   border-radius: 0.375rem;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgb(129 140 248 / 0.24);
+  background: rgb(99 102 241 / 0.14);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.65rem;
   line-height: 1.2rem;
@@ -4821,8 +5034,9 @@ watch(currentPage, (page) => {
 }
 
 .ai-select {
-  background-color: #0f172a;
-  color: #cbd5e1;
+  background-color: rgb(15 23 42 / 0.72);
+  color: #b8c3d4;
+  color-scheme: dark;
 }
 
 .ai-select option {
@@ -5207,9 +5421,14 @@ watch(currentPage, (page) => {
 }
 
 /* Chat prose styles */
+.chat-prose {
+  font-size: 0.875rem;
+  line-height: 1.8;
+}
+
 .chat-prose :deep(p) {
-  margin: 0.25rem 0;
-  line-height: 1.6;
+  margin: 0.7rem 0;
+  line-height: inherit;
 }
 
 .chat-prose :deep(p:first-child) {
@@ -5220,26 +5439,33 @@ watch(currentPage, (page) => {
   margin-bottom: 0;
 }
 
+.chat-prose :deep(br) {
+  display: block;
+  content: "";
+  margin-top: 0.3rem;
+}
+
 .chat-prose :deep(h1),
 .chat-prose :deep(h2),
 .chat-prose :deep(h3) {
   font-weight: 600;
-  color: #c7d2fe;
-  margin: 0.5rem 0 0.25rem;
+  color: #e2e8f0;
+  margin: 1rem 0 0.45rem;
+  line-height: 1.35;
 }
 
-.chat-prose :deep(h1) { font-size: 0.9rem; }
-.chat-prose :deep(h2) { font-size: 0.85rem; }
-.chat-prose :deep(h3) { font-size: 0.8rem; }
+.chat-prose :deep(h1) { font-size: 1.05rem; }
+.chat-prose :deep(h2) { font-size: 0.975rem; }
+.chat-prose :deep(h3) { font-size: 0.925rem; }
 
 .chat-prose :deep(ul),
 .chat-prose :deep(ol) {
-  margin: 0.25rem 0;
-  padding-left: 1.25rem;
+  margin: 0.6rem 0;
+  padding-left: 1.4rem;
 }
 
 .chat-prose :deep(li) {
-  margin: 0.1rem 0;
+  margin: 0.25rem 0;
 }
 
 .chat-prose :deep(strong) {
@@ -5252,18 +5478,20 @@ watch(currentPage, (page) => {
 }
 
 .chat-prose :deep(code) {
-  background: #1e293b;
-  color: #fbbf24;
+  border: 1px solid rgb(51 65 85 / 0.65);
+  background: rgb(15 23 42 / 0.9);
+  color: #fcd34d;
   padding: 0.1rem 0.3rem;
   border-radius: 3px;
   font-family: monospace;
-  font-size: 0.75em;
+  font-size: 0.85em;
 }
 
 .chat-prose :deep(pre) {
-  background: #1e293b;
-  padding: 0.5rem 0.75rem;
-  border-radius: 6px;
+  border: 1px solid rgb(51 65 85 / 0.65);
+  background: rgb(2 6 23 / 0.72);
+  padding: 0.7rem 0.8rem;
+  border-radius: 0.5rem;
   overflow-x: auto;
   margin: 0.5rem 0;
 }
@@ -5275,10 +5503,42 @@ watch(currentPage, (page) => {
 }
 
 .chat-prose :deep(blockquote) {
-  border-left: 2px solid #4f46e5;
+  border-left: 2px solid rgb(99 102 241 / 0.75);
   padding-left: 0.75rem;
   color: #94a3b8;
-  margin: 0.25rem 0;
+  margin: 0.5rem 0;
+}
+
+.chat-prose :deep(a) {
+  color: #a5b4fc;
+  text-decoration: underline;
+  text-decoration-color: rgb(129 140 248 / 0.4);
+  text-underline-offset: 2px;
+}
+
+.chat-prose :deep(hr) {
+  margin: 0.75rem 0;
+  border: 0;
+  border-top: 1px solid rgb(51 65 85 / 0.65);
+}
+
+.chat-prose :deep(table) {
+  width: 100%;
+  margin: 0.65rem 0;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.chat-prose :deep(th),
+.chat-prose :deep(td) {
+  border: 1px solid rgb(51 65 85 / 0.65);
+  padding: 0.4rem 0.5rem;
+  text-align: left;
+}
+
+.chat-prose :deep(th) {
+  background: rgb(15 23 42 / 0.8);
+  color: #e2e8f0;
 }
 
 .chat-prose :deep(.katex-display) {
