@@ -3475,6 +3475,11 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  if (!isSidebarPopout && isSidebarPoppedOut.value) {
+    void window.electronAPI?.closeSidebarPopout?.();
+  }
+
+
   stopSidebarSplitResize();
   removeSidebarClosedListener?.();
   removeRevealAnnotationListener?.();
