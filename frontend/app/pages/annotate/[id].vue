@@ -1892,6 +1892,53 @@ const storedSidebarTab = (() => {
   }
 })();
 const sidebarActiveTab = ref(storedSidebarTab);
+const storedSidebarSecondaryTab = (() => {
+  try {
+    const value = localStorage.getItem("annotateSidebarSecondaryTab") || "";
+    return SIDEBAR_TAB_IDS.has(value) ? value : "chat";
+  } catch {
+    return "chat";
+  }
+})();
+const storedSidebarSplit = (() => {
+  try {
+    return localStorage.getItem("annotateSidebarSplit") === "1";
+  } catch {
+    return false;
+  }
+})();
+const SIDEBAR_SPLIT_MIN_PERCENT = 25;
+const storedSidebarSplitRatio = (() => {
+  try {
+    const value = Number(localStorage.getItem("annotateSidebarSplitRatio"));
+    return Number.isFinite(value)
+      ? Math.min(
+          100 - SIDEBAR_SPLIT_MIN_PERCENT,
+          Math.max(SIDEBAR_SPLIT_MIN_PERCENT, value),
+        )
+      : 50;
+  } catch {
+    return 50;
+  }
+})();
+const sidebarSecondaryTab = ref(
+  storedSidebarSecondaryTab === storedSidebarTab
+    ? storedSidebarTab === "chat"
+      ? "notepad"
+      : "chat"
+    : storedSidebarSecondaryTab,
+);
+const isSidebarSplit = ref(isSidebarPopout && storedSidebarSplit);
+const sidebarSplitRatio = ref(storedSidebarSplitRatio);
+const isResizingSidebarSplit = ref(false);
+const focusedSidebarPane = ref("primary");
+const sidebarPanelContent = ref(null);
+
+const focusedSidebarTab = computed(() =>
+  isSidebarSplit.value && focusedSidebarPane.value === "secondary"
+    ? sidebarSecondaryTab.value
+    : sidebarActiveTab.value,
+);
 const persistSidebarActiveTab = () => {
   try {
     localStorage.setItem("annotateSidebarActiveTab", sidebarActiveTab.value);
@@ -1899,14 +1946,177 @@ const persistSidebarActiveTab = () => {
     /* ignore */
   }
 };
+const persistSidebarSplit = () => {
+  try {
+    localStorage.setItem(
+      "annotateSidebarSplit",
+      isSidebarSplit.value ? "1" : "0",
+    );
+    localStorage.setItem(
+      "annotateSidebarSecondaryTab",
+      sidebarSecondaryTab.value,
+    );
+    localStorage.setItem(
+      "annotateSidebarSplitRatio",
+      String(sidebarSplitRatio.value),
+    );
+  } catch {
+    /* ignore */
+  }
+};
+const isSidebarTabVisible = (tabName) =>
+  sidebarActiveTab.value === tabName ||
+  (isSidebarSplit.value && sidebarSecondaryTab.value === tabName);
+const isSidebarTabFocused = (tabName) => focusedSidebarTab.value === tabName;
+const sidebarPaneClasses = (tabName) => ({
+  "basis-1/2 min-w-0": isSidebarSplit.value,
+  "ring-1 ring-inset ring-indigo-500/60":
+    isSidebarSplit.value && isSidebarTabFocused(tabName),
+});
+const sidebarPaneStyle = (tabName) => {
+  if (!isSidebarSplit.value) return { order: 0 };
+  const isSecondary = sidebarSecondaryTab.value === tabName;
+  const paneRatio = isSecondary
+    ? 100 - sidebarSplitRatio.value
+    : sidebarSplitRatio.value;
+  return {
+    order: isSecondary ? 2 : 0,
+    flex: `${paneRatio} 1 0%`,
+  };
+};
+
+const resizeSidebarSplit = (event) => {
+  if (!isResizingSidebarSplit.value) return;
+  const bounds = sidebarPanelContent.value?.getBoundingClientRect();
+  if (!bounds?.width) return;
+  const nextRatio = ((event.clientX - bounds.left) / bounds.width) * 100;
+  sidebarSplitRatio.value = Math.min(
+    100 - SIDEBAR_SPLIT_MIN_PERCENT,
+    Math.max(SIDEBAR_SPLIT_MIN_PERCENT, nextRatio),
+  );
+};
+
+const stopSidebarSplitResize = () => {
+  if (!isResizingSidebarSplit.value) return;
+  isResizingSidebarSplit.value = false;
+  document.body.style.cursor = "";
+  document.body.style.userSelect = "";
+  window.removeEventListener("pointermove", resizeSidebarSplit);
+  window.removeEventListener("pointerup", stopSidebarSplitResize);
+  persistSidebarSplit();
+};
+
+const startSidebarSplitResize = (event) => {
+  if (!isSidebarSplit.value || event.button !== 0) return;
+  event.preventDefault();
+  isResizingSidebarSplit.value = true;
+  document.body.style.cursor = "col-resize";
+  document.body.style.userSelect = "none";
+  window.addEventListener("pointermove", resizeSidebarSplit);
+  window.addEventListener("pointerup", stopSidebarSplitResize);
+};
+
+const adjustSidebarSplitWithKeyboard = (event) => {
+  if (event.ctrlKey || event.metaKey || event.altKey) return;
+  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+  event.preventDefault();
+  const change = event.key === "ArrowLeft" ? -5 : 5;
+  sidebarSplitRatio.value = Math.min(
+    100 - SIDEBAR_SPLIT_MIN_PERCENT,
+    Math.max(
+      SIDEBAR_SPLIT_MIN_PERCENT,
+      sidebarSplitRatio.value + change,
+    ),
+  );
+  persistSidebarSplit();
+};
+
+const activateSidebarPaneForTab = (tabName) => {
+  if (!isSidebarSplit.value) return;
+  focusedSidebarPane.value =
+    sidebarSecondaryTab.value === tabName ? "secondary" : "primary";
+};
+
+const focusSidebarPane = async (pane) => {
+  if (!isSidebarSplit.value) return;
+  focusedSidebarPane.value = pane;
+  await nextTick();
+  const tabName = focusedSidebarTab.value;
+  const paneElement = sidebarPanelContent.value?.querySelector(
+    `[data-sidebar-tab="${tabName}"]`,
+  );
+  const focusTarget =
+    tabName === "chat"
+      ? chatInputRef.value
+      : tabName === "notepad"
+        ? notepadTextarea.value
+        : paneElement;
+  focusTarget?.focus({ preventScroll: true });
+};
+
+const handleSidebarSplitNavigation = (event) => {
+  if (
+    !isSidebarPopout ||
+    !isSidebarSplit.value ||
+    !(event.ctrlKey || event.metaKey) ||
+    event.altKey ||
+    event.shiftKey
+  ) {
+    return;
+  }
+  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+
+  event.preventDefault();
+  event.stopPropagation();
+  focusSidebarPane(event.key === "ArrowLeft" ? "primary" : "secondary");
+};
+
+const toggleSidebarSplit = async () => {
+  if (!isSidebarPopout) return;
+
+  if (isSidebarSplit.value) {
+    if (focusedSidebarPane.value === "secondary") {
+      sidebarActiveTab.value = sidebarSecondaryTab.value;
+      persistSidebarActiveTab();
+    }
+    focusedSidebarPane.value = "primary";
+    isSidebarSplit.value = false;
+  } else {
+    if (sidebarSecondaryTab.value === sidebarActiveTab.value) {
+      sidebarSecondaryTab.value =
+        sidebarActiveTab.value === "chat" ? "notepad" : "chat";
+    }
+    isSidebarSplit.value = true;
+  }
+
+  persistSidebarSplit();
+  await nextTick();
+  if (isSidebarTabVisible("notepad")) resizeNotepadEditor();
+};
+
 function changeSidebarTab(tabName) {
-  sidebarActiveTab.value = tabName;
-  persistSidebarActiveTab();
-  if (tabName !== "chat") showChatHistory.value = false;
+  if (isSidebarSplit.value) {
+    if (tabName === sidebarActiveTab.value) {
+      focusedSidebarPane.value = "primary";
+    } else if (tabName === sidebarSecondaryTab.value) {
+      focusedSidebarPane.value = "secondary";
+    } else if (focusedSidebarPane.value === "secondary") {
+      sidebarSecondaryTab.value = tabName;
+      persistSidebarSplit();
+    } else {
+      sidebarActiveTab.value = tabName;
+      persistSidebarActiveTab();
+    }
+  } else {
+    sidebarActiveTab.value = tabName;
+    persistSidebarActiveTab();
+  }
+
+  if (!isSidebarTabVisible("chat")) showChatHistory.value = false;
   if (tabName === "notepad") nextTick(resizeNotepadEditor);
 }
 const activeSidebarTabLabel = computed(
-  () => sidebarTabs.find((t) => t.id === sidebarActiveTab.value)?.label ?? "",
+  () => sidebarTabs.find((t) => t.id === focusedSidebarTab.value)?.label ?? "",
 );
 const activeHighlightId = ref(null);
 const highlightsByPage = computed(() =>
@@ -1972,7 +2182,7 @@ const postSidebarState = () => {
   if (!sidebarSyncChannel || isApplyingSidebarSync) return;
   sidebarSyncChannel.postMessage({
     type: "state",
-    activeTab: sidebarActiveTab.value,
+    activeTab: focusedSidebarTab.value,
     fontScale: sidebarFontScale.value,
     highlights: cloneForSidebarSync(savedHighlights.value),
     stickyNotes: cloneForSidebarSync(stickyNoteData.value),
@@ -1986,8 +2196,16 @@ const postSidebarState = () => {
 const applySidebarState = async (message) => {
   isApplyingSidebarSync = true;
   if (SIDEBAR_TAB_IDS.has(message.activeTab)) {
-    sidebarActiveTab.value = message.activeTab;
-    persistSidebarActiveTab();
+    if (
+      isSidebarSplit.value &&
+      message.activeTab === sidebarSecondaryTab.value
+    ) {
+      focusedSidebarPane.value = "secondary";
+    } else {
+      sidebarActiveTab.value = message.activeTab;
+      focusedSidebarPane.value = "primary";
+      persistSidebarActiveTab();
+    }
   }
   if (Number.isFinite(message.fontScale)) {
     sidebarFontScale.value = Math.min(
@@ -2475,7 +2693,7 @@ watch(
     savedHighlights,
     stickyNoteData,
     notepadData,
-    sidebarActiveTab,
+    focusedSidebarTab,
     sidebarFontScale,
     currentPage,
     capturedSelection,
@@ -3082,6 +3300,7 @@ let removeRevealAnnotationListener = null;
 onMounted(async () => {
   try {
     setupSidebarSync();
+    document.addEventListener("keydown", handleSidebarSplitNavigation);
 
     if (!isSidebarPopout) {
       removeSidebarClosedListener =
@@ -3148,12 +3367,14 @@ onMounted(async () => {
 });
 
 onUnmounted(() => {
+  stopSidebarSplitResize();
   removeSidebarClosedListener?.();
   removeRevealAnnotationListener?.();
   sidebarSyncChannel?.close();
   sidebarSyncChannel = null;
   document.removeEventListener("mouseup", handleTextSelection);
   document.removeEventListener("pointerdown", handleDocumentPointerDown);
+  document.removeEventListener("keydown", handleSidebarSplitNavigation);
   document.removeEventListener("keydown", handleKeyboardShortcuts);
   document.removeEventListener("click", restoreReaderFocusAfterInteraction);
   mainScrollContainer.value?.removeEventListener("scroll", handleMainScroll);
@@ -3684,14 +3905,20 @@ watch(currentPage, (page) => {
               @click="changeSidebarTab(tab.id)"
               class="relative w-7 h-7 rounded-md flex items-center justify-center transition-colors"
               :class="
-                sidebarActiveTab === tab.id
+                isSidebarTabFocused(tab.id)
                   ? 'bg-indigo-500/15 text-indigo-300'
-                  : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/80'
+                  : isSidebarTabVisible(tab.id)
+                    ? 'bg-cyan-500/10 text-cyan-300'
+                    : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/80'
               "
-              :title="tab.label"
+              :title="
+                isSidebarSplit
+                  ? `${tab.label} — open in focused pane`
+                  : tab.label
+              "
             >
               <span
-                v-if="sidebarActiveTab === tab.id"
+                v-if="isSidebarTabFocused(tab.id)"
                 class="absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-r bg-indigo-400"
               ></span>
               <Icon :name="tab.icon" class="w-3.5 h-3.5" />
@@ -3729,6 +3956,30 @@ watch(currentPage, (page) => {
               }}</span>
               <div class="flex items-center gap-1 shrink-0">
                 <button
+                  v-if="isSidebarPopout"
+                  type="button"
+                  @click="toggleSidebarSplit"
+                  class="p-1.5 rounded transition-colors"
+                  :class="
+                    isSidebarSplit
+                      ? 'bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/30'
+                      : 'text-slate-400 hover:bg-slate-700 hover:text-white'
+                  "
+                  :title="
+                    isSidebarSplit
+                      ? 'Close split view — Ctrl+Left/Right switches panes'
+                      : 'Split view with two tabs'
+                  "
+                  :aria-label="
+                    isSidebarSplit
+                      ? 'Close split view'
+                      : 'Split view with two tabs'
+                  "
+                  :aria-pressed="isSidebarSplit"
+                >
+                  <Icon name="ph:columns" class="w-3.5 h-3.5" />
+                </button>
+                <button
                   v-if="isSidebarPopout || canPopOutSidebar"
                   type="button"
                   @click="isSidebarPopout ? returnSidebarToViewer() : popOutSidebar()"
@@ -3753,7 +4004,7 @@ watch(currentPage, (page) => {
                     class="w-3.5 h-3.5"
                   />
                 </button>
-                <template v-if="sidebarActiveTab === 'chat'">
+                <template v-if="focusedSidebarTab === 'chat'">
                   <button
                     type="button"
                     @click="startNewChat"
@@ -3784,9 +4035,39 @@ watch(currentPage, (page) => {
               </div>
             </div>
 
+            <div
+              ref="sidebarPanelContent"
+              class="flex flex-1 min-h-0 min-w-0 overflow-hidden"
+            >
+              <div
+                v-if="isSidebarSplit"
+                class="group relative z-20 w-1 shrink-0 cursor-col-resize bg-slate-700 transition-colors hover:bg-indigo-400"
+                :class="{ 'bg-indigo-400': isResizingSidebarSplit }"
+                :style="{ order: 1 }"
+                role="separator"
+                tabindex="0"
+                aria-orientation="vertical"
+                :aria-valuenow="Math.round(sidebarSplitRatio)"
+                :aria-valuemin="SIDEBAR_SPLIT_MIN_PERCENT"
+                :aria-valuemax="100 - SIDEBAR_SPLIT_MIN_PERCENT"
+                title="Drag to resize panes (25% minimum)"
+                @pointerdown="startSidebarSplitResize"
+                @keydown="adjustSidebarSplitWithKeyboard"
+              >
+                <span
+                  class="pointer-events-none absolute left-1/2 top-1/2 h-8 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-slate-500 group-hover:bg-indigo-300"
+                ></span>
+              </div>
+
         <div
-          v-show="sidebarActiveTab === 'stickyNotes'"
+          v-show="isSidebarTabVisible('stickyNotes')"
+          data-sidebar-tab="stickyNotes"
+          tabindex="-1"
           class="flex-1 p-4 flex flex-col overflow-y-auto gap-3"
+          :class="sidebarPaneClasses('stickyNotes')"
+          :style="sidebarPaneStyle('stickyNotes')"
+          @pointerdown.capture="activateSidebarPaneForTab('stickyNotes')"
+          @focusin="activateSidebarPaneForTab('stickyNotes')"
         >
           <div
             v-if="stickyNoteData.length === 0"
@@ -3888,8 +4169,14 @@ watch(currentPage, (page) => {
 
         <!-- Highlights Tab -->
         <div
-          v-show="sidebarActiveTab === 'highlights'"
+          v-show="isSidebarTabVisible('highlights')"
+          data-sidebar-tab="highlights"
+          tabindex="-1"
           class="flex-1 p-4 flex flex-col overflow-y-auto gap-2"
+          :class="sidebarPaneClasses('highlights')"
+          :style="sidebarPaneStyle('highlights')"
+          @pointerdown.capture="activateSidebarPaneForTab('highlights')"
+          @focusin="activateSidebarPaneForTab('highlights')"
         >
           <div
             v-if="highlightsByPage.length === 0"
@@ -3926,8 +4213,14 @@ watch(currentPage, (page) => {
         </div>
 
         <div
-          v-show="sidebarActiveTab === 'notepad'"
+          v-show="isSidebarTabVisible('notepad')"
+          data-sidebar-tab="notepad"
+          tabindex="-1"
           class="flex-1 flex flex-col h-full overflow-hidden"
+          :class="sidebarPaneClasses('notepad')"
+          :style="sidebarPaneStyle('notepad')"
+          @pointerdown.capture="activateSidebarPaneForTab('notepad')"
+          @focusin="activateSidebarPaneForTab('notepad')"
         >
           <div
             class="flex items-center justify-between px-4 py-2 border-b border-slate-800 bg-slate-900 shrink-0"
@@ -4093,16 +4386,32 @@ watch(currentPage, (page) => {
         </div>
 
         <!-- OCR Tab -->
-        <OcrPanel
-          v-show="sidebarActiveTab === 'ocr'"
-          :document-id="id"
-          @ocr-completed="handleOcrCompleted"
-        />
+        <div
+          v-show="isSidebarTabVisible('ocr')"
+          data-sidebar-tab="ocr"
+          tabindex="-1"
+          class="flex-1 flex min-h-0 overflow-hidden"
+          :class="sidebarPaneClasses('ocr')"
+          :style="sidebarPaneStyle('ocr')"
+          @pointerdown.capture="activateSidebarPaneForTab('ocr')"
+          @focusin="activateSidebarPaneForTab('ocr')"
+        >
+          <OcrPanel
+            :document-id="id"
+            @ocr-completed="handleOcrCompleted"
+          />
+        </div>
 
         <!-- Chat Tab -->
         <div
-          v-show="sidebarActiveTab === 'chat'"
+          v-show="isSidebarTabVisible('chat')"
+          data-sidebar-tab="chat"
+          tabindex="-1"
           class="flex-1 flex flex-col overflow-hidden bg-slate-900/40 relative min-h-0"
+          :class="sidebarPaneClasses('chat')"
+          :style="sidebarPaneStyle('chat')"
+          @pointerdown.capture="activateSidebarPaneForTab('chat')"
+          @focusin="activateSidebarPaneForTab('chat')"
         >
           <div
             ref="chatScrollContainer"
@@ -4345,6 +4654,9 @@ watch(currentPage, (page) => {
                 class="flex items-center gap-2 border-b border-slate-800 bg-indigo-500/5 px-2.5 py-1.5"
               >
                 <Icon name="ph:text-select" class="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                <span class="shrink-0 text-[10px] font-medium text-indigo-300">
+                  Selected text:
+                </span>
                 <span class="text-[10px] text-indigo-200 truncate flex-1">
                   "{{ capturedSelection.slice(0, 60) }}{{ capturedSelection.length > 60 ? '…' : '' }}"
                 </span>
@@ -4416,6 +4728,7 @@ watch(currentPage, (page) => {
             </div>
           </div>
         </div>
+            </div>
           </div>
         </div>
       </aside>
