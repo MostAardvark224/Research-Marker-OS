@@ -34,8 +34,7 @@ def get_env_vars_potential_list():
         "CUSTOM_AI_BASE_URL",
         "CUSTOM_AI_API_KEY",
         "MISTRAL_API_KEY",
-        "scholar_inbox_email",
-        "gmail_app_password",
+        "SCHOLAR_INBOX_API_KEY",
     ]
 
     return potential_list
@@ -87,14 +86,7 @@ def write_env_vars(vars):
         print("vars is not a python dictionary")
         return
 
-    if "gmail_app_password" in cleaned_vars and cleaned_vars["gmail_app_password"] is not None:
-        cleaned_vars["gmail_app_password"] = "".join(
-            str(cleaned_vars["gmail_app_password"]).split()
-        )
-    
     original_vars.update(cleaned_vars) # only changes vars that were included in the param, keeps existing
-    
+
     with open(file, 'w') as f:
         json.dump(original_vars, f, indent=4)
-
-    

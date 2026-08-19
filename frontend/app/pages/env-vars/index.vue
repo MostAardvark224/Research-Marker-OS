@@ -213,18 +213,11 @@ const envMetadata = {
     description: "Used for Mistral OCR in the OCR tab.",
     type: "password",
   },
-  scholar_inbox_email: {
-    label: "Scholar Inbox Email",
+  SCHOLAR_INBOX_API_KEY: {
+    label: "Scholar Inbox API Key",
     description:
-      "The Gmail address that receives your Scholar Inbox Alert Digest emails. Scholar Inbox is a free daily research digest at https://scholar-inbox.com/ (we are not affiliated).",
-    placeholder: "you@gmail.com",
-    type: "email",
-  },
-  gmail_app_password: {
-    label: "Gmail App Password",
-    description:
-      "A Gmail App Password for IMAP access — not your regular Gmail password. Create one in Google Account → Security → 2-Step Verification → App passwords.",
-    placeholder: "xxxx xxxx xxxx xxxx",
+      "Used to fetch your digest directly from Scholar Inbox. Find the key under Settings in Scholar Inbox.",
+    placeholder: "Enter your Scholar Inbox API key",
     type: "password",
   },
 };

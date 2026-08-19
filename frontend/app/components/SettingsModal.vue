@@ -187,27 +187,6 @@
               </p>
             </div>
 
-            <div
-              v-if="scholarEnvList.length"
-              class="space-y-4"
-            >
-              <h4
-                class="text-xs font-bold text-slate-500 uppercase tracking-widest"
-              >
-                Scholar Inbox credentials
-              </h4>
-              <SettingsEnvField
-                v-for="env in scholarEnvList"
-                :key="env.key"
-                :field-key="env.key"
-                :label="env.label"
-                :description="env.description"
-                :placeholder="env.placeholder || `Enter ${env.label}...`"
-                :type="env.type"
-                :model-value="envFormValues[env.key] || ''"
-                @update:model-value="(value) => setEnvValue(env.key, value)"
-              />
-            </div>
           </div>
 
           <div v-else-if="activeTab === 'api-keys'" class="space-y-6 max-w-2xl">
@@ -251,11 +230,29 @@
                   class="text-indigo-400 text-lg flex-shrink-0"
                 />
                 <p class="text-xs text-indigo-200/80 leading-relaxed">
-                  Configure automated imports from your Scholar Inbox Alert
-                  Digest emails. Set your Gmail address and app password in the
-                  General tab.
+                  Connect Research Marker to your Scholar Inbox digest API.
+                  You can find your API key under Settings in Scholar Inbox.
                 </p>
               </div>
+            </div>
+
+            <div v-if="scholarEnvList.length" class="space-y-4">
+              <h4
+                class="text-xs font-bold text-slate-500 uppercase tracking-widest"
+              >
+                Connection
+              </h4>
+              <SettingsEnvField
+                v-for="env in scholarEnvList"
+                :key="env.key"
+                :field-key="env.key"
+                :label="env.label"
+                :description="env.description"
+                :placeholder="env.placeholder || `Enter ${env.label}...`"
+                :type="env.type"
+                :model-value="envFormValues[env.key] || ''"
+                @update:model-value="(value) => setEnvValue(env.key, value)"
+              />
             </div>
 
             <div class="space-y-3">
@@ -282,33 +279,48 @@
 
                 <div
                   v-if="autoImportEnabled"
-                  class="p-3 rounded-lg border border-white/10 bg-white/[0.02] space-y-3 transition-opacity duration-300"
+                  class="rounded-xl border border-white/10 bg-white/[0.02] p-4 transition-opacity duration-300"
                 >
-                  <div class="flex items-center justify-between">
-                    <span class="text-sm font-medium text-slate-200">
-                      Import limit:
-                    </span>
-                    <span class="text-sm font-bold text-indigo-400">
-                      {{ paperLimitDisplay }}
-                    </span>
-                  </div>
+                  <label for="auto-scholar-paper-count" class="block">
+                    <div class="mb-3 flex items-start justify-between gap-4">
+                      <div>
+                        <span class="block text-sm font-medium text-slate-200">
+                          Papers to import
+                        </span>
+                        <span class="mt-0.5 block text-[11px] text-slate-500">
+                          Number of top papers imported on startup
+                        </span>
+                      </div>
+                      <span
+                        class="rounded-md border border-indigo-500/20 bg-indigo-500/10 px-2 py-1 text-[10px] font-semibold text-indigo-300"
+                      >
+                        1–100
+                      </span>
+                    </div>
 
-                  <input
-                    v-model="paperLimitValue"
-                    type="range"
-                    min="0"
-                    max="2"
-                    step="1"
-                    class="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500"
-                  />
-
-                  <div
-                    class="flex justify-between text-xs text-slate-500 font-medium pt-1"
-                  >
-                    <span>1</span>
-                    <span>5</span>
-                    <span>All</span>
-                  </div>
+                    <div class="relative">
+                      <input
+                        id="auto-scholar-paper-count"
+                        v-model.number="autoImportPaperCount"
+                        type="number"
+                        inputmode="numeric"
+                        min="1"
+                        max="100"
+                        step="1"
+                        class="scholar-paper-count-input w-full rounded-lg border border-white/10 bg-[#09090c] px-4 py-3 pr-20 text-xl font-semibold text-white outline-none transition-colors focus:border-indigo-500/60 focus:ring-2 focus:ring-indigo-500/10"
+                        @blur="
+                          autoImportPaperCount =
+                            normalizePaperCount(autoImportPaperCount)
+                        "
+                        @keydown.enter="$event.target.blur()"
+                      />
+                      <span
+                        class="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium text-slate-500"
+                      >
+                        papers
+                      </span>
+                    </div>
+                  </label>
                 </div>
               </div>
             </div>
@@ -932,7 +944,7 @@ const AI_ENV_KEYS = new Set([
   "MISTRAL_API_KEY",
 ]);
 
-const SCHOLAR_ENV_KEYS = new Set(["scholar_inbox_email", "gmail_app_password"]);
+const SCHOLAR_ENV_KEYS = new Set(["SCHOLAR_INBOX_API_KEY"]);
 
 const startupScripts = ref([""]);
 const startupScriptErrors = ref([]);
@@ -1253,18 +1265,11 @@ const envMetadata = {
     description: "Used for Mistral OCR in the OCR tab.",
     type: "password",
   },
-  scholar_inbox_email: {
-    label: "Scholar Inbox Email",
+  SCHOLAR_INBOX_API_KEY: {
+    label: "Scholar Inbox API Key",
     description:
-      "The Gmail address that receives your Scholar Inbox Alert Digest emails.",
-    placeholder: "you@gmail.com",
-    type: "email",
-  },
-  gmail_app_password: {
-    label: "Gmail App Password",
-    description:
-      "A Gmail App Password for IMAP access — not your regular Gmail password. Create one in Google Account → Security → 2-Step Verification → App passwords. Spaces are fine; they are stripped automatically.",
-    placeholder: "xxxx xxxx xxxx xxxx",
+      "Used to fetch your digest directly from Scholar Inbox. Find the key under Settings in Scholar Inbox.",
+    placeholder: "Enter your Scholar Inbox API key",
     type: "password",
   },
 };
@@ -1349,22 +1354,17 @@ async function loadEnvVars() {
 }
 
 const autoImportEnabled = ref(false);
-const paperLimitValue = ref(0);
+const autoImportPaperCount = ref(5);
 const last_import_date = ref(null);
 
-const paperLimitDisplay = computed(() => {
-  if (paperLimitValue.value == 0) return "1 paper";
-  if (paperLimitValue.value == 1) return "5 papers";
-  if (paperLimitValue.value == 2) return "All papers";
-  return "N/A";
-});
+function normalizePaperCount(value) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return 5;
+  return Math.min(100, Math.max(1, parsed));
+}
 
 const amount_to_import = computed(() => {
-  if (!autoImportEnabled.value) return 0;
-  if (paperLimitValue.value == 0) return 1;
-  if (paperLimitValue.value == 1) return 5;
-  if (paperLimitValue.value == 2) return "All";
-  return 0;
+  return normalizePaperCount(autoImportPaperCount.value);
 });
 
 async function loadUserPreferences() {
@@ -1376,13 +1376,12 @@ async function loadUserPreferences() {
       autoImportEnabled.value = scholarPrefs.auto_import;
       last_import_date.value = scholarPrefs.last_import_date;
 
-      if (scholarPrefs.amount_to_import === 5) {
-        paperLimitValue.value = 1;
-      } else if (scholarPrefs.amount_to_import === "All") {
-        paperLimitValue.value = 2;
-      } else {
-        paperLimitValue.value = 0;
-      }
+      autoImportPaperCount.value =
+        scholarPrefs.amount_to_import === "All"
+          ? 100
+          : scholarPrefs.amount_to_import === 0
+            ? 5
+            : normalizePaperCount(scholarPrefs.amount_to_import);
     }
 
     const generalPrefs = res.user_preferences?.general || {};
@@ -1546,6 +1545,17 @@ async function saveSettings() {
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   contain: content;
+}
+
+.scholar-paper-count-input {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.scholar-paper-count-input::-webkit-inner-spin-button,
+.scholar-paper-count-input::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
 }
 
 .custom-scrollbar::-webkit-scrollbar {

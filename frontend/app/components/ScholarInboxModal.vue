@@ -47,15 +47,12 @@
                 Configuration Required
               </h4>
               <p class="text-xs text-indigo-200/70 leading-snug">
-                Before fetching, set your
+                Before fetching, add your
                 <span class="font-medium text-indigo-200"
-                  >Scholar Inbox Email</span
+                  >Scholar Inbox API Key</span
                 >
-                and
-                <span class="font-medium text-indigo-200"
-                  >Gmail App Password</span
-                >
-                in Settings → General.
+                in Settings → Scholar Inbox. Find the key under Settings in
+                Scholar Inbox.
               </p>
             </div>
           </div>
@@ -70,52 +67,51 @@
             </div>
             <h3 class="text-sm font-medium text-slate-200">Ready to read?</h3>
             <p class="text-xs text-slate-400 leading-snug">
-              Fetches your latest Scholar Inbox Alert Digest email and imports
-              the top papers into your library. This may take a couple minutes.
+              Fetches your latest Scholar Inbox digest and imports the top
+              arXiv papers into your library.
             </p>
           </div>
 
-          <div class="w-full max-w-[240px] space-y-3">
-            <label
-              class="flex items-center justify-between gap-3 px-1 cursor-pointer"
-            >
-              <span class="text-xs font-medium text-slate-400"
-                >Import all papers</span
-              >
-              <input
-                v-model="importAll"
-                type="checkbox"
-                class="accent-indigo-500 w-4 h-4 rounded border-white/20 bg-white/5"
-              />
-            </label>
-
-            <div v-if="!importAll" class="space-y-2">
-              <div class="flex justify-between items-center px-1">
-                <span class="text-xs font-medium text-slate-400"
-                  >Top papers to fetch</span
-                >
+          <div
+            class="w-full max-w-xs rounded-xl border border-white/10 bg-white/[0.03] p-4 shadow-inner"
+          >
+            <label for="manual-scholar-paper-count" class="block">
+              <div class="mb-3 flex items-start justify-between gap-4">
+                <div>
+                  <span class="block text-sm font-medium text-slate-200">
+                    Papers to import
+                  </span>
+                  <span class="mt-0.5 block text-[11px] text-slate-500">
+                    Imports your highest-ranked papers
+                  </span>
+                </div>
                 <span
-                  class="text-xs font-bold text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20"
+                  class="rounded-md border border-indigo-500/20 bg-indigo-500/10 px-2 py-1 text-[10px] font-semibold text-indigo-300"
                 >
-                  {{ paperCount }}
+                  1–100
                 </span>
               </div>
-              <input
-                v-model.number="paperCount"
-                type="range"
-                min="1"
-                max="10"
-                step="1"
-                class="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer accent-indigo-500 hover:bg-white/20 transition-colors"
-              />
-              <div
-                class="flex justify-between text-[10px] text-slate-600 font-medium px-1"
-              >
-                <span>1</span>
-                <span>5</span>
-                <span>10</span>
+
+              <div class="relative">
+                <input
+                  id="manual-scholar-paper-count"
+                  v-model.number="paperCount"
+                  type="number"
+                  inputmode="numeric"
+                  min="1"
+                  max="100"
+                  step="1"
+                  class="scholar-paper-count-input w-full rounded-lg border border-white/10 bg-[#09090c] px-4 py-3 pr-20 text-xl font-semibold text-white outline-none transition-colors focus:border-indigo-500/60 focus:ring-2 focus:ring-indigo-500/10"
+                  @blur="paperCount = normalizePaperCount(paperCount)"
+                  @keydown.enter="$event.target.blur()"
+                />
+                <span
+                  class="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-xs font-medium text-slate-500"
+                >
+                  papers
+                </span>
               </div>
-            </div>
+            </label>
           </div>
 
           <div class="w-full max-w-xs text-center space-y-2">
@@ -146,8 +142,8 @@
               {{ statusMessage }}
             </p>
             <p class="text-[10px] text-slate-500 leading-tight">
-              Uses your Gmail app password to read the latest Alert Digest
-              email. Defaults match your Scholar Inbox settings.
+              Uses the Scholar Inbox API. Your key is stored locally with your
+              other application settings.
             </p>
           </div>
         </div>
@@ -168,7 +164,6 @@
 <script setup>
 const emit = defineEmits(["close", "imported"]);
 const isLoading = ref(false);
-const importAll = ref(false);
 const paperCount = ref(5);
 const statusMessage = ref("");
 const statusError = ref(false);
@@ -181,17 +176,22 @@ function applyScholarPrefs(scholarPrefs) {
   if (!scholarPrefs) return;
 
   if (scholarPrefs.amount_to_import === "All") {
-    importAll.value = true;
+    paperCount.value = 100;
     return;
   }
 
-  importAll.value = false;
   if (
     typeof scholarPrefs.amount_to_import === "number" &&
     scholarPrefs.amount_to_import > 0
   ) {
-    paperCount.value = Math.min(10, scholarPrefs.amount_to_import);
+    paperCount.value = normalizePaperCount(scholarPrefs.amount_to_import);
   }
+}
+
+function normalizePaperCount(value) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return 5;
+  return Math.min(100, Math.max(1, parsed));
 }
 
 onMounted(async () => {
@@ -210,7 +210,8 @@ const fetchDigest = async () => {
   statusError.value = false;
 
   try {
-    const amount_to_import = importAll.value ? "All" : paperCount.value;
+    paperCount.value = normalizePaperCount(paperCount.value);
+    const amount_to_import = paperCount.value;
     const res = await $fetch(`${apiBaseURL}/fetch-scholar-inbox-papers/`, {
       method: "POST",
       body: { amount_to_import },
@@ -227,7 +228,7 @@ const fetchDigest = async () => {
     if (imported > 0) {
       const extras = [];
       if (skipped > 0) extras.push(`${skipped} skipped`);
-      if (unmatched > 0) extras.push(`${unmatched} unmatched on arXiv`);
+      if (unmatched > 0) extras.push(`${unmatched} without arXiv URLs`);
       alert(
         extras.length
           ? `${message}\n(${extras.join(", ")})`
@@ -256,3 +257,16 @@ const fetchDigest = async () => {
   }
 };
 </script>
+
+<style scoped>
+.scholar-paper-count-input {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.scholar-paper-count-input::-webkit-inner-spin-button,
+.scholar-paper-count-input::-webkit-outer-spin-button {
+  margin: 0;
+  appearance: none;
+}
+</style>

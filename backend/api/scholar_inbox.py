@@ -1,27 +1,24 @@
-"""Scholar Inbox: Gmail Alert Digest → arXiv PDF import."""
+"""Scholar Inbox API digest -> arXiv PDF import."""
 
 from __future__ import annotations
 
-import email
-import imaplib
+import json
 import re
-import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from typing import Any
 
-import feedparser
-from bs4 import BeautifulSoup
-
-# DEBUGGING: If scraping isn't working, first suspect is the CSS selectors or Regex used to find elements.
-# Do control-F in this file and search for "NOTE TO USER" comments for places where selectors may need to be updated.
+from api.arxiv import parse_arxiv_id
 
 DOCUMENT_TITLE_MAX_LENGTH = 255
-ARXIV_QUERY_DELAY_SECONDS = 0.35
+SCHOLAR_INBOX_API_URL = "https://api.scholar-inbox.com/v1/digest"
+SCHOLAR_INBOX_API_MAX_PAPERS = 100
+SCHOLAR_INBOX_USER_AGENT = "Research-Marker-OS/1.0"
 
 
 class ScholarInboxError(Exception):
-    """Raised for actionable Scholar Inbox failures (credentials, IMAP, parse)."""
+    """Raised for actionable Scholar Inbox API failures."""
 
     def __init__(self, message: str, *, code: str = "error", http_status: int = 502):
         super().__init__(message)
@@ -30,27 +27,8 @@ class ScholarInboxError(Exception):
         self.http_status = http_status
 
 
-def _decode_html_payload(part) -> str:
-    payload = part.get_payload(decode=True)
-    if not isinstance(payload, bytes):
-        return ""
-    charset = part.get_content_charset() or "utf-8"
-    return payload.decode(charset, errors="ignore")
-
-
-def _close_mail_connection(mail):
-    try:
-        mail.close()
-    except Exception:
-        pass
-    try:
-        mail.logout()
-    except Exception:
-        pass
-
-
 def _normalize_amount(amount_of_papers):
-    """Return a positive int limit, or None to import all papers in the digest."""
+    """Return a positive int limit, or None to import all available papers."""
     if amount_of_papers is None:
         return None
 
@@ -69,9 +47,11 @@ def _normalize_amount(amount_of_papers):
     return None
 
 
-def _normalize_gmail_app_password(password: str) -> str:
-    # Google shows app passwords as "xxxx xxxx xxxx xxxx"; IMAP wants no spaces.
-    return re.sub(r"\s+", "", str(password or "").strip())
+def _api_paper_limit(amount_of_papers) -> int:
+    requested = _normalize_amount(amount_of_papers)
+    if requested is None:
+        return SCHOLAR_INBOX_API_MAX_PAPERS
+    return min(requested, SCHOLAR_INBOX_API_MAX_PAPERS)
 
 
 def _truncate_title(title: str) -> str:
@@ -81,217 +61,119 @@ def _truncate_title(title: str) -> str:
     return cleaned[: DOCUMENT_TITLE_MAX_LENGTH - 1].rstrip() + "…"
 
 
-def _extract_paper_links(soup: BeautifulSoup) -> list[dict[str, str]]:
-    # NOTE TO USER: Primary selector looks for <a> tags where href contains
-    # "scholar-inbox.com/login". Fallbacks cover minor template changes.
-    candidates = soup.find_all("a", href=re.compile(r"scholar-inbox\.com/login", re.I))
-    if not candidates:
-        candidates = soup.find_all("a", href=re.compile(r"scholar-inbox\.com", re.I))
-
-    extracted: list[dict[str, str]] = []
-    for link in candidates:
-        title = _truncate_title(link.get_text(" ", strip=True))
-        href = str(link.get("href") or "").strip()
-        if not title or not href:
-            continue
-        # Skip obvious non-paper chrome links.
-        lowered = title.lower()
-        if lowered in {"scholar inbox", "unsubscribe", "view in browser", "login"}:
-            continue
-        extracted.append({"title": title, "scraped_url": href})
-
-    seen_titles: set[str] = set()
-    unique_papers: list[dict[str, str]] = []
-    for paper in extracted:
-        if paper["title"] in seen_titles:
-            continue
-        seen_titles.add(paper["title"])
-        unique_papers.append(paper)
-    return unique_papers
+def _arxiv_pdf_url(url: str) -> tuple[str, str] | None:
+    """Build a canonical arXiv PDF URL from the digest paper's url field."""
+    arxiv_id = parse_arxiv_id(str(url or ""))
+    if not arxiv_id:
+        return None
+    return arxiv_id, f"https://arxiv.org/pdf/{arxiv_id}.pdf"
 
 
-def _resolve_arxiv_pdf(paper: dict[str, Any]) -> dict[str, Any] | None:
-    encoded_title = urllib.parse.quote(f'ti:"{paper["title"]}"')
-    query_url = (
-        "http://export.arxiv.org/api/query?"
-        f"search_query={encoded_title}&max_results=1"
+def _request_digest(api_key: str, top_k: int) -> dict[str, Any]:
+    query = urllib.parse.urlencode({"top_k": top_k})
+    request = urllib.request.Request(
+        f"{SCHOLAR_INBOX_API_URL}?{query}",
+        headers={
+            "Accept": "application/json",
+            "Authorization": f"Bearer {api_key}",
+            "User-Agent": SCHOLAR_INBOX_USER_AGENT,
+        },
     )
 
-    with urllib.request.urlopen(query_url, timeout=30) as response:
-        feed_data = response.read()
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            payload = json.loads(response.read())
+    except urllib.error.HTTPError as exc:
+        if exc.code in (401, 403):
+            raise ScholarInboxError(
+                "Scholar Inbox rejected the API key. Check the key in "
+                "Settings → Scholar Inbox.",
+                code="api_auth_failed",
+                http_status=401,
+            ) from exc
+        if exc.code == 429:
+            raise ScholarInboxError(
+                "Scholar Inbox API rate limit reached. Try again later.",
+                code="api_rate_limited",
+                http_status=429,
+            ) from exc
+        raise ScholarInboxError(
+            f"Scholar Inbox API request failed with status {exc.code}.",
+            code="api_request_failed",
+            http_status=502,
+        ) from exc
+    except (urllib.error.URLError, TimeoutError) as exc:
+        reason = getattr(exc, "reason", exc)
+        raise ScholarInboxError(
+            f"Could not connect to the Scholar Inbox API: {reason}",
+            code="api_unavailable",
+            http_status=502,
+        ) from exc
+    except (json.JSONDecodeError, UnicodeDecodeError, TypeError) as exc:
+        raise ScholarInboxError(
+            "Scholar Inbox API returned an unreadable response.",
+            code="api_response_invalid",
+            http_status=502,
+        ) from exc
 
-    feed = feedparser.parse(feed_data)
-    if not feed.entries:
-        return None
-
-    entry = feed.entries[0]
-    entry_id = str(entry.get("id", ""))
-    arxiv_id = entry_id.split("/abs/")[-1]
-
-    pdf_url = None
-    for link in getattr(entry, "links", []) or []:
-        if getattr(link, "rel", None) == "related" and getattr(link, "type", None) == "application/pdf":
-            pdf_url = link.href
-            break
-
-    if not pdf_url and entry_id:
-        pdf_url = entry_id.replace("/abs/", "/pdf/")
-
-    if not pdf_url:
-        return None
-
-    resolved = dict(paper)
-    resolved["id"] = arxiv_id
-    resolved["pdf_url"] = pdf_url
-    return resolved
+    if not isinstance(payload, dict) or payload.get("success") is not True:
+        raise ScholarInboxError(
+            "Scholar Inbox API returned an unsuccessful response.",
+            code="api_response_invalid",
+            http_status=502,
+        )
+    if not isinstance(payload.get("papers"), list):
+        raise ScholarInboxError(
+            "Scholar Inbox API response did not include a paper list.",
+            code="api_response_invalid",
+            http_status=502,
+        )
+    return payload
 
 
 def fetch_scholar_inbox_papers(env_vars, amount_of_papers=None) -> dict[str, Any]:
-    """
-    Fetch the latest Scholar Inbox Alert Digest and resolve arXiv PDF URLs.
-
-    Returns a result dict:
-      {
-        "papers": [...],
-        "unmatched_titles": [...],
-        "digest_found": bool,
-        "titles_found": int,
-      }
-
-    Raises ScholarInboxError for credentials / IMAP / email-body failures.
-    """
-    email_addr = str(env_vars.get("scholar_inbox_email", "")).strip()
-    password = _normalize_gmail_app_password(env_vars.get("gmail_app_password", ""))
-
-    if not email_addr or not password:
+    """Fetch the latest digest through the Scholar Inbox API."""
+    api_key = str(env_vars.get("SCHOLAR_INBOX_API_KEY") or "").strip()
+    if not api_key:
         raise ScholarInboxError(
-            "Scholar Inbox Gmail credentials are not configured. "
-            "Set Scholar Inbox Email and Gmail App Password in Settings → General.",
+            "Scholar Inbox API key is not configured. Find it in Scholar Inbox "
+            "Settings, then add it in Settings → Scholar Inbox.",
             code="credentials_missing",
             http_status=400,
         )
 
-    mail = imaplib.IMAP4_SSL("imap.gmail.com")
     try:
-        try:
-            mail.login(email_addr, password)
-        except imaplib.IMAP4.error as exc:
-            raise ScholarInboxError(
-                "Gmail IMAP login failed. Check that IMAP is enabled and you are using "
-                f"a Google App Password (not your normal password). Details: {exc}",
-                code="imap_login_failed",
-                http_status=401,
-            ) from exc
-
-        status, _ = mail.select("INBOX", readonly=True)
-        if status != "OK":
-            raise ScholarInboxError(
-                "Could not open the Gmail inbox over IMAP.",
-                code="imap_select_failed",
-                http_status=502,
-            )
-
-        print("Searching for Alert Digest email...")
-        search_criteria = '(FROM "noreply@cvlibs.net" SUBJECT "Alert Digest")'
-        status, data = mail.search(None, search_criteria)
-
-        if status != "OK" or not data or not data[0]:
-            return {
-                "papers": [],
-                "unmatched_titles": [],
-                "digest_found": False,
-                "titles_found": 0,
-            }
-
-        mail_ids = data[0].split()
-        if not mail_ids:
-            return {
-                "papers": [],
-                "unmatched_titles": [],
-                "digest_found": False,
-                "titles_found": 0,
-            }
-
-        latest_id = mail_ids[-1]
-        status, data = mail.fetch(latest_id, "(RFC822)")
-        if status != "OK" or not data or not data[0]:
-            raise ScholarInboxError(
-                "Found an Alert Digest email but failed to download it.",
-                code="imap_fetch_failed",
-                http_status=502,
-            )
-
-        fetch_result = data[0]
-        if not isinstance(fetch_result, tuple) or len(fetch_result) < 2:
-            raise ScholarInboxError(
-                "Unexpected Gmail IMAP response while reading the Alert Digest.",
-                code="imap_fetch_invalid",
-                http_status=502,
-            )
-
-        raw_email = fetch_result[1]
-        if not isinstance(raw_email, bytes):
-            raise ScholarInboxError(
-                "Alert Digest email body was unreadable.",
-                code="email_body_invalid",
-                http_status=502,
-            )
-
-        msg = email.message_from_bytes(raw_email)
-
-        html_content = ""
-        if msg.is_multipart():
-            for part in msg.walk():
-                if part.get_content_type() == "text/html":
-                    html_content = _decode_html_payload(part)
-                    if html_content:
-                        break
-        elif msg.get_content_type() == "text/html":
-            html_content = _decode_html_payload(msg)
-
-        if not html_content:
-            raise ScholarInboxError(
-                "The latest Alert Digest email had no HTML body to parse.",
-                code="email_html_missing",
-                http_status=502,
-            )
-
-        soup = BeautifulSoup(html_content, "html.parser")
-        unique_papers = _extract_paper_links(soup)
-
-        paper_limit = _normalize_amount(amount_of_papers)
-        if paper_limit is not None:
-            unique_papers = unique_papers[:paper_limit]
-
-        print(
-            f"Found {len(unique_papers)} unique papers in the email. "
-            "Searching arXiv API by title..."
-        )
-
-        arxiv_links: list[dict[str, Any]] = []
+        payload = _request_digest(api_key, _api_paper_limit(amount_of_papers))
+        digest_papers = payload["papers"]
+        resolved_papers: list[dict[str, Any]] = []
         unmatched_titles: list[str] = []
-        for index, paper in enumerate(unique_papers):
-            if index > 0:
-                time.sleep(ARXIV_QUERY_DELAY_SECONDS)
-            try:
-                resolved = _resolve_arxiv_pdf(paper)
-            except Exception as exc:
-                print(f"Error querying arXiv for '{paper['title']}': {exc}")
-                unmatched_titles.append(paper["title"])
+
+        for paper in digest_papers:
+            if not isinstance(paper, dict):
                 continue
 
-            if resolved:
-                arxiv_links.append(resolved)
-            else:
-                print(f"Could not find arXiv match for: {paper['title']}")
-                unmatched_titles.append(paper["title"])
+            fallback_title = f"Scholar Inbox paper {paper.get('paper_id', '')}".strip()
+            title = _truncate_title(paper.get("title") or fallback_title)
+            resolved_url = _arxiv_pdf_url(paper.get("url") or "")
+            if not resolved_url:
+                unmatched_titles.append(title)
+                continue
 
-        print(f"Returning {len(arxiv_links)} papers with PDF URLs.")
+            arxiv_id, pdf_url = resolved_url
+            resolved_papers.append(
+                {
+                    "id": paper.get("arxiv_id") or arxiv_id,
+                    "title": title,
+                    "pdf_url": pdf_url,
+                    "source_url": paper.get("url"),
+                }
+            )
+
         return {
-            "papers": arxiv_links,
+            "papers": resolved_papers,
             "unmatched_titles": unmatched_titles,
-            "digest_found": True,
-            "titles_found": len(unique_papers),
+            "digest_found": bool(digest_papers),
+            "titles_found": len(digest_papers),
         }
     except ScholarInboxError:
         raise
@@ -301,5 +183,3 @@ def fetch_scholar_inbox_papers(env_vars, amount_of_papers=None) -> dict[str, Any
             code="unexpected_error",
             http_status=500,
         ) from exc
-    finally:
-        _close_mail_connection(mail)

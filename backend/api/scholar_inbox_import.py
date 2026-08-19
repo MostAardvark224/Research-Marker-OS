@@ -34,7 +34,7 @@ def import_scholar_inbox_papers(
     """
     Fetch digest papers and create Document rows in the Scholar Inbox folder.
 
-    Raises ScholarInboxError for hard failures (credentials, IMAP, unreadable email).
+    Raises ScholarInboxError for hard failures (credentials or API errors).
     """
     # Local import avoids circular imports with views helpers.
     from api.views import _apply_ocr_settings_to_document, _stream_pdf_to_document
@@ -56,8 +56,7 @@ def import_scholar_inbox_papers(
             "unmatched": 0,
             "titles_found": 0,
             "message": (
-                "No Scholar Inbox Alert Digest emails were found. "
-                "Make sure digests from noreply@cvlibs.net are arriving in this Gmail inbox."
+                "No papers were returned by the latest Scholar Inbox digest."
             ),
             "should_stamp_daily": False,
         }
@@ -71,8 +70,7 @@ def import_scholar_inbox_papers(
             "unmatched": 0,
             "titles_found": 0,
             "message": (
-                "Found an Alert Digest email, but no paper links could be parsed from it. "
-                "The email format may have changed."
+                "The latest Scholar Inbox digest did not contain any papers."
             ),
             "should_stamp_daily": True,
         }
@@ -87,7 +85,7 @@ def import_scholar_inbox_papers(
             "unmatched": unmatched_count,
             "titles_found": titles_found,
             "message": (
-                f"Found {titles_found} paper title(s) in the digest, but none matched on arXiv. "
+                f"Found {titles_found} paper(s) in the digest, but none had a valid arXiv URL. "
                 "Scholar Inbox import currently supports arXiv papers only."
             ),
             "should_stamp_daily": True,
@@ -136,7 +134,7 @@ def import_scholar_inbox_papers(
     if skipped_count:
         parts.append(f"{skipped_count} skipped (duplicates or download errors).")
     if unmatched_count:
-        parts.append(f"{unmatched_count} title(s) had no arXiv match.")
+        parts.append(f"{unmatched_count} paper(s) had no valid arXiv URL.")
 
     return {
         "ok": True,

@@ -36,7 +36,7 @@ Research papers tend to end up spread across folders, browser tabs, and separate
 
 - Import local PDFs by drag and drop
 - Paste an arXiv link to fetch the title, metadata, and PDF
-- Connect Gmail to import papers from Scholar Inbox digests
+- Connect the Scholar Inbox API to import papers from your digest
 - Organize papers in nested folders with drag and drop and custom reading order
 - Restore the last page and zoom level when reopening a paper
 
