@@ -1,22 +1,28 @@
 <template>
   <div
-    class="pointer-events-none fixed bottom-4 right-4 z-[200] flex w-full max-w-sm flex-col gap-2 px-4 sm:px-0"
+    class="notification-viewport pointer-events-none fixed inset-y-4 right-4 z-[200] w-[calc(100vw-2rem)] max-w-sm overflow-y-auto"
     aria-live="polite"
   >
-    <TransitionGroup name="toast">
+    <TransitionGroup
+      name="toast"
+      tag="div"
+      class="flex min-h-full flex-col justify-end gap-2"
+    >
       <div
         v-for="item in notifications"
         :key="item.id"
-        class="pointer-events-auto rounded-xl border px-4 py-3 shadow-xl backdrop-blur-md"
+        class="notification-toast pointer-events-auto shrink-0 overflow-hidden rounded-xl border px-4 py-3 shadow-xl backdrop-blur-md"
         :class="toastClass(item.type)"
       >
         <div class="flex items-start gap-3">
           <Icon :name="toastIcon(item.type)" class="mt-0.5 text-lg flex-shrink-0" />
           <div class="min-w-0 flex-1">
-            <p class="text-sm font-medium text-white">{{ item.title }}</p>
+            <p class="break-words text-sm font-medium text-white [overflow-wrap:anywhere]">
+              {{ item.title }}
+            </p>
             <p
               v-if="item.message"
-              class="mt-1 text-xs leading-relaxed text-slate-300 whitespace-pre-wrap break-words"
+              class="notification-message mt-1 overflow-y-auto whitespace-pre-wrap break-words pr-1 text-xs leading-relaxed text-slate-300 [overflow-wrap:anywhere]"
             >
               {{ item.message }}
             </p>
@@ -71,6 +77,34 @@ function toastIcon(type) {
 </script>
 
 <style scoped>
+.notification-viewport {
+  max-height: calc(100dvh - 2rem);
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.notification-toast {
+  max-height: calc(100dvh - 2rem);
+}
+
+.notification-message {
+  /* Leave room for the toast padding, title, and dismiss button. */
+  max-height: calc(100dvh - 7rem);
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.notification-viewport::-webkit-scrollbar,
+.notification-message::-webkit-scrollbar {
+  width: 4px;
+}
+
+.notification-viewport::-webkit-scrollbar-thumb,
+.notification-message::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgb(148 163 184 / 0.35);
+}
+
 .toast-enter-active,
 .toast-leave-active {
   transition: all 0.22s ease;

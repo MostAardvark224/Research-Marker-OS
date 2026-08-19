@@ -165,7 +165,7 @@
                   <p
                     v-for="(error, index) in startupScriptErrors"
                     :key="`err-${index}`"
-                    class="text-[11px] text-red-300"
+                    class="break-words text-[11px] text-red-300 [overflow-wrap:anywhere]"
                   >
                     {{ error }}
                   </p>
@@ -181,7 +181,7 @@
               </button>
               <p
                 v-if="startupScriptsSaveError"
-                class="text-[11px] text-red-300"
+                class="break-words text-[11px] text-red-300 [overflow-wrap:anywhere]"
               >
                 {{ startupScriptsSaveError }}
               </p>

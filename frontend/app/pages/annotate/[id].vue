@@ -488,6 +488,12 @@ const isCollapsedCodeBlockEdge = (lineIndex, edge) => {
   );
 };
 
+const getNotepadCodeLineNumber = (lineIndex) => {
+  const lineState = notepadCodeFenceLines.value[lineIndex];
+  if (!lineState?.insideFence || lineState.isFence) return null;
+  return lineIndex - lineState.blockStart;
+};
+
 const renderNotepadLine = (line, lineIndex) => {
   const codeFenceState = notepadCodeFenceLines.value[lineIndex];
   if (codeFenceState?.isFence) {
@@ -4441,6 +4447,7 @@ watch(currentPage, (page) => {
                 v-for="(line, lineIndex) in notepadLines"
                 :key="lineIndex"
                 class="notepad-line"
+                :data-code-line-number="getNotepadCodeLineNumber(lineIndex)"
                 :class="{
                   'notepad-line--active': activeNotepadLine === lineIndex,
                   'notepad-line--quote': /^\s*>\s/.test(line),
@@ -5198,6 +5205,28 @@ watch(currentPage, (page) => {
   background: rgb(30 35 45 / 0.96);
 }
 
+.notepad-line--code[data-code-line-number] {
+  display: grid;
+  grid-template-columns: 2.75rem minmax(0, 1fr);
+}
+
+.notepad-line--code[data-code-line-number]::before {
+  content: attr(data-code-line-number);
+  padding: 0.15rem 0.65rem 0.15rem 0;
+  border-right: 1px solid rgb(71 85 105 / 0.55);
+  color: rgb(100 116 139);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.75rem;
+  line-height: 1.8667;
+  text-align: right;
+  user-select: none;
+}
+
+.notepad-line--code.notepad-line--active[data-code-line-number]::before {
+  padding-top: 0.35rem;
+  padding-bottom: 0.35rem;
+}
+
 .notepad-line--code-opening {
   border-radius: 0.35rem 0.35rem 0 0;
 }
@@ -5341,14 +5370,23 @@ watch(currentPage, (page) => {
 }
 
 .notepad-line--code .notepad-rendered-line {
+  min-width: 0;
   padding-top: 0.15rem;
   padding-bottom: 0.15rem;
 }
 
+.notepad-line--code .notepad-line-editor {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .notepad-rendered-line :deep(.notepad-code-block-line) {
   margin: 0;
-  overflow-x: auto;
-  white-space: pre;
+  max-width: 100%;
+  overflow-x: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .notepad-rendered-line :deep(.notepad-code-block-line code) {
@@ -5356,6 +5394,8 @@ watch(currentPage, (page) => {
   background: transparent;
   padding: 0;
   color: rgb(226 232 240);
+  white-space: inherit;
+  overflow-wrap: inherit;
 }
 
 .notepad-rendered-line :deep(.notepad-code-fence-source) {
