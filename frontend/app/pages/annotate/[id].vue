@@ -7,6 +7,10 @@ import { marked } from "marked";
 import markedKatex from "marked-katex-extension";
 import DOMPurify from "dompurify";
 import { codeToTokensBase } from "shiki";
+import {
+  createNotepadHistory,
+  isMergeableNotepadInputType,
+} from "../../utils/notepadHistory.js";
 
 marked.use(markedKatex({ throwOnError: false, output: "html" }));
 marked.use({ breaks: true, gfm: true });
@@ -336,6 +340,28 @@ const renderContent = (text) => {
 const notepadTextarea = ref(null);
 const activeNotepadLine = ref(0);
 const isNotepadSelectingAll = ref(false);
+const notepadHistory = createNotepadHistory();
+const notepadHistorySignal = ref(0);
+const canUndoNotepad = computed(() => {
+  notepadHistorySignal.value;
+  return notepadHistory.canUndo;
+});
+const canRedoNotepad = computed(() => {
+  notepadHistorySignal.value;
+  return notepadHistory.canRedo;
+});
+const notepadSyncSource = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const notepadRevision = reactive({ counter: 0, source: "" });
+
+const notifyNotepadHistoryChanged = () => {
+  notepadHistorySignal.value += 1;
+};
+
+const advanceNotepadRevision = () => {
+  notepadRevision.counter += 1;
+  notepadRevision.source = notepadSyncSource;
+};
+
 const notepadLines = computed(() => notepadData.value.split("\n"));
 const notepadCodeFenceLines = computed(() => {
   let insideFence = false;
@@ -555,25 +581,77 @@ const focusNotepadLine = (lineIndex, column = null) => {
     );
     textarea.setSelectionRange(cursor, cursor);
     resizeNotepadEditor();
+    textarea.closest(".notepad-line")?.scrollIntoView({ block: "nearest" });
   });
 };
 
-const setNotepadCursorFromOffset = (offset) => {
-  const beforeCursor = notepadData.value.slice(0, Math.max(0, offset));
-  const linesBeforeCursor = beforeCursor.split("\n");
-  focusNotepadLine(
-    linesBeforeCursor.length - 1,
-    linesBeforeCursor.at(-1)?.length ?? 0,
-  );
-};
-
 const getNotepadPositionFromOffset = (offset) => {
-  const beforeCursor = notepadData.value.slice(0, Math.max(0, offset));
+  const safeOffset = Math.min(
+    notepadData.value.length,
+    Math.max(0, Number(offset) || 0),
+  );
+  const beforeCursor = notepadData.value.slice(0, safeOffset);
   const linesBeforeCursor = beforeCursor.split("\n");
   return {
     line: linesBeforeCursor.length - 1,
     column: linesBeforeCursor.at(-1)?.length ?? 0,
   };
+};
+
+const getNotepadLineStart = (lineIndex) =>
+  notepadLines.value
+    .slice(0, Math.max(0, lineIndex))
+    .reduce((offset, line) => offset + line.length + 1, 0);
+
+const setNotepadSelection = (selection, { scroll = true } = {}) => {
+  const start = Math.min(
+    notepadData.value.length,
+    Math.max(0, Number(selection?.start) || 0),
+  );
+  const end = Math.min(
+    notepadData.value.length,
+    Math.max(start, Number(selection?.end) || start),
+  );
+  const direction = selection?.direction === "backward" ? "backward" : "forward";
+  const startPosition = getNotepadPositionFromOffset(start);
+  const endPosition = getNotepadPositionFromOffset(end);
+  const spansLines = startPosition.line !== endPosition.line;
+
+  isNotepadSelectingAll.value = spansLines;
+  activeNotepadLine.value = startPosition.line;
+  nextTick(() => {
+    const textarea = notepadTextarea.value;
+    if (!textarea) return;
+    textarea.focus({ preventScroll: true });
+
+    if (spansLines) {
+      textarea.setSelectionRange(start, end, direction);
+      resizeNotepadEditor();
+      if (scroll) {
+        const editor = textarea.closest(".notepad-live-editor");
+        const lineHeight =
+          textarea.scrollHeight / Math.max(1, notepadLines.value.length);
+        if (editor) {
+          editor.scrollTop = Math.max(
+            0,
+            startPosition.line * lineHeight - editor.clientHeight / 3,
+          );
+        }
+      }
+      return;
+    }
+
+    const lineStart = getNotepadLineStart(startPosition.line);
+    textarea.setSelectionRange(start - lineStart, end - lineStart, direction);
+    resizeNotepadEditor();
+    if (scroll) {
+      textarea.closest(".notepad-line")?.scrollIntoView({ block: "nearest" });
+    }
+  });
+};
+
+const setNotepadCursorFromOffset = (offset) => {
+  setNotepadSelection({ start: offset, end: offset, direction: "forward" });
 };
 
 const beginNotepadSelectAll = () => {
@@ -596,34 +674,109 @@ const leaveNotepadDocumentSelection = (offset, { focus = true } = {}) => {
   }
 };
 
-const registerNotepadDeletion = (
-  before,
+const getNotepadDocumentSelection = (lineIndex, textarea) => {
+  const documentOffset = lineIndex === null ? 0 : getNotepadLineStart(lineIndex);
+  return {
+    start: documentOffset + textarea.selectionStart,
+    end: documentOffset + textarea.selectionEnd,
+    direction:
+      textarea.selectionDirection === "backward" ? "backward" : "forward",
+  };
+};
+
+const inferNotepadSelectionBeforeInput = (before, after) => {
+  let prefixLength = 0;
+  const sharedLength = Math.min(before.length, after.length);
+  while (
+    prefixLength < sharedLength &&
+    before[prefixLength] === after[prefixLength]
+  ) {
+    prefixLength += 1;
+  }
+
+  let suffixLength = 0;
+  while (
+    suffixLength < sharedLength - prefixLength &&
+    before[before.length - 1 - suffixLength] ===
+      after[after.length - 1 - suffixLength]
+  ) {
+    suffixLength += 1;
+  }
+
+  return {
+    start: prefixLength,
+    end: before.length - suffixLength,
+    direction: "forward",
+  };
+};
+
+let pendingNotepadInput = null;
+
+const commitNotepadEdit = (
   after,
-  event = null,
-  cursor = event?.currentTarget?.selectionStart ?? 0,
+  {
+    before = notepadData.value,
+    beforeSelection,
+    afterSelection,
+    inputType = "unknown",
+    forceNewGroup = false,
+  } = {},
 ) => {
-  if (before === after) return;
-
-  redoStack.value = [];
-  const isDeletion =
-    event?.inputType?.startsWith("delete") || after.length < before.length;
-  if (!isDeletion) return;
-
-  undoStack.value.push({
-    type: "notepad-delete",
+  if (before === after) return false;
+  const recorded = notepadHistory.record({
     before,
     after,
-    cursor,
+    beforeSelection,
+    afterSelection,
+    inputType,
+    forceNewGroup,
+    timestamp: Date.now(),
   });
+  if (!recorded) return false;
+
+  notepadData.value = after;
+  advanceNotepadRevision();
+  notifyNotepadHistoryChanged();
+  return true;
+};
+
+const handleNotepadBeforeInput = (lineIndex, event) => {
+  if (event.inputType === "historyUndo" || event.inputType === "historyRedo") {
+    event.preventDefault();
+    pendingNotepadInput = null;
+    if (event.inputType === "historyUndo") void performNotepadUndo();
+    else void performNotepadRedo();
+    return;
+  }
+
+  pendingNotepadInput = {
+    target: event.currentTarget,
+    before: notepadData.value,
+    beforeSelection: getNotepadDocumentSelection(
+      lineIndex,
+      event.currentTarget,
+    ),
+  };
 };
 
 const handleNotepadDocumentInput = (event) => {
   const before = notepadData.value;
-  const offset = event.currentTarget.selectionStart;
   const after = event.currentTarget.value;
-  registerNotepadDeletion(before, after, event);
-  notepadData.value = after;
-  leaveNotepadDocumentSelection(offset);
+  const afterSelection = getNotepadDocumentSelection(null, event.currentTarget);
+  const beforeSelection =
+    pendingNotepadInput?.target === event.currentTarget &&
+    pendingNotepadInput.before === before
+      ? pendingNotepadInput.beforeSelection
+      : inferNotepadSelectionBeforeInput(before, after);
+  pendingNotepadInput = null;
+  commitNotepadEdit(after, {
+    before,
+    beforeSelection,
+    afterSelection,
+    inputType: event.inputType,
+    forceNewGroup: !isMergeableNotepadInputType(event.inputType),
+  });
+  leaveNotepadDocumentSelection(afterSelection.end);
 };
 
 const finishNotepadDocumentSelection = (event) => {
@@ -633,12 +786,14 @@ const finishNotepadDocumentSelection = (event) => {
 };
 
 const blurNotepadDocumentSelection = (event) => {
+  notepadHistory.breakGroup();
   leaveNotepadDocumentSelection(event.currentTarget.selectionStart, {
     focus: false,
   });
 };
 
 const activateNotepadLine = (lineIndex) => {
+  notepadHistory.breakGroup();
   focusNotepadLine(lineIndex);
 };
 
@@ -664,13 +819,28 @@ const updateNotepadLine = (lineIndex, event) => {
   const selectionEnd = event.target.selectionEnd;
   const replacementLines = value.split("\n");
   const lines = [...notepadLines.value];
-  const lineStart = lines
-    .slice(0, lineIndex)
-    .reduce((offset, line) => offset + line.length + 1, 0);
+  const lineStart = getNotepadLineStart(lineIndex);
   lines.splice(lineIndex, 1, ...replacementLines);
   const after = lines.join("\n");
-  registerNotepadDeletion(before, after, event, lineStart + cursor);
-  notepadData.value = after;
+  const afterSelection = {
+    start: lineStart + cursor,
+    end: lineStart + selectionEnd,
+    direction:
+      event.target.selectionDirection === "backward" ? "backward" : "forward",
+  };
+  const beforeSelection =
+    pendingNotepadInput?.target === event.currentTarget &&
+    pendingNotepadInput.before === before
+      ? pendingNotepadInput.beforeSelection
+      : inferNotepadSelectionBeforeInput(before, after);
+  pendingNotepadInput = null;
+  commitNotepadEdit(after, {
+    before,
+    beforeSelection,
+    afterSelection,
+    inputType: event.inputType,
+    forceNewGroup: !isMergeableNotepadInputType(event.inputType),
+  });
 
   if (replacementLines.length > 1) {
     const beforeCursor = value.slice(0, cursor).split("\n");
@@ -692,13 +862,26 @@ const updateNotepadLine = (lineIndex, event) => {
 const splitNotepadLine = (lineIndex, event) => {
   event.preventDefault();
   const textarea = event.currentTarget;
+  const before = notepadData.value;
+  const lineStart = getNotepadLineStart(lineIndex);
   const line = notepadLines.value[lineIndex] ?? "";
   const start = textarea.selectionStart;
   const end = textarea.selectionEnd;
   const lines = [...notepadLines.value];
   lines.splice(lineIndex, 1, line.slice(0, start), line.slice(end));
-  notepadData.value = lines.join("\n");
-  redoStack.value = [];
+  const after = lines.join("\n");
+  const afterCursor = lineStart + start + 1;
+  commitNotepadEdit(after, {
+    before,
+    beforeSelection: getNotepadDocumentSelection(lineIndex, textarea),
+    afterSelection: {
+      start: afterCursor,
+      end: afterCursor,
+      direction: "forward",
+    },
+    inputType: "insertParagraph",
+    forceNewGroup: true,
+  });
   focusNotepadLine(lineIndex + 1, 0);
 };
 
@@ -714,6 +897,7 @@ const mergeNotepadLineBackward = (lineIndex, event) => {
 
   event.preventDefault();
   const before = notepadData.value;
+  const beforeSelection = getNotepadDocumentSelection(lineIndex, textarea);
   const lines = [...notepadLines.value];
   const previousLineStart = lines
     .slice(0, lineIndex - 1)
@@ -725,13 +909,18 @@ const mergeNotepadLineBackward = (lineIndex, event) => {
     lines[lineIndex - 1] + lines[lineIndex],
   );
   const after = lines.join("\n");
-  registerNotepadDeletion(
+  const afterCursor = previousLineStart + previousLength;
+  commitNotepadEdit(after, {
     before,
     after,
-    event,
-    previousLineStart + previousLength,
-  );
-  notepadData.value = after;
+    beforeSelection,
+    afterSelection: {
+      start: afterCursor,
+      end: afterCursor,
+      direction: "forward",
+    },
+    inputType: "deleteContentBackward",
+  });
   focusNotepadLine(lineIndex - 1, previousLength);
 };
 
@@ -748,14 +937,24 @@ const mergeNotepadLineForward = (lineIndex, event) => {
 
   event.preventDefault();
   const before = notepadData.value;
+  const beforeSelection = getNotepadDocumentSelection(lineIndex, textarea);
   const lines = [...notepadLines.value];
   const lineStart = lines
     .slice(0, lineIndex)
     .reduce((offset, item) => offset + item.length + 1, 0);
   lines.splice(lineIndex, 2, lines[lineIndex] + lines[lineIndex + 1]);
   const after = lines.join("\n");
-  registerNotepadDeletion(before, after, event, lineStart + line.length);
-  notepadData.value = after;
+  const afterCursor = lineStart + line.length;
+  commitNotepadEdit(after, {
+    before,
+    beforeSelection,
+    afterSelection: {
+      start: afterCursor,
+      end: afterCursor,
+      direction: "forward",
+    },
+    inputType: "deleteContentForward",
+  });
   focusNotepadLine(lineIndex, line.length);
 };
 
@@ -772,6 +971,7 @@ const NOTEPAD_TAB_SIZE = 2;
 const handleNotepadTab = (lineIndex, event) => {
   event.preventDefault();
   const textarea = event.currentTarget;
+  const beforeSelection = getNotepadDocumentSelection(lineIndex, textarea);
   const value = textarea.value;
   const start = textarea.selectionStart;
   const end = textarea.selectionEnd;
@@ -839,13 +1039,18 @@ const handleNotepadTab = (lineIndex, event) => {
     after = lines.join("\n");
   }
 
-  registerNotepadDeletion(
+  commitNotepadEdit(after, {
     before,
-    after,
-    event,
-    documentOffset + selectionStart,
-  );
-  notepadData.value = after;
+    beforeSelection,
+    afterSelection: {
+      start: documentOffset + selectionStart,
+      end: documentOffset + selectionEnd,
+      direction:
+        textarea.selectionDirection === "backward" ? "backward" : "forward",
+    },
+    inputType: event.shiftKey ? "formatOutdent" : "formatIndent",
+    forceNewGroup: true,
+  });
 
   nextTick(() => {
     const editor = notepadTextarea.value;
@@ -857,6 +1062,21 @@ const handleNotepadTab = (lineIndex, event) => {
 };
 
 const handleNotepadLineKeydown = (lineIndex, event) => {
+  if (
+    [
+      "ArrowLeft",
+      "ArrowRight",
+      "ArrowUp",
+      "ArrowDown",
+      "Home",
+      "End",
+      "PageUp",
+      "PageDown",
+    ].includes(event.key)
+  ) {
+    notepadHistory.breakGroup();
+  }
+
   switch (event.key) {
     case "Tab":
       handleNotepadTab(lineIndex, event);
@@ -943,22 +1163,79 @@ const insertFormat = (format) => {
     }
   }
 
-  // Update State
-  notepadData.value =
-    text.substring(0, start) + insertion + text.substring(end);
-  redoStack.value = [];
+  const after = text.substring(0, start) + insertion + text.substring(end);
+  commitNotepadEdit(after, {
+    before: text,
+    beforeSelection: {
+      start,
+      end,
+      direction:
+        textarea.selectionDirection === "backward" ? "backward" : "forward",
+    },
+    afterSelection: {
+      start: newCursorPos,
+      end: newCursorPos,
+      direction: "forward",
+    },
+    inputType: `format-${format}`,
+    forceNewGroup: true,
+  });
 
   isNotepadSelectingAll.value = false;
   setNotepadCursorFromOffset(newCursorPos);
 };
 
+const persistNotepadHistoryChange = async () => {
+  await flushNotepadSave();
+};
+
+const performNotepadUndo = async () => {
+  const result = notepadHistory.undo(notepadData.value);
+  if (!result) return;
+
+  notepadData.value = result.value;
+  advanceNotepadRevision();
+  notifyNotepadHistoryChanged();
+  setNotepadSelection(result.selection);
+  await persistNotepadHistoryChange();
+};
+
+const performNotepadRedo = async () => {
+  const result = notepadHistory.redo(notepadData.value);
+  if (!result) return;
+
+  notepadData.value = result.value;
+  advanceNotepadRevision();
+  notifyNotepadHistoryChanged();
+  setNotepadSelection(result.selection);
+  await persistNotepadHistoryChange();
+};
+
 // keyboard shortcuts
 const handleKeyboardShortcuts = (e) => {
-  const isNotepadFocused = document.activeElement === notepadTextarea.value;
+  const isNotepadFocused = Boolean(
+    e.target?.closest?.(".notepad-live-editor") ||
+      document.activeElement === notepadTextarea.value,
+  );
 
   if (isNotepadFocused) {
     const hasCommandModifier = (e.ctrlKey || e.metaKey) && !e.altKey;
     const key = e.key.toLowerCase();
+
+    if (
+      hasCommandModifier &&
+      ((key === "z" && !e.shiftKey) || (key === "y" && !e.shiftKey))
+    ) {
+      e.preventDefault();
+      if (key === "z") void performNotepadUndo();
+      else void performNotepadRedo();
+      return;
+    }
+    if (hasCommandModifier && key === "z" && e.shiftKey) {
+      e.preventDefault();
+      void performNotepadRedo();
+      return;
+    }
 
     // Select the complete note, including lines currently rendered as Markdown.
     if (hasCommandModifier && e.shiftKey && key === "a") {
@@ -1685,7 +1962,51 @@ const startStickyNoteDrag = (event, note, iconDiv) => {
 };
 
 // undo/redo functions
+const revealAnnotationHistoryTarget = async (
+  annotation,
+  { isPresent = true, focusEditor = false } = {},
+) => {
+  if (!annotation || !Number.isInteger(Number(annotation.page))) return;
+  const page = Number(annotation.page);
+  const y =
+    annotation.type === "highlight"
+      ? annotation.rects?.[0]?.y ?? 0
+      : annotation.y ?? 0;
+
+  if (annotation.type === "highlight") {
+    activeHighlightId.value = isPresent ? annotation.id : null;
+    activeStickyNoteId.value = null;
+    changeSidebarTab("highlights");
+  } else if (annotation.type === "stickyNote") {
+    activeStickyNoteId.value = isPresent ? annotation.id : null;
+    activeHighlightId.value = null;
+    changeSidebarTab("stickyNotes");
+  }
+  if (!isSidebarPoppedOut.value) ensureSidebarOpen();
+
+  if (isSidebarPopout && window.electronAPI?.revealSidebarAnnotation) {
+    window.electronAPI.revealSidebarAnnotation({
+      documentId: String(id),
+      type: annotation.type,
+      annotationId: annotation.id,
+      page,
+      y,
+    });
+  } else {
+    scrollToPagePosition(page, y, { align: "center" });
+  }
+
+  if (focusEditor && annotation.type === "stickyNote") {
+    await focusStickyNoteEditor(annotation.id);
+  }
+};
+
 const performUndo = async () => {
+  if (focusedSidebarTab.value === "notepad") {
+    await performNotepadUndo();
+    return;
+  }
+
   const action = undoStack.value.pop();
   if (!action) return;
 
@@ -1695,19 +2016,13 @@ const performUndo = async () => {
     return;
   }
 
-  if (action.type === "notepad-delete") {
-    notepadData.value = action.before;
-    isNotepadSelectingAll.value = false;
-    setNotepadCursorFromOffset(action.cursor);
-    redoStack.value.push(action);
-    await saveAnnotationsToBackend();
-    return;
-  }
-
   if (action.type === "sticky-note-content-delete") {
     const note = stickyNoteData.value.find((item) => item.id === action.noteId);
     if (note) note.content = action.before;
     redoStack.value.push(action);
+    if (note) {
+      await revealAnnotationHistoryTarget(note, { focusEditor: true });
+    }
     await saveAnnotationsToBackend();
     return;
   }
@@ -1738,6 +2053,7 @@ const performUndo = async () => {
         activeStickyNoteId.value = null;
     }
     redoStack.value.push(action);
+    await revealAnnotationHistoryTarget(action.data, { isPresent: false });
   } else if (action.type === "delete") {
     // Inverse of Delete is Add
     if (action.data.type === "highlight") {
@@ -1764,11 +2080,17 @@ const performUndo = async () => {
       if (textLayer) renderStickyNote(action.data, textLayer);
     }
     redoStack.value.push(action);
+    await revealAnnotationHistoryTarget(action.data);
   }
   await saveAnnotationsToBackend();
 };
 
 const performRedo = async () => {
+  if (focusedSidebarTab.value === "notepad") {
+    await performNotepadRedo();
+    return;
+  }
+
   const action = redoStack.value.pop();
   if (!action) return;
 
@@ -1778,19 +2100,13 @@ const performRedo = async () => {
     return;
   }
 
-  if (action.type === "notepad-delete") {
-    notepadData.value = action.after;
-    isNotepadSelectingAll.value = false;
-    setNotepadCursorFromOffset(action.cursor);
-    undoStack.value.push(action);
-    await saveAnnotationsToBackend();
-    return;
-  }
-
   if (action.type === "sticky-note-content-delete") {
     const note = stickyNoteData.value.find((item) => item.id === action.noteId);
     if (note) note.content = action.after;
     undoStack.value.push(action);
+    if (note) {
+      await revealAnnotationHistoryTarget(note, { focusEditor: true });
+    }
     await saveAnnotationsToBackend();
     return;
   }
@@ -1806,6 +2122,7 @@ const performRedo = async () => {
       if (textLayer) renderStickyNote(action.data, textLayer);
     }
     undoStack.value.push(action);
+    await revealAnnotationHistoryTarget(action.data);
   } else if (action.type === "delete") {
     if (action.data.type === "highlight") {
       savedHighlights.value = savedHighlights.value.filter(
@@ -1832,29 +2149,44 @@ const performRedo = async () => {
         activeStickyNoteId.value = null;
     }
     undoStack.value.push(action);
+    await revealAnnotationHistoryTarget(action.data, { isPresent: false });
   }
   await saveAnnotationsToBackend();
 };
 
 // general function to update annotations to backend
-async function saveAnnotationsToBackend() {
-  try {
-    await $fetch(`${apiBaseURL}/annotations/`, {
-      method: "POST",
-      body: {
-        document: id,
-        highlight_data: savedHighlights.value,
-        notepad: notepadData.value,
-        sticky_note_data: stickyNoteData.value,
-      },
-    });
-  } catch (e) {
-    console.error("Failed to save annotation", e);
-  }
+let annotationSaveQueue = Promise.resolve();
+
+function saveAnnotationsToBackend() {
+  // Snapshot now and serialize writes so rapid undo/redo cannot let an older,
+  // slower request overwrite a newer note on the backend.
+  const body = {
+    document: id,
+    highlight_data: JSON.parse(JSON.stringify(savedHighlights.value)),
+    notepad: notepadData.value,
+    sticky_note_data: JSON.parse(JSON.stringify(stickyNoteData.value)),
+  };
+  const request = annotationSaveQueue.then(async () => {
+    try {
+      await $fetch(`${apiBaseURL}/annotations/`, {
+        method: "POST",
+        body,
+      });
+      return true;
+    } catch (e) {
+      console.error("Failed to save annotation", e);
+      return false;
+    }
+  });
+  annotationSaveQueue = request.then(() => undefined);
+  return request;
 }
 
 // Gets annotations from backend and loads into state vars
+let isHydratingAnnotations = false;
+
 async function fetchAnnotations() {
+  isHydratingAnnotations = true;
   try {
     const data = await $fetch(`${apiBaseURL}/annotations/${id}/`, {
       method: "GET",
@@ -1866,6 +2198,8 @@ async function fetchAnnotations() {
     }
   } catch (e) {
     console.warn("No existing annotations found or failed to fetch", e);
+  } finally {
+    isHydratingAnnotations = false;
   }
 }
 
@@ -1947,6 +2281,16 @@ const focusedSidebarTab = computed(() =>
   isSidebarSplit.value && focusedSidebarPane.value === "secondary"
     ? sidebarSecondaryTab.value
     : sidebarActiveTab.value,
+);
+const canUndoActiveContext = computed(() =>
+  focusedSidebarTab.value === "notepad"
+    ? canUndoNotepad.value
+    : undoStack.value.length > 0,
+);
+const canRedoActiveContext = computed(() =>
+  focusedSidebarTab.value === "notepad"
+    ? canRedoNotepad.value
+    : redoStack.value.length > 0,
 );
 const persistSidebarActiveTab = () => {
   try {
@@ -2185,6 +2529,17 @@ const sidebarScaleStyle = computed(() => ({
 let sidebarSyncChannel = null;
 let isApplyingSidebarSync = false;
 
+const normalizeNotepadRevision = (revision) => ({
+  counter: Number.isSafeInteger(revision?.counter)
+    ? Math.max(0, revision.counter)
+    : 0,
+  source: typeof revision?.source === "string" ? revision.source : "",
+});
+
+const isNewerNotepadRevision = (incoming, current) =>
+  incoming.counter > current.counter ||
+  (incoming.counter === current.counter && incoming.source > current.source);
+
 const cloneForSidebarSync = (value) => JSON.parse(JSON.stringify(value));
 
 const postSidebarState = () => {
@@ -2196,6 +2551,8 @@ const postSidebarState = () => {
     highlights: cloneForSidebarSync(savedHighlights.value),
     stickyNotes: cloneForSidebarSync(stickyNoteData.value),
     notepad: notepadData.value,
+    notepadRevision: { ...notepadRevision },
+    notepadHistory: notepadHistory.exportState(notepadData.value),
     currentPage: currentPage.value,
     capturedSelection: capturedSelection.value,
     capturedSelectionPage: capturedSelectionPage.value,
@@ -2204,53 +2561,79 @@ const postSidebarState = () => {
 
 const applySidebarState = async (message) => {
   isApplyingSidebarSync = true;
-  if (SIDEBAR_TAB_IDS.has(message.activeTab)) {
-    if (
-      isSidebarSplit.value &&
-      message.activeTab === sidebarSecondaryTab.value
-    ) {
-      focusedSidebarPane.value = "secondary";
-    } else {
-      sidebarActiveTab.value = message.activeTab;
-      focusedSidebarPane.value = "primary";
-      persistSidebarActiveTab();
+  let receivedNotepadUpdate = false;
+  try {
+    if (SIDEBAR_TAB_IDS.has(message.activeTab)) {
+      if (
+        isSidebarSplit.value &&
+        message.activeTab === sidebarSecondaryTab.value
+      ) {
+        focusedSidebarPane.value = "secondary";
+      } else {
+        sidebarActiveTab.value = message.activeTab;
+        focusedSidebarPane.value = "primary";
+        persistSidebarActiveTab();
+      }
     }
-  }
-  if (Number.isFinite(message.fontScale)) {
-    sidebarFontScale.value = Math.min(
-      SIDEBAR_FONT_MAX,
-      Math.max(SIDEBAR_FONT_MIN, message.fontScale),
-    );
-    persistSidebarFontScale();
-  }
-  if (Array.isArray(message.highlights)) {
-    savedHighlights.value = message.highlights;
-  }
-  if (Array.isArray(message.stickyNotes)) {
-    stickyNoteData.value = message.stickyNotes;
-  }
-  if (typeof message.notepad === "string") {
-    notepadData.value = message.notepad;
-  }
-  if (isSidebarPopout && Number.isInteger(message.currentPage)) {
-    currentPage.value = message.currentPage;
-  }
-  if (isSidebarPopout && typeof message.capturedSelection === "string") {
-    capturedSelection.value = message.capturedSelection;
-    capturedSelectionPage.value = Number.isInteger(message.capturedSelectionPage)
-      ? message.capturedSelectionPage
-      : null;
-  }
+    if (Number.isFinite(message.fontScale)) {
+      sidebarFontScale.value = Math.min(
+        SIDEBAR_FONT_MAX,
+        Math.max(SIDEBAR_FONT_MIN, message.fontScale),
+      );
+      persistSidebarFontScale();
+    }
+    if (Array.isArray(message.highlights)) {
+      savedHighlights.value = message.highlights;
+    }
+    if (Array.isArray(message.stickyNotes)) {
+      stickyNoteData.value = message.stickyNotes;
+    }
 
-  if (!isSidebarPopout) {
+    const incomingNotepadRevision = normalizeNotepadRevision(
+      message.notepadRevision,
+    );
+    if (
+      typeof message.notepad === "string" &&
+      isNewerNotepadRevision(incomingNotepadRevision, notepadRevision)
+    ) {
+      notepadData.value = message.notepad;
+      receivedNotepadUpdate = true;
+      notepadRevision.counter = incomingNotepadRevision.counter;
+      notepadRevision.source = incomingNotepadRevision.source;
+      if (
+        !notepadHistory.importState(message.notepadHistory, message.notepad)
+      ) {
+        notepadHistory.clear();
+      }
+      notifyNotepadHistoryChanged();
+    }
+    if (isSidebarPopout && Number.isInteger(message.currentPage)) {
+      currentPage.value = message.currentPage;
+    }
+    if (isSidebarPopout && typeof message.capturedSelection === "string") {
+      capturedSelection.value = message.capturedSelection;
+      capturedSelectionPage.value = Number.isInteger(
+        message.capturedSelectionPage,
+      )
+        ? message.capturedSelectionPage
+        : null;
+    }
+
+    if (!isSidebarPopout) {
+      await nextTick();
+      Array.from(visiblePages.value).forEach((pageNum) => {
+        queuePageRender(pageNum, true);
+      });
+      processRenderQueue();
+    }
     await nextTick();
-    Array.from(visiblePages.value).forEach((pageNum) => {
-      queuePageRender(pageNum, true);
-    });
-    processRenderQueue();
+  } finally {
+    isApplyingSidebarSync = false;
   }
-  await nextTick();
-  isApplyingSidebarSync = false;
+  // The window where the edit originated owns the debounced write. The main
+  // viewer keeps a pending backup and flushes it when the popup closes; this
+  // avoids cross-window requests racing out of order against rapid undo/redo.
+  if (receivedNotepadUpdate && !isSidebarPopout) markNotepadSavePending();
 };
 
 const setupSidebarSync = () => {
@@ -2781,13 +3164,43 @@ const parseChatInputParts = (text) => {
 // Sidebar functions
 // Notepad
 let saveNotepadDebounce = null;
-watch(notepadData, () => {
-  if (isApplyingSidebarSync) return;
+let notepadSaveGeneration = 0;
+let savedNotepadGeneration = 0;
+
+const flushNotepadSave = async () => {
   if (saveNotepadDebounce) clearTimeout(saveNotepadDebounce);
-  saveNotepadDebounce = setTimeout(() => {
-    saveAnnotationsToBackend();
-  }, 1500);
-});
+  saveNotepadDebounce = null;
+  const generation = notepadSaveGeneration;
+  if (generation <= savedNotepadGeneration) return true;
+
+  const saved = await saveAnnotationsToBackend();
+  if (saved) {
+    savedNotepadGeneration = Math.max(savedNotepadGeneration, generation);
+  }
+  if (savedNotepadGeneration < notepadSaveGeneration && !saveNotepadDebounce) {
+    saveNotepadDebounce = setTimeout(flushNotepadSave, 1500);
+  }
+  return saved;
+};
+
+const scheduleNotepadSave = () => {
+  notepadSaveGeneration += 1;
+  if (saveNotepadDebounce) clearTimeout(saveNotepadDebounce);
+  saveNotepadDebounce = setTimeout(flushNotepadSave, 1500);
+};
+
+const markNotepadSavePending = () => {
+  notepadSaveGeneration += 1;
+};
+
+watch(
+  notepadData,
+  () => {
+    if (isApplyingSidebarSync || isHydratingAnnotations) return;
+    scheduleNotepadSave();
+  },
+  { flush: "sync" },
+);
 
 let saveStickyDebounce = null;
 watch(
@@ -2947,6 +3360,7 @@ const popOutSidebar = async () => {
 };
 
 const returnSidebarToViewer = async () => {
+  await flushNotepadSave();
   if (window.electronAPI?.closeSidebarPopout) {
     await window.electronAPI.closeSidebarPopout();
   } else {
@@ -3413,8 +3827,10 @@ let removeRevealAnnotationListener = null;
 
 onMounted(async () => {
   try {
-    setupSidebarSync();
     document.addEventListener("keydown", handleSidebarSplitNavigation);
+    document.addEventListener("keydown", handleKeyboardShortcuts);
+
+    if (!isSidebarPopout) setupSidebarSync();
 
     if (!isSidebarPopout) {
       removeSidebarClosedListener =
@@ -3423,6 +3839,7 @@ onMounted(async () => {
           isSidebarPoppedOut.value = false;
           isSidebarOpen.value = true;
           persistSidebarOpen();
+          void flushNotepadSave();
         }) ?? null;
       removeRevealAnnotationListener =
         window.electronAPI?.onRevealSidebarAnnotation?.((payload) => {
@@ -3445,6 +3862,9 @@ onMounted(async () => {
 
     if (isSidebarPopout) {
       await Promise.all([fetchAnnotations(), fetchPaperTitle()]);
+      // Fetch first so a late backend response cannot overwrite the newer
+      // viewer state (and its undo history) received over BroadcastChannel.
+      setupSidebarSync();
       loading.value = false;
       return;
     }
@@ -3468,7 +3888,6 @@ onMounted(async () => {
     mainScrollContainer.value?.addEventListener("scroll", handleMainScroll, {
       passive: true,
     });
-    document.addEventListener("keydown", handleKeyboardShortcuts);
     document.addEventListener("mouseup", handleTextSelection);
     document.addEventListener("pointerdown", handleDocumentPointerDown);
     document.addEventListener("click", restoreReaderFocusAfterInteraction);
@@ -3502,7 +3921,7 @@ onUnmounted(() => {
   if (searchDebounce) clearTimeout(searchDebounce);
   if (pageUpdateDebounce) clearTimeout(pageUpdateDebounce);
   if (activeContextDebounce) clearTimeout(activeContextDebounce);
-  if (saveNotepadDebounce) clearTimeout(saveNotepadDebounce);
+  if (saveNotepadDebounce) void flushNotepadSave();
   if (syntaxHighlightDebounce) clearTimeout(syntaxHighlightDebounce);
   if (saveStickyDebounce) clearTimeout(saveStickyDebounce);
   if (observer) observer.disconnect();
@@ -3764,7 +4183,7 @@ watch(currentPage, (page) => {
             class="tool-btn"
             title="Undo"
             @click="performUndo"
-            :disabled="undoStack.length === 0"
+            :disabled="!canUndoActiveContext"
           >
             <Icon name="ph:arrow-u-up-left" class="h-5 w-5" />
           </button>
@@ -3772,7 +4191,7 @@ watch(currentPage, (page) => {
             class="tool-btn"
             title="Redo"
             @click="performRedo"
-            :disabled="redoStack.length === 0"
+            :disabled="!canRedoActiveContext"
           >
             <Icon name="ph:arrow-u-up-right" class="h-5 w-5" />
           </button>
@@ -4347,6 +4766,27 @@ watch(currentPage, (page) => {
             <div class="flex gap-1">
               <button
                 @mousedown.prevent
+                @click="performNotepadUndo"
+                class="toolbar-btn"
+                :disabled="!canUndoNotepad"
+                title="Undo (Ctrl+Z)"
+                aria-label="Undo notepad edit"
+              >
+                <Icon name="ph:arrow-u-up-left" class="w-4 h-4" />
+              </button>
+              <button
+                @mousedown.prevent
+                @click="performNotepadRedo"
+                class="toolbar-btn"
+                :disabled="!canRedoNotepad"
+                title="Redo (Ctrl+Shift+Z)"
+                aria-label="Redo notepad edit"
+              >
+                <Icon name="ph:arrow-u-up-right" class="w-4 h-4" />
+              </button>
+              <div class="mx-1 w-px bg-slate-700"></div>
+              <button
+                @mousedown.prevent
                 @click="insertFormat('bold')"
                 class="toolbar-btn"
                 title="Bold (Ctrl+B)"
@@ -4433,9 +4873,11 @@ watch(currentPage, (page) => {
               class="notepad-document-editor"
               aria-label="Complete Markdown note selected"
               @input="handleNotepadDocumentInput"
+              @beforeinput="handleNotepadBeforeInput(null, $event)"
               @mouseup="finishNotepadDocumentSelection"
               @keyup="finishNotepadDocumentSelection"
               @blur="blurNotepadDocumentSelection"
+              @pointerdown="notepadHistory.breakGroup()"
               @keydown.tab="handleNotepadTab(null, $event)"
               @keydown.escape.prevent="
                 leaveNotepadDocumentSelection($event.currentTarget.selectionStart)
@@ -4479,7 +4921,9 @@ watch(currentPage, (page) => {
                   "
                   class="notepad-line-editor"
                   @input="updateNotepadLine(lineIndex, $event)"
+                  @beforeinput="handleNotepadBeforeInput(lineIndex, $event)"
                   @focus="activeNotepadLine = lineIndex"
+                  @pointerdown="notepadHistory.breakGroup()"
                   @keydown="handleNotepadLineKeydown(lineIndex, $event)"
                 ></textarea>
                 <div
@@ -5173,6 +5617,16 @@ watch(currentPage, (page) => {
 .toolbar-btn:hover {
   background-color: #334155;
   color: #f8fafc;
+}
+
+.toolbar-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.toolbar-btn:disabled:hover {
+  background-color: transparent;
+  color: #94a3b8;
 }
 
 .prose {

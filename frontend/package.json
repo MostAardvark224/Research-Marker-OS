@@ -18,6 +18,7 @@
     "generate": "nuxt generate --dotenv .env.prod",
     "build": "pnpm run generate && electron-builder --publish always",
     "build:local": "pnpm run generate && electron-builder --publish never",
+    "test:notepad-history": "node --test app/utils/notepadHistory.test.js",
     "test:electron-security": "node --test electron/security.test.cjs",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
