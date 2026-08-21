@@ -530,11 +530,18 @@ function createWindow() {
     scheduleSplashFallback();
   });
 
-  mainWindow.on("closed", () => {
-    mainWindow = null;
+  const closeSidebarWithMainWindow = () => {
     if (sidebarWindow && !sidebarWindow.isDestroyed()) {
       sidebarWindow.close();
     }
+  };
+
+  // Begin closing the auxiliary window as soon as the main application window
+  // closes. Otherwise it can keep Electron alive as the last open window.
+  mainWindow.on("close", closeSidebarWithMainWindow);
+  mainWindow.on("closed", () => {
+    closeSidebarWithMainWindow();
+    mainWindow = null;
   });
 }
 
@@ -634,7 +641,12 @@ ipcMain.handle("sidebar:close-popout", (event) => {
   if (!sidebarWindow || sidebarWindow.isDestroyed()) {
     return { ok: false };
   }
-  if (event.sender.id !== sidebarWindow.webContents.id) {
+  const isSidebarSender = event.sender.id === sidebarWindow.webContents.id;
+  const isMainSender =
+    mainWindow &&
+    !mainWindow.isDestroyed() &&
+    event.sender.id === mainWindow.webContents.id;
+  if (!isSidebarSender && !isMainSender) {
     return { ok: false };
   }
   sidebarWindow.close();
@@ -746,6 +758,11 @@ app.whenReady().then(() => {
 });
 
 app.on("will-quit", () => {
+  if (sidebarWindow && !sidebarWindow.isDestroyed()) {
+    sidebarWindow.destroy();
+    sidebarWindow = null;
+    sidebarDocumentId = null;
+  }
   if (updateCheckTimer) {
     clearInterval(updateCheckTimer);
     updateCheckTimer = null;

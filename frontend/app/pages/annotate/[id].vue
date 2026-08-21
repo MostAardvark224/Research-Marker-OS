@@ -3919,7 +3919,11 @@ onUnmounted(() => {
   if (scrollEndDebounce) clearTimeout(scrollEndDebounce);
   if (zoomDebounce) clearTimeout(zoomDebounce);
   if (searchDebounce) clearTimeout(searchDebounce);
-  if (pageUpdateDebounce) clearTimeout(pageUpdateDebounce);
+  if (pageUpdateDebounce) {
+    clearTimeout(pageUpdateDebounce);
+    pageUpdateDebounce = null;
+    if (!isSidebarPopout) void postPage();
+  }
   if (activeContextDebounce) clearTimeout(activeContextDebounce);
   if (saveNotepadDebounce) void flushNotepadSave();
   if (syntaxHighlightDebounce) clearTimeout(syntaxHighlightDebounce);
@@ -4056,6 +4060,11 @@ async function publishActivePaperContext() {
 }
 
 async function postPage() {
+  // The pop-out reuses this route to render the sidebar, but it does not own
+  // reader state. Its hidden PDF viewer starts at DEFAULT_ZOOM, so allowing it
+  // to persist progress would overwrite the zoom selected in the main viewer.
+  if (isSidebarPopout) return;
+
   await Promise.all([
     $fetch(`${apiBaseURL}/documents/${id}/`, {
       method: "PATCH",
@@ -4070,6 +4079,15 @@ async function postPage() {
 
 let pageUpdateDebounce = null;
 let activeContextDebounce = null;
+const schedulePageUpdate = () => {
+  if (isSidebarPopout) return;
+  if (pageUpdateDebounce) clearTimeout(pageUpdateDebounce);
+  pageUpdateDebounce = setTimeout(() => {
+    pageUpdateDebounce = null;
+    postPage();
+  }, 5000);
+};
+
 watch(currentPage, (page) => {
   pageNumberInput.value = page;
 
@@ -4078,11 +4096,13 @@ watch(currentPage, (page) => {
     publishActivePaperContext();
   }, 300);
 
-  if (pageUpdateDebounce) clearTimeout(pageUpdateDebounce);
-  pageUpdateDebounce = setTimeout(() => {
-    postPage();
-  }, 5000);
+  schedulePageUpdate();
 });
+
+// Zoom is document progress too. Save it even when the reader stays on the
+// same page, while keeping the sidebar-only pop-out completely read-only with
+// respect to page and zoom state.
+watch(zoomLevel, schedulePageUpdate);
 </script>
 
 <template>
