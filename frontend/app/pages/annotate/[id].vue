@@ -27,6 +27,8 @@ const canPopOutSidebar =
   typeof window !== "undefined" && Boolean(window.electronAPI?.popOutSidebar);
 const DEFAULT_ZOOM = 200;
 const MAX_CANVAS_DEVICE_PIXEL_RATIO = 2.25;
+const SCROLL_CANVAS_DEVICE_PIXEL_RATIO = 1;
+const SCROLL_RENDER_SETTLE_MS = 120;
 const RENDERED_PAGE_BUFFER = 2;
 
 const loading = ref(true);
@@ -174,13 +176,32 @@ const isManualScrolling = ref(false);
 
 const renderTasks = {};
 const pageProxies = {};
-const activeRenderSignatures = new Map();
-const renderedPageSignatures = new Map();
+const activeRenderProfiles = new Map();
+const renderedPageProfiles = new Map();
 const queuedPageRenders = new Map();
 
 let isProcessingRenderQueue = false;
 let isUserScrolling = false;
 let scrollEndDebounce = null;
+let scrollRenderFrame = null;
+
+const getCanvasOutputScale = (duringScroll = isUserScrolling) =>
+  Math.min(
+    window.devicePixelRatio || 1,
+    duringScroll
+      ? SCROLL_CANVAS_DEVICE_PIXEL_RATIO
+      : MAX_CANVAS_DEVICE_PIXEL_RATIO,
+  );
+
+const renderProfileSatisfies = (
+  profile,
+  signature,
+  outputScale,
+  includeTextLayer,
+) =>
+  profile?.signature === signature &&
+  profile.outputScale >= outputScale &&
+  (!includeTextLayer || profile.includeTextLayer);
 
 const queuePageRender = (pageNum, force = false) => {
   const existingForce = queuedPageRenders.get(pageNum) || false;
@@ -189,12 +210,37 @@ const queuePageRender = (pageNum, force = false) => {
 
 const getNextQueuedPage = () => {
   let nextPage = null;
-  let bestDistance = Number.POSITIVE_INFINITY;
+  let bestPriority = null;
+  const scrollerRect = mainScrollContainer.value?.getBoundingClientRect();
 
-  queuedPageRenders.forEach((_force, pageNum) => {
-    const distance = Math.abs(pageNum - currentPage.value);
-    if (distance < bestDistance) {
-      bestDistance = distance;
+  queuedPageRenders.forEach((force, pageNum) => {
+    const pageRect = pageContainerRefs.value[
+      pageNum - 1
+    ]?.getBoundingClientRect();
+    const isInViewport = Boolean(
+      scrollerRect &&
+        pageRect &&
+        pageRect.bottom > scrollerRect.top &&
+        pageRect.top < scrollerRect.bottom,
+    );
+    const viewportDistance =
+      scrollerRect && pageRect
+        ? Math.abs(
+            (pageRect.top + pageRect.bottom) / 2 -
+              (scrollerRect.top + scrollerRect.bottom) / 2,
+          )
+        : Math.abs(pageNum - currentPage.value);
+    const priority = [force ? 0 : 1, isInViewport ? 0 : 1, viewportDistance];
+
+    if (
+      !bestPriority ||
+      priority[0] < bestPriority[0] ||
+      (priority[0] === bestPriority[0] && priority[1] < bestPriority[1]) ||
+      (priority[0] === bestPriority[0] &&
+        priority[1] === bestPriority[1] &&
+        priority[2] < bestPriority[2])
+    ) {
+      bestPriority = priority;
       nextPage = pageNum;
     }
   });
@@ -244,21 +290,36 @@ const releasePageRender = (pageNum) => {
     delete pageProxies[pageNum];
   }
 
-  renderedPageSignatures.delete(pageNum);
-  activeRenderSignatures.delete(pageNum);
+  renderedPageProfiles.delete(pageNum);
+  activeRenderProfiles.delete(pageNum);
 };
 
 const cleanupRenderedPages = () => {
-  Array.from(renderedPageSignatures.keys()).forEach((pageNum) => {
+  Array.from(renderedPageProfiles.keys()).forEach((pageNum) => {
     if (!isPageNearViewport(pageNum)) {
       releasePageRender(pageNum);
+    }
+  });
+
+  // A fast scroll can move past a queued or in-progress page before its
+  // render finishes. Drop that stale work so the newly visible page gets the
+  // renderer next, while keeping the existing adjacent-page memory bound.
+  queuedPageRenders.forEach((_force, pageNum) => {
+    if (!isPageNearViewport(pageNum)) {
+      queuedPageRenders.delete(pageNum);
+    }
+  });
+  Object.keys(renderTasks).forEach((pageNum) => {
+    const numericPage = Number(pageNum);
+    if (!isPageNearViewport(numericPage)) {
+      releasePageRender(numericPage);
     }
   });
 };
 
 const releaseAllRenderedPages = () => {
   Object.keys(renderTasks).forEach((pageNum) => releasePageRender(Number(pageNum)));
-  Array.from(renderedPageSignatures.keys()).forEach((pageNum) =>
+  Array.from(renderedPageProfiles.keys()).forEach((pageNum) =>
     releasePageRender(pageNum),
   );
   // Free any proxies that were fetched but not tracked by a render/signature.
@@ -269,13 +330,11 @@ const releaseAllRenderedPages = () => {
 };
 
 const processRenderQueue = async () => {
-  if (isProcessingRenderQueue || isUserScrolling) return;
+  if (isProcessingRenderQueue) return;
   isProcessingRenderQueue = true;
 
   try {
     while (queuedPageRenders.size > 0) {
-      if (isUserScrolling) break;
-
       const nextPage = getNextQueuedPage();
       if (nextPage === null) break;
 
@@ -283,6 +342,7 @@ const processRenderQueue = async () => {
       queuedPageRenders.delete(nextPage);
 
       await renderPage(nextPage, force);
+      cleanupRenderedPages();
       await waitForFrame();
     }
   } finally {
@@ -290,7 +350,7 @@ const processRenderQueue = async () => {
     cleanupRenderedPages();
   }
 
-  if (!isUserScrolling && queuedPageRenders.size > 0) {
+  if (queuedPageRenders.size > 0) {
     setTimeout(() => {
       processRenderQueue();
     }, 0);
@@ -299,13 +359,51 @@ const processRenderQueue = async () => {
 
 const handleMainScroll = () => {
   closeTextSelectionMenu();
+  const wasScrolling = isUserScrolling;
   isUserScrolling = true;
+
+  if (!wasScrolling) {
+    const previewOutputScale = getCanvasOutputScale(true);
+    Object.keys(renderTasks).forEach((pageNum) => {
+      const numericPage = Number(pageNum);
+      const profile = activeRenderProfiles.get(numericPage);
+      if (
+        profile?.includeTextLayer ||
+        profile?.outputScale > previewOutputScale
+      ) {
+        const shouldRequeue = isPageNearViewport(numericPage);
+        if (profile?.preserveExistingCanvas) {
+          renderTasks[numericPage]?.cancel?.();
+          delete renderTasks[numericPage];
+          activeRenderProfiles.delete(numericPage);
+        } else {
+          releasePageRender(numericPage);
+        }
+        if (shouldRequeue) queuePageRender(numericPage);
+      }
+    });
+    Array.from(visiblePages.value).forEach((pageNum) => {
+      queuePageRender(pageNum);
+    });
+  }
+
+  if (scrollRenderFrame === null) {
+    scrollRenderFrame = requestAnimationFrame(() => {
+      scrollRenderFrame = null;
+      cleanupRenderedPages();
+      processRenderQueue();
+    });
+  }
   if (scrollEndDebounce) clearTimeout(scrollEndDebounce);
   scrollEndDebounce = setTimeout(() => {
     isUserScrolling = false;
+    Array.from(visiblePages.value).forEach((pageNum) => {
+      queuePageRender(pageNum);
+    });
+    queuePageRender(currentPage.value);
     cleanupRenderedPages();
     processRenderQueue();
-  }, 80);
+  }, SCROLL_RENDER_SETTLE_MS);
 };
 
 // KaTeX rendering for sticky notes.
@@ -3525,59 +3623,174 @@ async function renderPage(pageNum, force = false) {
 
   if (!canvas) return;
   const renderSignature = `${zoomLevel.value}|${searchQuery.value.trim().toLowerCase()}`;
+  const includeTextLayer = !isUserScrolling;
+  const outputScale = getCanvasOutputScale();
+  const existingProfile = renderedPageProfiles.get(pageNum);
+  const reuseExistingCanvas = Boolean(
+    includeTextLayer &&
+      existingProfile?.signature === renderSignature &&
+      existingProfile.outputScale >= outputScale &&
+      !existingProfile.includeTextLayer &&
+      canvas.width > 0 &&
+      canvas.height > 0,
+  );
+  const preserveExistingCanvas = Boolean(
+    existingProfile?.signature === renderSignature &&
+      existingProfile.outputScale < outputScale &&
+      canvas.width > 0 &&
+      canvas.height > 0,
+  );
 
-  if (!force && renderedPageSignatures.get(pageNum) === renderSignature) {
+  if (
+    !force &&
+    renderProfileSatisfies(
+      existingProfile,
+      renderSignature,
+      outputScale,
+      includeTextLayer,
+    )
+  ) {
     return;
   }
 
   if (renderTasks[pageNum]) {
-    const activeSignature = activeRenderSignatures.get(pageNum);
-    if (!force && activeSignature === renderSignature) {
+    const activeProfile = activeRenderProfiles.get(pageNum);
+    if (
+      !force &&
+      renderProfileSatisfies(
+        activeProfile,
+        renderSignature,
+        outputScale,
+        includeTextLayer,
+      )
+    ) {
       return renderTasks[pageNum].promise;
     }
     renderTasks[pageNum].cancel();
   }
 
+  let stagingCanvas = null;
+  let preservedCanvasProfile =
+    preserveExistingCanvas || reuseExistingCanvas ? existingProfile : null;
+  const discardStaleRender = () => {
+    const canKeepExistingCanvas =
+      preservedCanvasProfile &&
+      renderedPageProfiles.get(pageNum) === preservedCanvasProfile &&
+      isPageNearViewport(pageNum);
+
+    if (canKeepExistingCanvas) {
+      if (textLayerDiv) {
+        textLayerDiv.replaceChildren();
+        textLayerDiv.onclick = null;
+        textLayerDiv.removeAttribute("style");
+        textLayerDiv.removeAttribute("data-page-number");
+      }
+      return;
+    }
+
+    releasePageRender(pageNum);
+  };
+
   try {
     const page = await pdfDoc.getPage(pageNum);
     pageProxies[pageNum] = page;
+    if (!isPageNearViewport(pageNum)) {
+      page.cleanup?.();
+      delete pageProxies[pageNum];
+      return;
+    }
+    if (includeTextLayer && isUserScrolling) {
+      page.cleanup?.();
+      delete pageProxies[pageNum];
+      queuePageRender(pageNum);
+      return;
+    }
     const scale = zoomLevel.value / 100;
     const viewport = page.getViewport({ scale });
 
-    const outputScale = Math.min(
-      window.devicePixelRatio || 1,
-      MAX_CANVAS_DEVICE_PIXEL_RATIO,
-    );
-
-    const context = canvas.getContext("2d");
-
-    canvas.width = Math.floor(viewport.width * outputScale);
-    canvas.height = Math.floor(viewport.height * outputScale);
-
     const cssWidth = viewport.width + "px";
     const cssHeight = viewport.height + "px";
-
-    canvas.style.width = cssWidth;
-    canvas.style.height = cssHeight;
-
     const transform =
       outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : null;
+    let renderCanvas = canvas;
+    let renderTask;
 
-    const renderContext = {
-      canvasContext: context,
-      transform: transform,
-      viewport: viewport,
-      // Native PDF annotations may contain links, launch actions, file
-      // attachments, forms, and media. Research Marker renders only passive
-      // page content and its own separately managed annotation overlay.
-      annotationMode: pdfjsLib.AnnotationMode.DISABLE,
-    };
+    if (reuseExistingCanvas) {
+      renderTask = { promise: Promise.resolve(), cancel: () => {} };
+    } else {
+      // Refine a scrolling preview offscreen so the visible low-resolution
+      // canvas remains intact until its replacement is completely ready.
+      if (preserveExistingCanvas) {
+        stagingCanvas = document.createElement("canvas");
+        renderCanvas = stagingCanvas;
+      }
+      const context = renderCanvas.getContext("2d");
 
-    const renderTask = page.render(renderContext);
+      renderCanvas.width = Math.floor(viewport.width * outputScale);
+      renderCanvas.height = Math.floor(viewport.height * outputScale);
+
+      if (!preserveExistingCanvas) {
+        canvas.style.width = cssWidth;
+        canvas.style.height = cssHeight;
+      }
+
+      const renderContext = {
+        canvasContext: context,
+        transform: transform,
+        viewport: viewport,
+        // Native PDF annotations may contain links, launch actions, file
+        // attachments, forms, and media. Research Marker renders only passive
+        // page content and its own separately managed annotation overlay.
+        annotationMode: pdfjsLib.AnnotationMode.DISABLE,
+      };
+
+      renderTask = page.render(renderContext);
+    }
     renderTasks[pageNum] = renderTask;
-    activeRenderSignatures.set(pageNum, renderSignature);
+    activeRenderProfiles.set(pageNum, {
+      signature: renderSignature,
+      outputScale,
+      includeTextLayer,
+      preserveExistingCanvas: preserveExistingCanvas || reuseExistingCanvas,
+    });
 
     await renderTask.promise;
+    if (
+      renderTasks[pageNum] !== renderTask ||
+      !isPageNearViewport(pageNum)
+    ) {
+      discardStaleRender();
+      return;
+    }
+
+    if (preserveExistingCanvas) {
+      canvas.width = renderCanvas.width;
+      canvas.height = renderCanvas.height;
+      canvas.style.width = cssWidth;
+      canvas.style.height = cssHeight;
+      canvas.getContext("2d")?.drawImage(renderCanvas, 0, 0);
+      renderCanvas.width = 0;
+      renderCanvas.height = 0;
+    }
+
+    preservedCanvasProfile = {
+      signature: renderSignature,
+      outputScale,
+      includeTextLayer: false,
+    };
+    renderedPageProfiles.set(pageNum, preservedCanvasProfile);
+    const activeProfile = activeRenderProfiles.get(pageNum);
+    if (activeProfile) activeProfile.preserveExistingCanvas = true;
+
+    if (!includeTextLayer) {
+      if (textLayerDiv) {
+        textLayerDiv.replaceChildren();
+        textLayerDiv.onclick = null;
+        textLayerDiv.removeAttribute("style");
+        textLayerDiv.removeAttribute("data-page-number");
+      }
+      return;
+    }
 
     if (textLayerDiv) {
       textLayerDiv.innerHTML = "";
@@ -3593,6 +3806,13 @@ async function renderPage(pageNum, force = false) {
       textLayerDiv.onclick = (e) => handleLayerClick(e, pageNum);
 
       const textContent = await page.getTextContent();
+      if (
+        renderTasks[pageNum] !== renderTask ||
+        !isPageNearViewport(pageNum)
+      ) {
+        discardStaleRender();
+        return;
+      }
 
       const textLayer = new pdfjsLib.TextLayer({
         textContentSource: textContent,
@@ -3600,6 +3820,13 @@ async function renderPage(pageNum, force = false) {
         viewport: viewport,
       });
       await textLayer.render();
+      if (
+        renderTasks[pageNum] !== renderTask ||
+        !isPageNearViewport(pageNum)
+      ) {
+        discardStaleRender();
+        return;
+      }
 
       const pageHighlights = savedHighlights.value.filter(
         (h) => h.page === pageNum,
@@ -3628,23 +3855,31 @@ async function renderPage(pageNum, force = false) {
         });
       }
     }
-    renderedPageSignatures.set(pageNum, renderSignature);
+    renderedPageProfiles.set(pageNum, {
+      signature: renderSignature,
+      outputScale,
+      includeTextLayer: true,
+    });
   } catch (err) {
     if (err.name === "RenderingCancelledException") {
       return;
     }
     console.error(`Error rendering page ${pageNum}:`, err);
   } finally {
+    if (stagingCanvas) {
+      stagingCanvas.width = 0;
+      stagingCanvas.height = 0;
+    }
     delete renderTasks[pageNum];
-    activeRenderSignatures.delete(pageNum);
+    activeRenderProfiles.delete(pageNum);
   }
 }
 const pageSizes = ref([]);
 async function loadPdf(data) {
   try {
     releaseAllRenderedPages();
-    renderedPageSignatures.clear();
-    activeRenderSignatures.clear();
+    renderedPageProfiles.clear();
+    activeRenderProfiles.clear();
     queuedPageRenders.clear();
     visiblePages.value.clear();
     pageTextContent.value = {};
@@ -3917,6 +4152,7 @@ onUnmounted(() => {
   document.removeEventListener("click", restoreReaderFocusAfterInteraction);
   mainScrollContainer.value?.removeEventListener("scroll", handleMainScroll);
   if (scrollEndDebounce) clearTimeout(scrollEndDebounce);
+  if (scrollRenderFrame !== null) cancelAnimationFrame(scrollRenderFrame);
   if (zoomDebounce) clearTimeout(zoomDebounce);
   if (searchDebounce) clearTimeout(searchDebounce);
   if (pageUpdateDebounce) {
@@ -3947,13 +4183,46 @@ const pageTextContent = ref({});
 const isSearching = ref(false);
 let searchDebounce = null;
 
+const waitForPdfBackgroundIdle = async (targetPdfDoc) => {
+  while (pdfDoc === targetPdfDoc) {
+    if (
+      !isUserScrolling &&
+      !isProcessingRenderQueue &&
+      queuedPageRenders.size === 0
+    ) {
+      await new Promise((resolve) => {
+        if (typeof window.requestIdleCallback === "function") {
+          window.requestIdleCallback(() => resolve(), { timeout: 300 });
+        } else {
+          setTimeout(resolve, 0);
+        }
+      });
+
+      if (
+        !isUserScrolling &&
+        !isProcessingRenderQueue &&
+        queuedPageRenders.size === 0
+      ) {
+        return true;
+      }
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  return false;
+};
+
 async function extractAllText() {
   if (!pdfDoc) return;
-  const numPages = pdfDoc.numPages;
+  const targetPdfDoc = pdfDoc;
+  const numPages = targetPdfDoc.numPages;
 
   for (let i = 1; i <= numPages; i++) {
+    if (!(await waitForPdfBackgroundIdle(targetPdfDoc))) return;
+
     try {
-      const page = await pdfDoc.getPage(i);
+      const page = await targetPdfDoc.getPage(i);
       const textContent = await page.getTextContent();
       const pageStr = textContent.items.map((item) => item.str).join(" ");
       pageTextContent.value[i] = pageStr;
