@@ -198,9 +198,10 @@
                     </h3>
                   </div>
                   <div class="relative">
-                    <p class="text-[16px] text-slate-500 italic line-clamp-2">
-                      "{{ doc.content }}"
-                    </p>
+                    <p
+                      class="text-[16px] text-slate-500 italic line-clamp-2"
+                      v-html="renderQuotedAnnotationContent(doc.content)"
+                    ></p>
                     <div class="absolute bottom-0 right-0">
                       <Icon
                         name="uil:arrow-right"
@@ -242,9 +243,10 @@
                     </h3>
                   </div>
                   <div class="relative">
-                    <p class="text-[16px] text-slate-500 italic line-clamp-2">
-                      "{{ doc.content }}"
-                    </p>
+                    <p
+                      class="text-[16px] text-slate-500 italic line-clamp-2"
+                      v-html="renderQuotedAnnotationContent(doc.content)"
+                    ></p>
                     <div class="absolute bottom-0 right-0">
                       <Icon
                         name="uil:arrow-right"
@@ -731,6 +733,10 @@ import { marked } from "marked";
 import DOMPurify from "dompurify";
 import markedKatex from "marked-katex-extension";
 import "katex/dist/katex.min.css";
+import { renderAnnotationContent } from "../../utils/renderAnnotationContent.js";
+
+const renderQuotedAnnotationContent = (content) =>
+  renderAnnotationContent(`"${content ?? ""}"`);
 
 // settings for rendering AI chat
 marked.use(
@@ -1132,16 +1138,9 @@ const searchResults = computed(() => {
 
 // highlights matching text on template
 const highlightMatch = (text) => {
-  if (!searchQuery.value) return text;
+  if (!searchQuery.value) return renderAnnotationContent(text);
   const cleanTerm = searchQuery.value.replace(/@\w+\s?/g, "").trim();
-  if (!cleanTerm) return text;
-
-  const escapedTerm = cleanTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const regex = new RegExp(`(${escapedTerm})`, "gi");
-  return String(text || "").replace(
-    regex,
-    '<span class="text-green-400 font-bold bg-green-400/10 rounded px-1">$1</span>'
-  );
+  return renderAnnotationContent(text, { highlight: cleanTerm });
 };
 
 // when result card clicked, send to url

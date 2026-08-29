@@ -1,7 +1,6 @@
 <script setup>
 import { select } from "#build/ui";
 import "pdfjs-dist/web/pdf_viewer.css";
-import katex from "katex";
 import "katex/dist/katex.min.css";
 import { marked } from "marked";
 import markedKatex from "marked-katex-extension";
@@ -11,6 +10,7 @@ import {
   createNotepadHistory,
   isMergeableNotepadInputType,
 } from "../../utils/notepadHistory.js";
+import { renderAnnotationContent } from "../../utils/renderAnnotationContent.js";
 
 marked.use(markedKatex({ throwOnError: false, output: "html" }));
 marked.use({ breaks: true, gfm: true });
@@ -404,35 +404,6 @@ const handleMainScroll = () => {
     cleanupRenderedPages();
     processRenderQueue();
   }, SCROLL_RENDER_SETTLE_MS);
-};
-
-// KaTeX rendering for sticky notes.
-const renderContent = (text) => {
-  if (!text) return "";
-
-  const regex = /(\$\$[\s\S]*?\$\$)|(\$[^\$]*?\$)|(\n)/g;
-
-  return text.replace(regex, (match, displayMath, inlineMath, newline) => {
-    if (newline) {
-      return "<br />";
-    }
-
-    const mathContent = displayMath || inlineMath;
-    const isDisplayMode = !!displayMath;
-
-    const rawTex = isDisplayMode
-      ? mathContent.slice(2, -2)
-      : mathContent.slice(1, -1);
-
-    try {
-      return katex.renderToString(rawTex, {
-        displayMode: isDisplayMode,
-        throwOnError: false,
-      });
-    } catch (e) {
-      return match;
-    }
-  });
 };
 
 const notepadTextarea = ref(null);
@@ -4976,7 +4947,7 @@ watch(zoomLevel, schedulePageUpdate);
                 v-if="activeStickyNoteId !== note.id"
                 class="w-full bg-slate-900/50 text-slate-300 text-sm p-2 rounded border border-slate-700/50 min-h-[5rem] break-words prose prose-invert prose-p:my-0"
                 v-html="
-                  renderContent(note.content) ||
+                  renderAnnotationContent(note.content) ||
                   '<span class=\'opacity-50 italic\'>Empty note...</span>'
                 "
               ></div>
@@ -5033,8 +5004,13 @@ watch(zoomLevel, schedulePageUpdate);
                 >Page {{ highlight.page }}</span
               >
             </div>
-            <p class="text-sm text-slate-300 leading-relaxed line-clamp-4">
-              {{ highlight.text?.trim() || "Empty highlight" }}
+            <p
+              class="text-sm text-slate-300 leading-relaxed line-clamp-4"
+              v-html="
+                renderAnnotationContent(highlight.text?.trim()) ||
+                'Empty highlight'
+              "
+            >
             </p>
           </button>
         </div>
