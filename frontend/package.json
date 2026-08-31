@@ -22,6 +22,7 @@
     "test:notepad-history": "node --test app/utils/notepadHistory.test.js",
     "test:electron-security": "node --test electron/security.test.cjs",
     "test:electron-startup": "node --test electron/startup.test.cjs",
+    "test:electron-backend-path": "node --test electron/backend-path.test.cjs",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
     "build-icons": "electron-icon-builder --input=./public/logo.png --output=app/assets --flatten"

@@ -15,6 +15,7 @@ const {
   parseBackendAnnouncement,
   probeBackend,
 } = require("./startup.cjs");
+const { resolveBackendPath } = require("./backend-path.cjs");
 
 // Make every renderer use Chromium's OS-level sandbox, including windows that
 // may be added later. This must run before the app becomes ready.
@@ -70,7 +71,7 @@ function writeMcpLauncher(userDataPath) {
     if (!appImage || !fs.existsSync(appImage)) {
       return;
     }
-    if (!String(scriptPath).includes("/tmp/.mount_")) {
+    if (!String(backendPath).includes("/tmp/.mount_")) {
       return;
     }
     const launcherPath = path.join(userDataPath, "run-mcp");
@@ -171,9 +172,11 @@ const resolvePath = (devPath, prodPath) => {
   return path.join(app.getAppPath(), prodPath);
 };
 
-const scriptPath = isDev
-  ? path.join(app.getAppPath(), "../backend/dist/api/api")
-  : path.join(process.resourcesPath, "backend", "api");
+const backendPath = resolveBackendPath({
+  isDev,
+  appPath: app.getAppPath(),
+  resourcesPath: process.resourcesPath,
+});
 
 function broadcastUpdateStatus() {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -308,7 +311,7 @@ function setSplashProgress(percent, message) {
   }
 
   const pct = Math.min(100, Math.max(0, percent));
-  const displayMessage = message || "Initializing Research Marker…";
+  const displayMessage = message || "Initializing Research Marker...";
   const msg = JSON.stringify(displayMessage);
 
   if (displayMessage !== lastSplashMessage) {
@@ -463,7 +466,7 @@ function startBackendProgressAnimation() {
     }
 
     pct += 1;
-    setSplashProgress(pct, "Starting backend…");
+    setSplashProgress(pct, "Starting backend...");
   }, 350);
 }
 
@@ -516,7 +519,7 @@ function createSplashWindow() {
   });
   splashWindow.webContents.once("did-finish-load", () => {
     log.info("[Startup] Splash document loaded");
-    setSplashProgress(8, "Initializing Research Marker…");
+    setSplashProgress(8, "Initializing Research Marker...");
   });
   splashWindow.loadFile(splashPath).catch((error) => {
     void failStartup("splash loading", error);
@@ -555,7 +558,7 @@ function markBackendReady(port, source, statusCode) {
     clearInterval(backendProgressTimer);
     backendProgressTimer = null;
   }
-  setSplashProgress(52, "Backend ready…");
+  setSplashProgress(52, "Backend ready...");
 
   try {
     createWindow();
@@ -634,7 +637,7 @@ function considerBackendCandidate(port, source) {
     log.info(
       `[Startup] Discovered backend candidate port ${backendCandidatePort} from ${source}`,
     );
-    setSplashProgress(50, "Verifying backend…");
+    setSplashProgress(50, "Verifying backend...");
   } else {
     log.info(
       `[Startup] Confirmed backend candidate port ${backendCandidatePort} from ${source}`,
@@ -644,25 +647,25 @@ function considerBackendCandidate(port, source) {
 }
 
 function createPythonProcess() {
-  setSplashProgress(18, "Starting backend…");
+  setSplashProgress(18, "Starting backend...");
   startBackendProgressAnimation();
   scheduleBackendStartupTimeout();
 
   const userDataPath = app.getPath("userData");
   writeMcpLauncher(userDataPath);
 
-  log.info(`[Startup] Launching backend executable ${scriptPath}`);
+  log.info(`[Startup] Launching backend executable ${backendPath}`);
   log.info(`[Startup] Backend user-data directory ${userDataPath}`);
 
-  if (!fs.existsSync(scriptPath)) {
+  if (!fs.existsSync(backendPath)) {
     void failStartup(
       "backend launch",
-      new Error(`Bundled backend executable was not found at ${scriptPath}`),
+      new Error(`Bundled backend executable was not found at ${backendPath}`),
     );
     return;
   }
 
-  const child = spawn(scriptPath, [], {
+  const child = spawn(backendPath, [], {
     env: {
       ...process.env,
       USER_DATA_DIR: userDataPath,
@@ -719,7 +722,7 @@ function createPythonProcess() {
 }
 
 function createWindow() {
-  setSplashProgress(68, "Loading interface…");
+  setSplashProgress(68, "Loading interface...");
   hasSignaledAppReady = false;
   log.info("[Startup] Creating hidden main window");
 
@@ -761,11 +764,11 @@ function createWindow() {
   );
   createdWindow.webContents.on("did-start-loading", () => {
     log.info("[Startup] Main renderer started loading");
-    setSplashProgress(78, "Loading interface…");
+    setSplashProgress(78, "Loading interface...");
   });
   createdWindow.webContents.on("dom-ready", () => {
     log.info("[Startup] Main renderer DOM is ready");
-    setSplashProgress(88, "Starting interface…");
+    setSplashProgress(88, "Starting interface...");
   });
   createdWindow.webContents.on("did-finish-load", () => {
     log.info("[Startup] Main renderer document finished loading");
@@ -799,7 +802,7 @@ function createWindow() {
   // closes the splash after Vue has mounted and painted.
   createdWindow.once("ready-to-show", () => {
     log.info("[Startup] Main window emitted ready-to-show");
-    setSplashProgress(92, "Loading library…");
+    setSplashProgress(92, "Loading library...");
   });
   createdWindow.on("unresponsive", () => {
     log.error("[Startup] Main window became unresponsive");
@@ -1077,7 +1080,7 @@ app
       log.info(
         `[Startup] Using external backend candidate at http://127.0.0.1:${devApiPort}/api`,
       );
-      setSplashProgress(40, "Connecting to backend…");
+      setSplashProgress(40, "Connecting to backend...");
       scheduleBackendStartupTimeout();
       considerBackendCandidate(devApiPort, "external backend configuration");
     } else {
