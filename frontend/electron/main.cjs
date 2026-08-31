@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
 const path = require("path");
 const { pathToFileURL } = require("url");
 const fs = require("fs");
@@ -10,6 +10,11 @@ const {
   installSessionGuards,
   installWindowGuards,
 } = require("./security.cjs");
+const {
+  createLineParser,
+  parseBackendAnnouncement,
+  probeBackend,
+} = require("./startup.cjs");
 
 // Make every renderer use Chromium's OS-level sandbox, including windows that
 // may be added later. This must run before the app becomes ready.
@@ -128,11 +133,22 @@ let apiPort = null;
 let isAppReady = false;
 let updateCheckTimer = null;
 let backendProgressTimer = null;
-let splashCloseFallbackTimer = null;
+let backendStartupTimer = null;
+let backendHealthTimer = null;
+let rendererStartupTimer = null;
+let backendHealthInFlight = false;
+let backendCandidatePort = null;
+let backendHealthAttempts = 0;
 let hasSignaledAppReady = false;
+let hasStartupFailed = false;
+let isQuitting = false;
+let lastSplashMessage = null;
+const recentBackendLogs = [];
 
 const SPLASH_BG = "#020204";
-const SPLASH_FALLBACK_MS = 45000;
+const BACKEND_STARTUP_TIMEOUT_MS = 120000;
+const BACKEND_HEALTH_RETRY_MS = 250;
+const RENDERER_STARTUP_TIMEOUT_MS = 45000;
 
 const isDev = process.env.NODE_ENV === "development";
 const useExternalBackend =
@@ -172,7 +188,7 @@ function setUpdateStatus(partial) {
 
 function killPythonProcess() {
   if (pythonProcess) {
-    log.info("Stopping Python backend before update");
+    log.info("[Startup] Stopping Python backend");
     pythonProcess.kill();
     pythonProcess = null;
   }
@@ -292,22 +308,97 @@ function setSplashProgress(percent, message) {
   }
 
   const pct = Math.min(100, Math.max(0, percent));
-  const msg = JSON.stringify(message || "Initializing Research Marker…");
+  const displayMessage = message || "Initializing Research Marker…";
+  const msg = JSON.stringify(displayMessage);
+
+  if (displayMessage !== lastSplashMessage) {
+    lastSplashMessage = displayMessage;
+    log.info(`[Startup] Splash ${Math.round(pct)}%: ${displayMessage}`);
+  }
 
   splashWindow.webContents
     .executeJavaScript(`window.setSplashProgress(${pct}, ${msg})`)
-    .catch(() => {});
+    .catch((error) => {
+      log.warn(`[Startup] Could not update splash progress: ${error}`);
+    });
+}
+
+function clearBackendStartupTimers() {
+  if (backendStartupTimer) {
+    clearTimeout(backendStartupTimer);
+    backendStartupTimer = null;
+  }
+  if (backendHealthTimer) {
+    clearTimeout(backendHealthTimer);
+    backendHealthTimer = null;
+  }
+}
+
+function formatStartupError(error) {
+  if (!error) {
+    return "Unknown startup error";
+  }
+  return error.stack || error.message || String(error);
+}
+
+async function failStartup(stage, error) {
+  if (hasStartupFailed || hasSignaledAppReady || isQuitting) {
+    return;
+  }
+  hasStartupFailed = true;
+  isQuitting = true;
+  clearBackendStartupTimers();
+  if (rendererStartupTimer) {
+    clearTimeout(rendererStartupTimer);
+    rendererStartupTimer = null;
+  }
+
+  const errorText = formatStartupError(error);
+  log.error(`[Startup] ${stage} failed: ${errorText}`);
+  if (recentBackendLogs.length) {
+    log.error(
+      `[Startup] Recent backend output:\n${recentBackendLogs.slice(-12).join("\n")}`,
+    );
+  }
+
+  setSplashProgress(100, "Startup failed");
+  closeSplashWindow();
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.destroy();
+    mainWindow = null;
+  }
+  killPythonProcess();
+
+  let logPath = "the Research Marker log file";
+  try {
+    logPath = log.transports.file.getFile().path;
+  } catch (logError) {
+    log.warn(`[Startup] Could not resolve log path: ${logError}`);
+  }
+
+  const result = await dialog.showMessageBox({
+    type: "error",
+    title: "Research Marker could not start",
+    message: `Startup stopped during ${stage}.`,
+    detail:
+      `${errorText}\n\nTry restarting Research Marker. If the problem continues, ` +
+      `open the log and include it in a bug report.\n\nLog: ${logPath}`,
+    buttons: ["Open Log", "Quit"],
+    defaultId: 1,
+    cancelId: 1,
+    noLink: true,
+  });
+
+  if (result.response === 0) {
+    shell.showItemInFolder(logPath);
+  }
+  app.quit();
 }
 
 function closeSplashWindow() {
   if (backendProgressTimer) {
     clearInterval(backendProgressTimer);
     backendProgressTimer = null;
-  }
-
-  if (splashCloseFallbackTimer) {
-    clearTimeout(splashCloseFallbackTimer);
-    splashCloseFallbackTimer = null;
   }
 
   if (!splashWindow || splashWindow.isDestroyed()) {
@@ -323,6 +414,10 @@ function finishSplashAndShowMain(message) {
     return;
   }
   hasSignaledAppReady = true;
+  if (rendererStartupTimer) {
+    clearTimeout(rendererStartupTimer);
+    rendererStartupTimer = null;
+  }
 
   if (message) {
     setSplashProgress(100, message);
@@ -339,14 +434,18 @@ function finishSplashAndShowMain(message) {
   }, 160);
 }
 
-function scheduleSplashFallback() {
-  if (splashCloseFallbackTimer) {
-    clearTimeout(splashCloseFallbackTimer);
+function scheduleRendererStartupTimeout() {
+  if (rendererStartupTimer) {
+    clearTimeout(rendererStartupTimer);
   }
-  splashCloseFallbackTimer = setTimeout(() => {
-    log.warn("Splash fallback: renderer did not signal ready in time");
-    finishSplashAndShowMain("Ready");
-  }, SPLASH_FALLBACK_MS);
+  rendererStartupTimer = setTimeout(() => {
+    void failStartup(
+      "interface initialization",
+      new Error(
+        `The renderer did not signal readiness within ${RENDERER_STARTUP_TIMEOUT_MS / 1000} seconds.`,
+      ),
+    );
+  }, RENDERER_STARTUP_TIMEOUT_MS);
 }
 
 function startBackendProgressAnimation() {
@@ -369,6 +468,7 @@ function startBackendProgressAnimation() {
 }
 
 function createSplashWindow() {
+  log.info("[Startup] Creating splash window");
   splashWindow = new BrowserWindow({
     width: 420,
     height: 320,
@@ -391,71 +491,237 @@ function createSplashWindow() {
     "app/assets/splash.html",
   );
 
-  log.info("Attempting to load splash from:", splashPath);
+  log.info(`[Startup] Loading splash from ${splashPath}`);
   const splashUrl = pathToFileURL(splashPath).href;
   installSessionGuards(splashWindow.webContents.session, { isDev });
   installWindowGuards(splashWindow, splashUrl);
-  splashWindow.loadFile(splashPath);
+  splashWindow.webContents.on(
+    "did-fail-load",
+    (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
+      if (isMainFrame) {
+        void failStartup(
+          "splash loading",
+          new Error(
+            `${validatedURL || splashUrl}: ${errorCode} ${errorDescription}`,
+          ),
+        );
+      }
+    },
+  );
+  splashWindow.webContents.on("render-process-gone", (_event, details) => {
+    void failStartup(
+      "splash renderer",
+      new Error(`Splash renderer exited: ${JSON.stringify(details)}`),
+    );
+  });
   splashWindow.webContents.once("did-finish-load", () => {
+    log.info("[Startup] Splash document loaded");
     setSplashProgress(8, "Initializing Research Marker…");
   });
+  splashWindow.loadFile(splashPath).catch((error) => {
+    void failStartup("splash loading", error);
+  });
+}
+
+function scheduleBackendStartupTimeout() {
+  clearBackendStartupTimers();
+  backendStartupTimer = setTimeout(() => {
+    const candidateDetail = backendCandidatePort
+      ? `The backend announced port ${backendCandidatePort}, but its health check never succeeded.`
+      : "Electron did not find a backend URL in the process output.";
+    void failStartup(
+      "backend startup",
+      new Error(
+        `${candidateDetail} Timed out after ${BACKEND_STARTUP_TIMEOUT_MS / 1000} seconds.`,
+      ),
+    );
+  }, BACKEND_STARTUP_TIMEOUT_MS);
+}
+
+function markBackendReady(port, source, statusCode) {
+  if (apiPort || hasStartupFailed) {
+    return;
+  }
+  clearBackendStartupTimers();
+  backendHealthInFlight = false;
+  apiPort = String(port);
+  log.info(
+    `[Startup] Backend health check passed on port ${apiPort} ` +
+      `(HTTP ${statusCode}, discovered from ${source})`,
+  );
+  writeMcpDiscovery(apiPort, app.getPath("userData"));
+
+  if (backendProgressTimer) {
+    clearInterval(backendProgressTimer);
+    backendProgressTimer = null;
+  }
+  setSplashProgress(52, "Backend ready…");
+
+  try {
+    createWindow();
+    isAppReady = true;
+  } catch (error) {
+    void failStartup("main window creation", error);
+  }
+}
+
+function verifyBackendCandidate(port, source) {
+  if (
+    apiPort ||
+    hasStartupFailed ||
+    backendHealthInFlight ||
+    String(port) !== backendCandidatePort
+  ) {
+    return;
+  }
+
+  backendHealthInFlight = true;
+  backendHealthAttempts += 1;
+  const attempt = backendHealthAttempts;
+  probeBackend(port)
+    .then(({ statusCode }) => {
+      backendHealthInFlight = false;
+      if (String(port) === backendCandidatePort) {
+        markBackendReady(port, source, statusCode);
+      } else {
+        verifyBackendCandidate(backendCandidatePort, "new backend announcement");
+      }
+    })
+    .catch((error) => {
+      backendHealthInFlight = false;
+      if (String(port) !== backendCandidatePort) {
+        verifyBackendCandidate(backendCandidatePort, "new backend announcement");
+        return;
+      }
+      if (attempt === 1 || attempt % 10 === 0) {
+        log.warn(
+          `[Startup] Backend health check attempt ${attempt} failed on port ${port}: ${error.message}`,
+        );
+      }
+      if (!apiPort && !hasStartupFailed) {
+        backendHealthTimer = setTimeout(
+          () => verifyBackendCandidate(port, source),
+          BACKEND_HEALTH_RETRY_MS,
+        );
+      }
+    });
+}
+
+function considerBackendCandidate(port, source) {
+  if (apiPort || hasStartupFailed) {
+    return;
+  }
+  if (
+    !/^\d+$/.test(String(port)) ||
+    Number(port) < 1 ||
+    Number(port) > 65535
+  ) {
+    log.warn(`[Startup] Ignoring invalid backend port from ${source}: ${port}`);
+    return;
+  }
+
+  if (backendCandidatePort !== String(port)) {
+    backendCandidatePort = String(port);
+    backendHealthAttempts = 0;
+    if (backendProgressTimer) {
+      clearInterval(backendProgressTimer);
+      backendProgressTimer = null;
+    }
+    if (backendHealthTimer) {
+      clearTimeout(backendHealthTimer);
+      backendHealthTimer = null;
+    }
+    log.info(
+      `[Startup] Discovered backend candidate port ${backendCandidatePort} from ${source}`,
+    );
+    setSplashProgress(50, "Verifying backend…");
+  } else {
+    log.info(
+      `[Startup] Confirmed backend candidate port ${backendCandidatePort} from ${source}`,
+    );
+  }
+  verifyBackendCandidate(backendCandidatePort, source);
 }
 
 function createPythonProcess() {
   setSplashProgress(18, "Starting backend…");
   startBackendProgressAnimation();
+  scheduleBackendStartupTimeout();
 
   const userDataPath = app.getPath("userData");
   writeMcpLauncher(userDataPath);
 
-  log.info(`Launching Python from: ${scriptPath}`);
-  log.info(`Passing User Data Dir: ${userDataPath}`);
+  log.info(`[Startup] Launching backend executable ${scriptPath}`);
+  log.info(`[Startup] Backend user-data directory ${userDataPath}`);
 
-  pythonProcess = spawn(scriptPath, [], {
+  if (!fs.existsSync(scriptPath)) {
+    void failStartup(
+      "backend launch",
+      new Error(`Bundled backend executable was not found at ${scriptPath}`),
+    );
+    return;
+  }
+
+  const child = spawn(scriptPath, [], {
     env: {
       ...process.env,
       USER_DATA_DIR: userDataPath,
       APP_DEBUG: isDev ? "true" : "false",
     },
+    windowsHide: true,
   });
+  pythonProcess = child;
+  log.info(`[Startup] Backend process spawned with PID ${child.pid}`);
 
-  const handleLog = (data) => {
-    const output = data.toString();
-    log.info(`[Python]: ${output}`);
+  const handleLine = (streamName, rawLine) => {
+    const line = String(rawLine).trimEnd();
+    if (!line) {
+      return;
+    }
+    recentBackendLogs.push(`[${streamName}] ${line}`);
+    if (recentBackendLogs.length > 80) {
+      recentBackendLogs.shift();
+    }
+    log.info(`[Python ${streamName}] ${line}`);
 
-    // Only trust our explicit ready line — not uvicorn's
-    // "Uvicorn running on http://127.0.0.1:PORT ..." log, which fires earlier
-    // and previously opened a blank window before migrations/workers settled.
-    const match = output.match(/(?:^|\n)http:\/\/127\.0\.0\.1:(\d+)[ \t]*(?:\n|$)/);
-
-    if (match) {
-      apiPort = match[1];
-      log.info(`Python backend ready on port ${apiPort}`);
-      writeMcpDiscovery(apiPort, userDataPath);
-
-      if (!mainWindow) {
-        if (backendProgressTimer) {
-          clearInterval(backendProgressTimer);
-          backendProgressTimer = null;
-        }
-        setSplashProgress(52, "Backend ready…");
-        createWindow();
-        isAppReady = true;
-      }
+    const announcement = parseBackendAnnouncement(line);
+    if (announcement) {
+      considerBackendCandidate(announcement.port, announcement.source);
     }
   };
 
-  pythonProcess.stdout.on("data", handleLog);
-  pythonProcess.stderr.on("data", handleLog);
+  const stdoutParser = createLineParser((line) => handleLine("stdout", line));
+  const stderrParser = createLineParser((line) => handleLine("stderr", line));
+  child.stdout.on("data", (data) => stdoutParser.push(data));
+  child.stderr.on("data", (data) => stderrParser.push(data));
 
-  pythonProcess.on("close", (code) => {
-    log.info(`Python process exited with code ${code}`);
+  child.on("error", (error) => {
+    void failStartup("backend launch", error);
+  });
+  child.on("close", (code, signal) => {
+    stdoutParser.flush();
+    stderrParser.flush();
+    if (pythonProcess === child) {
+      pythonProcess = null;
+    }
+    log.info(
+      `[Startup] Backend process exited with code ${code} and signal ${signal || "none"}`,
+    );
+    if (!isQuitting && !hasSignaledAppReady) {
+      void failStartup(
+        "backend startup",
+        new Error(
+          `The backend exited before the interface was ready (code ${code}, signal ${signal || "none"}).`,
+        ),
+      );
+    }
   });
 }
 
 function createWindow() {
   setSplashProgress(68, "Loading interface…");
   hasSignaledAppReady = false;
+  log.info("[Startup] Creating hidden main window");
 
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -477,57 +743,66 @@ function createWindow() {
       "app/assets/icons/icon.png",
     ),
   });
+  const createdWindow = mainWindow;
+  scheduleRendererStartupTimeout();
 
-  mainWindow.webContents.on(
+  createdWindow.webContents.on(
     "did-fail-load",
     (_event, errorCode, errorDescription, validatedURL, isMainFrame) => {
       if (isMainFrame) {
-        log.error(
-          `Renderer failed to load ${validatedURL}: ${errorCode} ${errorDescription}`,
+        void failStartup(
+          "interface navigation",
+          new Error(
+            `${validatedURL || "main document"}: ${errorCode} ${errorDescription}`,
+          ),
         );
       }
     },
   );
-  mainWindow.webContents.on("render-process-gone", (_event, details) => {
-    log.error("Renderer process exited unexpectedly:", details);
-  });
-  if (isDev) {
-    mainWindow.webContents.on("console-message", (details) => {
-      const level = details.level === "error" ? "error" : "info";
-      log[level](`[Renderer] ${details.message}`);
-    });
-  }
-
-  if (isDev) {
-    const applicationUrl = "http://localhost:3000";
-    installSessionGuards(mainWindow.webContents.session, { isDev });
-    installWindowGuards(mainWindow, applicationUrl);
-    mainWindow.loadURL(applicationUrl);
-    mainWindow.webContents.openDevTools();
-  } else {
-    const applicationPath = path.join(
-      app.getAppPath(),
-      ".output/public/index.html",
-    );
-    const applicationUrl = pathToFileURL(applicationPath).href;
-    installSessionGuards(mainWindow.webContents.session, { isDev });
-    installWindowGuards(mainWindow, applicationUrl);
-    mainWindow.loadFile(applicationPath, { hash: "/" });
-  }
-
-  mainWindow.webContents.on("did-start-loading", () => {
+  createdWindow.webContents.on("did-start-loading", () => {
+    log.info("[Startup] Main renderer started loading");
     setSplashProgress(78, "Loading interface…");
   });
-
-  mainWindow.webContents.on("dom-ready", () => {
+  createdWindow.webContents.on("dom-ready", () => {
+    log.info("[Startup] Main renderer DOM is ready");
     setSplashProgress(88, "Starting interface…");
   });
+  createdWindow.webContents.on("did-finish-load", () => {
+    log.info("[Startup] Main renderer document finished loading");
+  });
+  createdWindow.webContents.on("did-stop-loading", () => {
+    log.info("[Startup] Main renderer stopped loading");
+  });
+  createdWindow.webContents.on("preload-error", (_event, preloadPath, error) => {
+    void failStartup(
+      "interface preload",
+      new Error(`${preloadPath}: ${formatStartupError(error)}`),
+    );
+  });
+  createdWindow.webContents.on("render-process-gone", (_event, details) => {
+    void failStartup(
+      "interface renderer",
+      new Error(`Renderer exited unexpectedly: ${JSON.stringify(details)}`),
+    );
+  });
+  createdWindow.webContents.on("console-message", (details) => {
+    const level = details?.level === "error" ? "error" : "info";
+    if (isDev || details?.level === "error" || details?.level === "warning") {
+      log[level](
+        `[Renderer] ${details?.message || "Unknown console message"}` +
+          (details?.sourceId ? ` (${details.sourceId}:${details.lineNumber})` : ""),
+      );
+    }
+  });
 
-  // Keep splash until the renderer finishes its first data load.
-  // ready-to-show alone only means the empty shell can paint — that was the white screen.
-  mainWindow.once("ready-to-show", () => {
+  // ready-to-show only means the shell can paint. The renderer's app:ready IPC
+  // closes the splash after Vue has mounted and painted.
+  createdWindow.once("ready-to-show", () => {
+    log.info("[Startup] Main window emitted ready-to-show");
     setSplashProgress(92, "Loading library…");
-    scheduleSplashFallback();
+  });
+  createdWindow.on("unresponsive", () => {
+    log.error("[Startup] Main window became unresponsive");
   });
 
   const closeSidebarWithMainWindow = () => {
@@ -538,11 +813,45 @@ function createWindow() {
 
   // Begin closing the auxiliary window as soon as the main application window
   // closes. Otherwise it can keep Electron alive as the last open window.
-  mainWindow.on("close", closeSidebarWithMainWindow);
-  mainWindow.on("closed", () => {
+  createdWindow.on("close", closeSidebarWithMainWindow);
+  createdWindow.on("closed", () => {
     closeSidebarWithMainWindow();
-    mainWindow = null;
+    if (mainWindow === createdWindow) {
+      mainWindow = null;
+    }
   });
+
+  let applicationUrl;
+  let loadPromise;
+  if (isDev) {
+    applicationUrl = "http://localhost:3000";
+    installSessionGuards(createdWindow.webContents.session, { isDev });
+    installWindowGuards(createdWindow, applicationUrl);
+    log.info(`[Startup] Navigating main window to ${applicationUrl}`);
+    loadPromise = createdWindow.loadURL(applicationUrl);
+    createdWindow.webContents.openDevTools();
+  } else {
+    const applicationPath = path.join(
+      app.getAppPath(),
+      ".output/public/index.html",
+    );
+    if (!fs.existsSync(applicationPath)) {
+      throw new Error(`Bundled interface was not found at ${applicationPath}`);
+    }
+    applicationUrl = pathToFileURL(applicationPath).href;
+    installSessionGuards(createdWindow.webContents.session, { isDev });
+    installWindowGuards(createdWindow, applicationUrl);
+    log.info(`[Startup] Navigating main window to ${applicationUrl}#/`);
+    loadPromise = createdWindow.loadFile(applicationPath, { hash: "/" });
+  }
+
+  loadPromise
+    .then(() => {
+      log.info(`[Startup] Main-window navigation resolved: ${applicationUrl}`);
+    })
+    .catch((error) => {
+      void failStartup("interface navigation", error);
+    });
 }
 
 function createSidebarWindow(documentId) {
@@ -601,7 +910,9 @@ function createSidebarWindow(documentId) {
   });
 }
 
-ipcMain.handle("get-api-port", () => {
+ipcMain.handle("get-api-port", (event) => {
+  const sender = event.sender.id;
+  log.info(`[Startup] Renderer ${sender} requested API port; returning ${apiPort}`);
   return apiPort;
 });
 
@@ -668,17 +979,37 @@ ipcMain.on("sidebar:reveal-annotation", (event, payload = {}) => {
   }
 });
 
-ipcMain.on("splash:progress", (_event, payload = {}) => {
+ipcMain.on("splash:progress", (event, payload = {}) => {
+  if (
+    !mainWindow ||
+    mainWindow.isDestroyed() ||
+    event.sender.id !== mainWindow.webContents.id
+  ) {
+    log.warn("[Startup] Ignoring splash progress from an unexpected renderer");
+    return;
+  }
   const percent = Number(payload.percent);
   const message = payload.message;
   if (!Number.isFinite(percent)) {
+    log.warn("[Startup] Ignoring non-numeric splash progress from renderer");
     return;
   }
+  log.info(
+    `[Startup] Renderer progress IPC: ${Math.round(percent)}% ${message || ""}`,
+  );
   setSplashProgress(percent, message);
 });
 
-ipcMain.on("app:ready", () => {
-  log.info("Renderer signaled ready");
+ipcMain.on("app:ready", (event) => {
+  if (
+    !mainWindow ||
+    mainWindow.isDestroyed() ||
+    event.sender.id !== mainWindow.webContents.id
+  ) {
+    log.warn("[Startup] Ignoring app:ready from an unexpected renderer");
+    return;
+  }
+  log.info("[Startup] Main renderer signaled app:ready");
   finishSplashAndShowMain("Ready");
 });
 
@@ -732,32 +1063,48 @@ ipcMain.on("restart_app", () => {
   installDownloadedUpdate();
 });
 
-app.whenReady().then(() => {
-  setupAutoUpdater();
-  createSplashWindow();
+app
+  .whenReady()
+  .then(() => {
+    log.info(
+      `[Startup] Electron ready (version ${app.getVersion()}, ` +
+        `platform ${process.platform}, packaged ${app.isPackaged})`,
+    );
+    setupAutoUpdater();
+    createSplashWindow();
 
-  if (useExternalBackend) {
-    apiPort = devApiPort;
-    log.info(`Using external backend at http://127.0.0.1:${apiPort}/api`);
-    setSplashProgress(40, "Connecting to backend…");
-    createWindow();
-    isAppReady = true;
-  } else {
-    createPythonProcess();
-  }
+    if (useExternalBackend) {
+      log.info(
+        `[Startup] Using external backend candidate at http://127.0.0.1:${devApiPort}/api`,
+      );
+      setSplashProgress(40, "Connecting to backend…");
+      scheduleBackendStartupTimeout();
+      considerBackendCandidate(devApiPort, "external backend configuration");
+    } else {
+      createPythonProcess();
+    }
 
-  if (isDev) {
-    setUpdateStatus({
-      status: "unavailable",
-      error: "Updates are disabled in development mode.",
-    });
-  } else {
-    runUpdateCheck();
-    scheduleUpdateChecks();
-  }
-});
+    if (isDev) {
+      setUpdateStatus({
+        status: "unavailable",
+        error: "Updates are disabled in development mode.",
+      });
+    } else {
+      void runUpdateCheck();
+      scheduleUpdateChecks();
+    }
+  })
+  .catch((error) => {
+    void failStartup("Electron initialization", error);
+  });
 
 app.on("will-quit", () => {
+  isQuitting = true;
+  clearBackendStartupTimers();
+  if (rendererStartupTimer) {
+    clearTimeout(rendererStartupTimer);
+    rendererStartupTimer = null;
+  }
   if (sidebarWindow && !sidebarWindow.isDestroyed()) {
     sidebarWindow.destroy();
     sidebarWindow = null;

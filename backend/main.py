@@ -107,16 +107,22 @@ def _queue_deferred_startup_work() -> None:
 
 def _announce_when_listening(port: int) -> None:
     """
-    Electron only trusts a bare `http://127.0.0.1:PORT` line (not uvicorn's log).
-    Emit it once the port actually accepts connections, then start workers.
+    Emit an explicit machine-readable readiness marker once the port accepts
+    connections, then start workers. Electron also verifies the health endpoint.
     """
     if _wait_for_port("127.0.0.1", port):
-        print(f"http://127.0.0.1:{port}", flush=True)
+        print(
+            f"RESEARCH_MARKER_BACKEND_READY=http://127.0.0.1:{port}",
+            flush=True,
+        )
         _queue_deferred_startup_work()
         return
 
     print(f"Timed out waiting for API to bind on 127.0.0.1:{port}", flush=True)
-    print(f"http://127.0.0.1:{port}", flush=True)
+    print(
+        f"RESEARCH_MARKER_BACKEND_READY=http://127.0.0.1:{port}",
+        flush=True,
+    )
     _queue_deferred_startup_work()
 
 
