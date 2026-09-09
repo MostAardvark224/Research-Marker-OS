@@ -46,7 +46,12 @@ class DocumentAPITests(TestCase):
 
         response = self.client.post(
             reverse("documents-list"),
-            {"file": upload, "skip_ocr": "true", "ocr_provider": "paddleocr"},
+            {
+                "file": upload,
+                "skip_ocr": "true",
+                "ocr_provider": "paddleocr",
+                "scrape_toc": "false",
+            },
             format="multipart",
         )
 
@@ -67,7 +72,12 @@ class DocumentAPITests(TestCase):
 
         response = self.client.post(
             reverse("documents-list"),
-            {"file": upload, "skip_ocr": "false", "ocr_provider": "paddleocr"},
+            {
+                "file": upload,
+                "skip_ocr": "false",
+                "ocr_provider": "paddleocr",
+                "scrape_toc": "false",
+            },
             format="multipart",
         )
 
@@ -78,6 +88,85 @@ class DocumentAPITests(TestCase):
         async_task.assert_called_once_with(
             "api.OCR.create_searchable_document_pdf", document.id, "paddleocr"
         )
+
+    @patch("api.views._queue_context_ingestion")
+    @patch("api.views.async_task")
+    def test_upload_scrapes_table_of_contents_by_default(self, async_task, queue_context):
+        upload = SimpleUploadedFile("book.pdf", b"%PDF-1.4\ntest", "application/pdf")
+
+        response = self.client.post(
+            reverse("documents-list"),
+            {"file": upload, "skip_ocr": "true"},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        document = Document.objects.get()
+        self.assertEqual(document.toc_status, Document.TocStatus.QUEUED)
+        async_task.assert_called_once_with(
+            "api.table_of_contents.scrape_document_table_of_contents",
+            document.id,
+        )
+        queue_context.assert_called_once_with(document)
+
+    @patch("api.views._queue_context_ingestion")
+    @patch("api.views.async_task")
+    def test_upload_does_not_scrape_table_of_contents_when_unchecked(
+        self, async_task, queue_context
+    ):
+        upload = SimpleUploadedFile("book.pdf", b"%PDF-1.4\ntest", "application/pdf")
+
+        response = self.client.post(
+            reverse("documents-list"),
+            {"file": upload, "skip_ocr": "true", "scrape_toc": "false"},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        document = Document.objects.get()
+        self.assertEqual(document.toc_status, Document.TocStatus.NOT_STARTED)
+        async_task.assert_not_called()
+        queue_context.assert_called_once_with(document)
+
+    @patch("api.views.async_task")
+    def test_table_of_contents_can_be_queued_and_edited(self, async_task):
+        document = self.make_document("Book", page_count=20)
+        endpoint = reverse("document-table-of-contents", kwargs={"pk": document.id})
+
+        queued = self.client.post(endpoint, {}, format="json")
+        self.assertEqual(queued.status_code, 202)
+        async_task.assert_called_once_with(
+            "api.table_of_contents.scrape_document_table_of_contents",
+            document.id,
+        )
+
+        document.toc_status = Document.TocStatus.SUCCEEDED
+        document.save(update_fields=["toc_status"])
+        edited = self.client.put(
+            endpoint,
+            {
+                "toc_data": [
+                    {
+                        "id": "chapter-1",
+                        "title": "Chapter 1",
+                        "page": 3,
+                        "children": [
+                            {
+                                "id": "section-1",
+                                "title": "Section 1.1",
+                                "page": 5,
+                                "children": [],
+                            }
+                        ],
+                    }
+                ]
+            },
+            format="json",
+        )
+
+        self.assertEqual(edited.status_code, 200)
+        self.assertEqual(edited.data["toc_source"], "manual")
+        self.assertEqual(edited.data["toc_data"][0]["children"][0]["page"], 5)
 
     @patch("api.views.get_ocr_providers")
     def test_upload_rejects_unconfigured_byok_ocr(self, providers):

@@ -51,6 +51,13 @@ class Document(models.Model):
         SUCCEEDED = "succeeded", "Succeeded"
         FAILED = "failed", "Failed"
 
+    class TocStatus(models.TextChoices):
+        NOT_STARTED = "not_started", "Not Started"
+        QUEUED = "queued", "Queued"
+        PROCESSING = "processing", "Processing"
+        SUCCEEDED = "succeeded", "Succeeded"
+        FAILED = "failed", "Failed"
+
     id: int
     folder_id: int | None
     title = models.CharField(max_length=255)
@@ -81,6 +88,16 @@ class Document(models.Model):
     context_error = models.TextField(blank=True, default="")
     context_created_at = models.DateTimeField(blank=True, null=True)
     context_updated_at = models.DateTimeField(blank=True, null=True)
+    toc_data = models.JSONField(default=list, blank=True)
+    toc_status = models.CharField(
+        max_length=32,
+        choices=TocStatus.choices,
+        default=TocStatus.NOT_STARTED,
+    )
+    toc_source = models.CharField(max_length=32, blank=True, default="")
+    toc_error = models.TextField(blank=True, default="")
+    toc_started_at = models.DateTimeField(blank=True, null=True)
+    toc_completed_at = models.DateTimeField(blank=True, null=True)
 
     if TYPE_CHECKING:
         context_pages: RelatedManager[DocumentPage]

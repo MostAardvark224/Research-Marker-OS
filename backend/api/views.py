@@ -39,6 +39,7 @@ from api.scholar_inbox import ScholarInboxError
 from api.scholar_inbox_import import import_scholar_inbox_papers
 from api.startup_scripts import get_startup_scripts_status, sanitize_startup_script_paths
 from api.task_queue import enqueue_task
+from api.table_of_contents import sanitize_table_of_contents
 from api.user_preferences import deep_get, load_user_preferences, write_user_preferences
 from api.utils import (
     get_env_vars_potential_list,
@@ -327,6 +328,7 @@ class DocumentsViewSet(viewsets.ModelViewSet):
             uploaded_documents = []
 
             skip_ocr = request.data.get("skip_ocr", "false").lower() == "true"
+            scrape_toc = to_bool(request.data.get("scrape_toc", "true"))
             ocr_provider = normalize_ocr_provider(request.data.get("ocr_provider", "paddleocr"))
 
             if not skip_ocr:
@@ -353,6 +355,15 @@ class DocumentsViewSet(viewsets.ModelViewSet):
                 serializer = self.get_serializer(data=data)
                 serializer.is_valid(raise_exception=True)
                 self.perform_create(serializer)
+
+                if scrape_toc:
+                    serializer.instance.toc_status = models.Document.TocStatus.QUEUED
+                    serializer.instance.toc_error = ""
+                    serializer.instance.save(update_fields=["toc_status", "toc_error"])
+                    async_task(
+                        "api.table_of_contents.scrape_document_table_of_contents",
+                        serializer.instance.pk,
+                    )
 
                 if not skip_ocr:
                     serializer.instance.ocr_provider = ocr_provider
@@ -712,6 +723,90 @@ class DocumentOCRView(APIView):
             {"message": "OCR queued.", "document": serializers.DocumentSerializer(document).data},
             status=status.HTTP_202_ACCEPTED,
         )
+
+
+class DocumentTableOfContentsView(APIView):
+    def get_document(self, pk):
+        try:
+            return models.Document.objects.get(pk=pk)
+        except models.Document.DoesNotExist:
+            return None
+
+    def get(self, request, pk):
+        document = self.get_document(pk)
+        if not document:
+            return Response({"error": "Document not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(serializers.DocumentSerializer(document).data)
+
+    def post(self, request, pk):
+        document = self.get_document(pk)
+        if not document:
+            return Response({"error": "Document not found."}, status=status.HTTP_404_NOT_FOUND)
+        if not document.file:
+            return Response({"error": "Document has no PDF file."}, status=status.HTTP_400_BAD_REQUEST)
+        if document.toc_status in (
+            models.Document.TocStatus.QUEUED,
+            models.Document.TocStatus.PROCESSING,
+        ):
+            return Response(
+                {
+                    "error": "Table of contents scraping is already in progress.",
+                    "document": serializers.DocumentSerializer(document).data,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        document.toc_status = models.Document.TocStatus.QUEUED
+        document.toc_error = ""
+        document.toc_started_at = None
+        document.toc_completed_at = None
+        document.save(
+            update_fields=[
+                "toc_status",
+                "toc_error",
+                "toc_started_at",
+                "toc_completed_at",
+            ]
+        )
+        async_task(
+            "api.table_of_contents.scrape_document_table_of_contents",
+            document.pk,
+        )
+        return Response(
+            {
+                "message": "Table of contents scraping queued.",
+                "document": serializers.DocumentSerializer(document).data,
+            },
+            status=status.HTTP_202_ACCEPTED,
+        )
+
+    def put(self, request, pk):
+        document = self.get_document(pk)
+        if not document:
+            return Response({"error": "Document not found."}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            toc_data = sanitize_table_of_contents(
+                request.data.get("toc_data"),
+                page_count=document.page_count,
+            )
+        except ValueError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        document.toc_data = toc_data
+        document.toc_status = models.Document.TocStatus.SUCCEEDED
+        document.toc_source = "manual"
+        document.toc_error = ""
+        document.toc_completed_at = timezone.now()
+        document.save(
+            update_fields=[
+                "toc_data",
+                "toc_status",
+                "toc_source",
+                "toc_error",
+                "toc_completed_at",
+            ]
+        )
+        return Response(serializers.DocumentSerializer(document).data)
 
 
 # Runs fetch from scholar inbox and uploads papers to "Scholar Inbox" folder

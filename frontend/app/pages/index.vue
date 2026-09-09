@@ -804,6 +804,7 @@ const activeFolderId = ref(null);
 
 const uploadSkipOcr = ref(false);
 const uploadOcrProvider = ref("paddleocr");
+const uploadScrapeToc = ref(true);
 
 const searchQuery = ref("");
 const sortBy = ref("custom");
@@ -1044,10 +1045,16 @@ onMounted(() => {
 // DOCUMENT HANDLING FUNCS
 
 // Handles file selection from the upload modal
-async function onModalFileSelection(files, skipOcr, ocrProvider = "paddleocr") {
+async function onModalFileSelection(
+  files,
+  skipOcr,
+  ocrProvider = "paddleocr",
+  scrapeToc = true,
+) {
   filesToUpload.value = files;
   uploadSkipOcr.value = skipOcr;
   uploadOcrProvider.value = ocrProvider;
+  uploadScrapeToc.value = scrapeToc;
 
   if (files && files.length > 0) {
     showUpload.value = false;
@@ -1075,6 +1082,7 @@ async function sendDocuments() {
 
   formData.append("skip_ocr", uploadSkipOcr.value);
   formData.append("ocr_provider", uploadOcrProvider.value);
+  formData.append("scrape_toc", uploadScrapeToc.value);
 
   try {
     const res = await $fetch(`${apiBaseURL}/documents/`, {
@@ -1085,6 +1093,7 @@ async function sendDocuments() {
     filesToUpload.value = [];
     uploadSkipOcr.value = false;
     uploadOcrProvider.value = "paddleocr";
+    uploadScrapeToc.value = true;
   } catch (error) {
     console.error("Error uploading files:", error);
     alert("Upload Failed");

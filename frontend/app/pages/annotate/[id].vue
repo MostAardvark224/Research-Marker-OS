@@ -11,6 +11,7 @@ import {
   isMergeableNotepadInputType,
 } from "../../utils/notepadHistory.js";
 import { renderAnnotationContent } from "../../utils/renderAnnotationContent.js";
+import { normalizePdfOutline } from "../../utils/pdfOutline.js";
 
 marked.use(markedKatex({ throwOnError: false, output: "html" }));
 marked.use({ breaks: true, gfm: true });
@@ -165,6 +166,9 @@ onMounted(() => {
 });
 
 const totalPages = ref(0);
+const tocItems = ref([]);
+const tocLoading = ref(false);
+const tocError = ref("");
 const zoomLevel = ref(DEFAULT_ZOOM);
 const inputZoomLevel = ref(DEFAULT_ZOOM);
 let zoomDebounce = null;
@@ -2286,6 +2290,7 @@ function changeActiveTool(newToolButton) {
 
 // Sidebar state
 const sidebarTabs = [
+  { id: "contents", label: "Contents", icon: "ph:list-dashes" },
   { id: "stickyNotes", label: "Sticky Notes", icon: "ph:note" },
   { id: "highlights", label: "Highlights", icon: "ph:highlighter" },
   { id: "notepad", label: "Notepad", icon: "ph:notebook" },
@@ -3342,6 +3347,20 @@ const focusHighlight = (highlightId) => {
   scrollToPagePosition(highlight.page, y);
 };
 
+const navigateFromTableOfContents = (page) => {
+  if (!Number.isInteger(page)) return;
+  if (isSidebarPopout && window.electronAPI?.revealSidebarAnnotation) {
+    window.electronAPI.revealSidebarAnnotation({
+      documentId: String(id),
+      type: "tableOfContents",
+      page,
+      y: 0,
+    });
+    return;
+  }
+  navigateToPageWithHistory(page);
+};
+
 const deleteStickyNote = async (noteId) => {
   const note = stickyNoteData.value.find((n) => n.id === noteId);
   if (!note) return;
@@ -3873,6 +3892,19 @@ async function loadPdf(data) {
     });
     pdfDoc = await loadingTask.promise;
     totalPages.value = pdfDoc.numPages;
+
+    tocLoading.value = true;
+    tocError.value = "";
+    try {
+      const outline = await pdfDoc.getOutline();
+      tocItems.value = await normalizePdfOutline(pdfDoc, outline || []);
+    } catch (outlineError) {
+      console.warn("Failed to read PDF table of contents", outlineError);
+      tocItems.value = [];
+      tocError.value = "Could not read this PDF's embedded table of contents.";
+    } finally {
+      tocLoading.value = false;
+    }
 
     const sizes = [];
     for (let i = 1; i <= pdfDoc.numPages; i++) {
@@ -4862,6 +4894,28 @@ watch(zoomLevel, schedulePageUpdate);
                   class="pointer-events-none absolute left-1/2 top-1/2 h-10 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-slate-600 transition-colors group-hover:bg-indigo-300"
                 ></span>
               </div>
+
+        <div
+          v-show="isSidebarTabVisible('contents')"
+          data-sidebar-tab="contents"
+          tabindex="-1"
+          class="flex-1 min-w-0 overflow-hidden"
+          :class="sidebarPaneClasses('contents')"
+          :style="sidebarPaneStyle('contents')"
+          @pointerdown.capture="activateSidebarPaneForTab('contents')"
+          @focusin="activateSidebarPaneForTab('contents')"
+        >
+          <PdfTableOfContents
+            :items="tocItems"
+            :current-page="currentPage"
+            :total-pages="totalPages"
+            :document-id="id"
+            :loading="tocLoading"
+            :error="tocError"
+            @navigate="navigateFromTableOfContents"
+            @items-updated="tocItems = $event"
+          />
+        </div>
 
         <div
           v-show="isSidebarTabVisible('stickyNotes')"

@@ -13,6 +13,7 @@ const {
 const fileInput = ref(null);
 const selectedFiles = ref([]);
 const skipOcr = ref(true);
+const scrapeTableOfContents = ref(true);
 const ocrMode = ref("local");
 const selectedByokProvider = ref("mistral");
 
@@ -64,7 +65,13 @@ const uploadSelectedFiles = () => {
     alert(`Add your ${provider?.label || "cloud OCR"} API key in Settings before using this OCR provider.`);
     return;
   }
-  emit("files-selected", selectedFiles.value, skipOcr.value, activeOcrProvider.value);
+  emit(
+    "files-selected",
+    selectedFiles.value,
+    skipOcr.value,
+    activeOcrProvider.value,
+    scrapeTableOfContents.value,
+  );
 };
 
 const clearFile = (event) => {
@@ -195,6 +202,24 @@ const displayText = computed(() => {
           already selectable.
         </span>
       </div>
+
+      <label
+        for="scrapeTableOfContents"
+        class="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 flex items-start gap-2 text-black cursor-pointer"
+      >
+        <input
+          id="scrapeTableOfContents"
+          v-model="scrapeTableOfContents"
+          type="checkbox"
+          class="mt-0.5 w-4 h-4 text-blue-600 bg-white border-gray-300 rounded focus:ring-blue-500"
+        />
+        <span class="min-w-0">
+          <span class="block text-sm font-medium">Scrape table of contents</span>
+          <span class="block text-[11px] leading-relaxed text-gray-600">
+            Import the PDF's chapters and subchapters using its actual PDF page numbers.
+          </span>
+        </span>
+      </label>
 
       <div
         v-if="!skipOcr"
