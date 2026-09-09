@@ -419,7 +419,7 @@
             </div>
           </div>
 
-          <div v-else-if="activeTab === 'ai'" class="space-y-6 max-w-xl">
+          <div v-else-if="activeTab === 'ai'" class="flex flex-col gap-y-6 max-w-xl">
             <div
               class="p-3 rounded-lg border border-indigo-500/20 bg-indigo-500/5 mb-4"
             >
@@ -448,14 +448,7 @@
               </button>
             </div>
 
-            <ChatgptMcpSetup
-              :setup="mcpSetup"
-              :busy="mcpBusy"
-              :error="mcpSetupError"
-              @refresh="refreshMcpSetup"
-            />
-
-            <div class="p-4 rounded-xl border border-white/10 bg-white/[0.02] space-y-3">
+            <div class="order-2 p-4 rounded-xl border border-white/10 bg-white/[0.02] space-y-3">
               <div class="flex items-start justify-between gap-3">
                 <div class="min-w-0">
                   <div class="flex items-center gap-2">
@@ -604,8 +597,8 @@
               </details>
             </div>
 
-            <div class="space-y-4">
-              <label class="block">
+            <div class="contents">
+              <label class="order-3 block">
                 <span class="block text-xs font-bold text-slate-500 uppercase tracking-widest mb-2">
                   Default Provider
                 </span>
@@ -623,7 +616,7 @@
                 </select>
               </label>
 
-              <div class="p-4 rounded-xl border border-purple-500/20 bg-purple-500/5 space-y-4">
+              <div class="order-3 p-4 rounded-xl border border-purple-500/20 bg-purple-500/5 space-y-4">
                 <div>
                   <h4 class="text-sm font-medium text-white">Smart Collections</h4>
                   <p class="mt-1 text-[11px] leading-relaxed text-slate-500">
@@ -727,6 +720,7 @@
                 v-for="provider in aiProviders"
                 :key="provider.id"
                 class="p-4 rounded-xl border border-white/10 bg-white/[0.02] space-y-2"
+                :class="provider.id === 'codex' ? 'order-1' : 'order-3'"
               >
                 <div class="flex items-center justify-between gap-3">
                   <label class="block font-mono text-xs text-indigo-300">
@@ -853,6 +847,14 @@
                 </template>
               </div>
             </div>
+
+            <ChatgptMcpSetup
+              class="order-1"
+              :setup="mcpSetup"
+              :busy="mcpBusy"
+              :error="mcpSetupError"
+              @refresh="refreshMcpSetup"
+            />
           </div>
         </div>
 

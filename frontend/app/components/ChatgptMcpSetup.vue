@@ -105,8 +105,5 @@ onBeforeUnmount(() => clearTimeout(copiedTimer));
       Requires ChatGPT Desktop with local MCP server settings on this computer. The web app does not read this local configuration.
       Requested paper text and images are sent to ChatGPT when it calls these tools. The bridge runs locally.
     </p>
-    <a href="https://learn.chatgpt.com/docs/extend/mcp" target="_blank" rel="noopener noreferrer" class="inline-block text-[11px] text-indigo-300 hover:underline">
-      OpenAI connection guide ↗
-    </a>
   </div>
 </template>
