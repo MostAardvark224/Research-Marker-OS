@@ -94,7 +94,7 @@ def _as_bool(value) -> bool:
 
 
 class McpSetupView(APIView):
-    """Settings UI: discovery + Claude Desktop config (loopback only)."""
+    """Settings UI: local discovery and ChatGPT/Codex/Claude connection configs."""
 
     def get(self, request):
         if not _is_loopback(request):

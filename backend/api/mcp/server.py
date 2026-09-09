@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Stdio MCP server for Claude Desktop / Cowork.
+"""Local stdio MCP server for ChatGPT Desktop, Codex, and Claude Desktop / Cowork.
 
 Talks to the running Research Marker backend over loopback HTTP so it shares
 the same in-memory active-reader state as the PDF viewer.
@@ -28,7 +28,7 @@ def _load_discovery() -> dict[str, Any]:
     if not data or not data.get("base_url"):
         raise RuntimeError(
             "Research Marker is not running or MCP discovery is missing. "
-            "Open Research Marker, then retry from Claude Desktop chat or Cowork."
+            "Open Research Marker, then restart the Research Marker MCP server in your chat app."
         )
     if not data.get("token"):
         data["token"] = load_or_create_token()
@@ -126,8 +126,8 @@ def _request(
                 "Could not reach the Research Marker backend at "
                 f"{discovery.get('base_url')}. "
                 "Make sure the dev backend/app is running, open Settings → "
-                "AI Preferences → Claude Desktop / Cowork → Refresh status, "
-                "then fully quit and reopen Claude Desktop so MCP reloads."
+                "AI Preferences → Refresh status in the ChatGPT or Claude setup card, "
+                "then restart the Research Marker MCP server in your chat app."
             ) from retry_exc
     try:
         payload = response.json()
@@ -201,6 +201,7 @@ def _with_images(payload: dict[str, Any], image_keys: list[str] | None = None):
 
 def build_server():
     from mcp.server.mcpserver import MCPServer
+    from mcp.types import ToolAnnotations
 
     from api.mcp.discovery import DEFAULT_INSTRUCTIONS
 
@@ -209,8 +210,10 @@ def build_server():
         title="Research Marker",
         instructions=DEFAULT_INSTRUCTIONS,
     )
+    read_only = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False)
 
     @server.tool(
+        annotations=read_only,
         description=(
             "Return the paper currently open in Research Marker (document id, title, "
             "current page, selection flags). Call this before answering questions about "
@@ -221,6 +224,7 @@ def build_server():
         return _json_text(_request("GET", "/mcp/tools/active/"))
 
     @server.tool(
+        annotations=read_only,
         description=(
             "Load one page of the active (or specified) paper. Omit page_number to use "
             "the viewer's current page. Set include_image=true for diagrams/figures."
@@ -239,6 +243,7 @@ def build_server():
         return _with_images(_request("GET", "/mcp/tools/page/", params=params))
 
     @server.tool(
+        annotations=read_only,
         description=(
             "Load an inclusive page range from the active paper. Use for @pages 4-7 style "
             "requests. include_images attaches page renders when helpful for figures."
@@ -276,12 +281,14 @@ def build_server():
         return _with_images(payload)
 
     @server.tool(
+        annotations=read_only,
         description="Return the text currently selected in the Research Marker PDF viewer, if any."
     )
     def get_selection() -> str:
         return _json_text(_request("GET", "/mcp/tools/selection/"))
 
     @server.tool(
+        annotations=read_only,
         description=(
             "Search the active paper's extracted text/chunks (local FTS). Use when the user "
             "asks about a topic without naming a page."
@@ -298,6 +305,7 @@ def build_server():
         return _json_text(_request("GET", "/mcp/tools/search/", params=params))
 
     @server.tool(
+        annotations=read_only,
         description=(
             "Resolve a user question the same way Research Marker's in-app chat does, "
             "including @page / @pages / @current / @selection mentions. Returns formatted "

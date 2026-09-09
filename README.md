@@ -59,6 +59,8 @@ Research papers tend to end up spread across folders, browser tabs, and separate
 - Chat about the open paper or across the full library
 - Point the model at specific context with `@` tags such as `@page`, `@highlights`, and `@paper`
 - Answers are grounded in your papers and notes, with citations back to those sources
+- Stream Codex responses and choose reasoning effort for the selected model
+- Connect ChatGPT Desktop, Codex, or Claude to the open paper through the local MCP server; see [ChatGPT and Codex setup](CHATGPT_CODEX_MCP.md)
 
 
 

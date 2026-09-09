@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 
+from asgiref.sync import sync_to_async
+from django.core.handlers.asgi import ASGIRequest
 from django.http import StreamingHttpResponse
 from rest_framework import status
 from rest_framework.response import Response
@@ -70,6 +72,20 @@ def _as_bool(value) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "on"}
     return bool(value)
+
+
+async def _async_stream(iterator):
+    # ASGI consumes synchronous response iterators in full before sending them.
+    # Advance the blocking SDK iterator off the event loop, one event at a time.
+    exhausted = object()
+    try:
+        while True:
+            chunk = await sync_to_async(next)(iterator, exhausted)
+            if chunk is exhausted:
+                break
+            yield chunk
+    finally:
+        await sync_to_async(iterator.close)()
 
 
 class CodexStatusView(APIView):
@@ -220,6 +236,7 @@ class CodexConversationStreamView(APIView):
                 question,
                 context,
                 model=_codex_model(request),
+                reasoning_effort=request.data.get("reasoning_effort") or None,
             )
         except models.ChatLogs.DoesNotExist:
             return Response(
@@ -244,8 +261,15 @@ class CodexConversationStreamView(APIView):
                         "details": {"technical_message": message},
                     }
                 yield (json.dumps({"type": "error", **payload}, separators=(",", ":")) + "\n").encode("utf-8")
+            finally:
+                close = getattr(event_stream, "close", None)
+                if close is not None:
+                    close()
 
-        response = StreamingHttpResponse(stream(), content_type="application/x-ndjson")
+        chunks = stream()
+        if isinstance(request._request, ASGIRequest):
+            chunks = _async_stream(chunks)
+        response = StreamingHttpResponse(chunks, content_type="application/x-ndjson")
         response["Cache-Control"] = "no-cache, no-transform"
         response["X-Accel-Buffering"] = "no"
         return response

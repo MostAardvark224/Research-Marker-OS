@@ -604,6 +604,7 @@ class AIModelsView(APIView):
 
         codex_status = get_codex_provider().get_status()
         codex_models: list[str] = []
+        catalog = []
         codex_default = ""
         if codex_status.get("subscription_usable"):
             try:
@@ -618,6 +619,7 @@ class AIModelsView(APIView):
                 "id": "codex",
                 "label": "Codex — ChatGPT account",
                 "models": codex_models,
+                "model_details": catalog,
                 "default_chat_model": codex_default,
                 "default_naming_model": codex_default,
                 "has_api_key": False,

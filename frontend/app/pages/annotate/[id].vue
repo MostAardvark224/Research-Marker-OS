@@ -2744,6 +2744,11 @@ const {
   selectedProviderModels,
   selectedProviderModelHint,
   selectedProviderHasModels,
+  codexReasoningEffort,
+  codexReasoningOptions,
+  codexDefaultReasoningEffort,
+  fetchAiModels,
+  aiModelsLoading,
   initializeAiModels,
 } = useAiModels();
 
@@ -3008,6 +3013,7 @@ const streamCodexMessage = async (rawInput, onAccepted) => {
       body: JSON.stringify({
         question: rawInput,
         model: selectedAiModel.value,
+        reasoning_effort: codexReasoningEffort.value,
         current_page: currentPage.value,
         selected_text: capturedSelection.value,
         selected_text_page: capturedSelectionPage.value,
@@ -5480,6 +5486,7 @@ watch(zoomLevel, schedulePageUpdate);
                     v-model="selectedAiProvider"
                     class="ai-select min-w-[84px] flex-1 rounded-md border border-slate-800 px-2 py-1.5 text-[9px] outline-none transition-colors focus:border-indigo-500/40"
                     aria-label="AI provider"
+                    :disabled="chatLoading"
                   >
                     <option v-for="provider in aiProviders" :key="provider.id" :value="provider.id">
                       {{ provider.label }}
@@ -5490,6 +5497,7 @@ watch(zoomLevel, schedulePageUpdate);
                     v-model="selectedAiModel"
                     class="ai-select min-w-[110px] flex-[1.5] rounded-md border border-slate-800 px-2 py-1.5 text-[9px] outline-none transition-colors focus:border-indigo-500/40"
                     aria-label="AI model"
+                    :disabled="chatLoading"
                   >
                     <option v-for="model in selectedProviderModels" :key="model" :value="model">
                       {{ model }}
@@ -5515,6 +5523,25 @@ watch(zoomLevel, schedulePageUpdate);
                     aria-label="AI model id"
                     spellcheck="false"
                   />
+                </div>
+                <div v-if="selectedAiProvider === 'codex'" class="flex items-start gap-2 border-t border-slate-800/70 px-2.5 py-2">
+                  <CodexReasoningSelect
+                    v-model="codexReasoningEffort"
+                    :options="codexReasoningOptions"
+                    :default-effort="codexDefaultReasoningEffort"
+                    :disabled="chatLoading || aiModelsLoading"
+                    class="min-w-0 flex-1"
+                  />
+                  <button
+                    type="button"
+                    :disabled="chatLoading || aiModelsLoading"
+                    class="rounded-md p-1.5 text-slate-400 hover:bg-slate-800 hover:text-white disabled:opacity-50"
+                    title="Refresh Codex models"
+                    aria-label="Refresh Codex models"
+                    @click="fetchAiModels({ refresh: true })"
+                  >
+                    <Icon name="ph:arrows-clockwise" class="h-4 w-4" :class="{ 'animate-spin': aiModelsLoading }" />
+                  </button>
                 </div>
                 <p
                   v-if="selectedProviderModelHint"
@@ -6228,6 +6255,23 @@ watch(zoomLevel, schedulePageUpdate);
 .chat-prose :deep(ol) {
   margin: 0.6rem 0;
   padding-left: 1.4rem;
+  list-style-position: outside;
+}
+
+.chat-prose :deep(ul) {
+  list-style-type: disc;
+}
+
+.chat-prose :deep(ol) {
+  list-style-type: decimal;
+}
+
+.chat-prose :deep(ul ul) {
+  list-style-type: circle;
+}
+
+.chat-prose :deep(ul ul ul) {
+  list-style-type: square;
 }
 
 .chat-prose :deep(li) {

@@ -9,6 +9,18 @@ export function useAiModels() {
   const selectedAiProvider = ref("gemini");
   const aiModelsLoading = ref(false);
   const aiModelsError = ref(null);
+  const savedCodexReasoningEffort = ref("");
+  const codexModelDetails = computed(() =>
+    aiProviders.value.find((provider) => provider.id === "codex")?.model_details
+      ?.find((model) => model.id === aiModels.value.codex),
+  );
+  const codexReasoningOptions = computed(() => codexModelDetails.value?.supported_reasoning_efforts || []);
+  const codexDefaultReasoningEffort = computed(() => codexModelDetails.value?.default_reasoning_effort || "");
+  const codexReasoningEffort = computed({
+    get: () => !codexModelDetails.value || codexReasoningOptions.value.some((option) => option.effort === savedCodexReasoningEffort.value)
+      ? savedCodexReasoningEffort.value : "",
+    set: (value) => { savedCodexReasoningEffort.value = value; },
+  });
 
   const defaultModelByProvider = computed(() =>
     Object.fromEntries(
@@ -105,6 +117,7 @@ export function useAiModels() {
   }
 
   function applySavedPreferences(aiPrefs = {}) {
+    savedCodexReasoningEffort.value = aiPrefs.codex_reasoning_effort || "";
     if (aiPrefs.default_provider) {
       selectedAiProvider.value = aiPrefs.default_provider;
     }
@@ -160,6 +173,9 @@ export function useAiModels() {
     selectedProviderAllowsCustomModel,
     selectedProviderModelHint,
     selectedProviderHasModels,
+    codexReasoningEffort,
+    codexReasoningOptions,
+    codexDefaultReasoningEffort,
     defaultModelByProvider,
     aiModelsLoading,
     aiModelsError,

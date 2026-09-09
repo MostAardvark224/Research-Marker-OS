@@ -119,7 +119,7 @@ class CodexConversationAPITests(TestCase):
 
         response = self.client.post(
             reverse("codex-conversation-stream", kwargs={"conversation_id": self.conversation.id}),
-            {"question": "Question", "model": "codex-model"},
+            {"question": "Question", "model": "codex-model", "reasoning_effort": "high"},
             format="json",
         )
 
@@ -128,6 +128,72 @@ class CodexConversationAPITests(TestCase):
         self.assertEqual(response["Cache-Control"], "no-cache, no-transform")
         events = [json.loads(line) for line in b"".join(response.streaming_content).splitlines()]
         self.assertEqual([event["type"] for event in events], ["text", "complete"])
+        self.assertEqual(provider.send_message.call_args.kwargs["reasoning_effort"], "high")
+
+    @patch("api.codex_views.build_paper_context")
+    @patch("api.codex_views.get_codex_provider")
+    async def test_asgi_stream_delivers_deltas_before_generation_finishes(self, get_provider, build_context):
+        build_context.return_value = PaperContext(
+            document_id=self.document.id, document_title="Paper", user_question="Question"
+        )
+        produced = []
+        closed = []
+
+        def generate():
+            try:
+                for event in (
+                    {"type": "started", "turn_id": "turn-1"},
+                    {"type": "delta", "text": "First "},
+                    {"type": "delta", "text": "second"},
+                    {"type": "completed", "citations": []},
+                ):
+                    produced.append(event)
+                    yield event
+            finally:
+                closed.append(True)
+
+        get_provider.return_value.send_message.return_value = generate()
+        response = await self.async_client.post(
+            reverse("codex-conversation-stream", kwargs={"conversation_id": self.conversation.id}),
+            {"question": "Question", "model": "codex-model"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.is_async)
+        self.assertEqual(response["X-Accel-Buffering"], "no")
+        self.assertEqual(produced, [])
+        chunks = response.streaming_content.__aiter__()
+        self.assertEqual(json.loads(await anext(chunks))["type"], "started")
+        self.assertEqual(json.loads(await anext(chunks))["text"], "First ")
+        self.assertEqual(len(produced), 2)
+        self.assertEqual(closed, [])
+        self.assertEqual(json.loads(await anext(chunks))["text"], "second")
+        self.assertEqual(json.loads(await anext(chunks))["type"], "completed")
+        with self.assertRaises(StopAsyncIteration):
+            await anext(chunks)
+        self.assertEqual(closed, [True])
+
+    @patch("api.codex_views.build_paper_context")
+    @patch("api.codex_views.get_codex_provider")
+    async def test_asgi_stream_preserves_partial_text_before_error(self, get_provider, build_context):
+        build_context.return_value = PaperContext(
+            document_id=self.document.id, document_title="Paper", user_question="Question"
+        )
+
+        def generate():
+            yield {"type": "delta", "text": "Partial"}
+            raise RuntimeError("process stopped")
+
+        get_provider.return_value.send_message.return_value = generate()
+        response = await self.async_client.post(
+            reverse("codex-conversation-stream", kwargs={"conversation_id": self.conversation.id}),
+            {"question": "Question", "model": "codex-model"},
+            content_type="application/json",
+        )
+        events = [json.loads(chunk) async for chunk in response.streaming_content]
+        self.assertEqual(events[0], {"type": "delta", "text": "Partial"})
+        self.assertEqual(events[1]["type"], "error")
+        self.assertEqual(events[1]["message"], "process stopped")
 
     @patch("api.codex_views.build_paper_context")
     @patch("api.codex_views.get_codex_provider")

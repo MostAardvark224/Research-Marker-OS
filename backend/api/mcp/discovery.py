@@ -17,7 +17,7 @@ MCP_LAUNCHER_FILENAME = "run-mcp"
 APPIMAGE_BACKEND_REL = "resources/backend/api"
 DEFAULT_INSTRUCTIONS = (
     "You are connected to Research Marker on this machine. "
-    "This works in normal Claude Desktop chat and in Claude Cowork. "
+    "Use these read-only paper tools in ChatGPT Desktop, Codex, Claude Desktop, or Cowork. "
     "When the user asks you to use Research Marker / the Research Marker MCP, "
     "or mentions @page, @pages, @current, or @selection, "
     "call resolve_paper_question (or get_page / get_pages) to load the open paper's "
@@ -197,7 +197,7 @@ def ensure_stable_mcp_launcher() -> Path | None:
 
 
 def resolve_command_and_args() -> tuple[str, list[str], dict[str, str]]:
-    """Absolute command Claude Desktop should launch for the MCP stdio server."""
+    """Absolute command a desktop MCP client should launch for the stdio server."""
     user_data = str(Path(get_app_data_dir()))
     discovery = str(discovery_path())
     env = {
@@ -235,6 +235,34 @@ def build_claude_desktop_config() -> dict[str, Any]:
             }
         }
     }
+
+
+def build_chatgpt_desktop_config() -> dict[str, Any]:
+    """ChatGPT Desktop and Codex share the same local MCP configuration."""
+    ensure_stable_mcp_launcher()
+    command, args, env = resolve_command_and_args()
+    return {"mcp_servers": {"research-marker": {
+        "command": command, "args": args, "env": env,
+        "startup_timeout_sec": 30, "tool_timeout_sec": 120,
+    }}}
+
+
+def chatgpt_config_toml(config: dict[str, Any]) -> str:
+    server = config["mcp_servers"]["research-marker"]
+    def encode(value):
+        return json.dumps(value, ensure_ascii=False)
+    # JSON strings/arrays use the same escaping as TOML basic strings/arrays,
+    # including Windows backslashes and paths containing spaces or quotes.
+    lines = [
+        "[mcp_servers.research-marker]",
+        f"command = {encode(server['command'])}",
+        f"args = {encode(server['args'])}",
+        f"startup_timeout_sec = {server['startup_timeout_sec']}",
+        f"tool_timeout_sec = {server['tool_timeout_sec']}",
+        "", "[mcp_servers.research-marker.env]",
+    ]
+    lines.extend(f"{encode(key)} = {encode(value)}" for key, value in server["env"].items())
+    return "\n".join(lines) + "\n"
 
 
 def _port_is_open(port: int, host: str = "127.0.0.1") -> bool:
@@ -295,6 +323,7 @@ def setup_payload(*, port: int | None = None) -> dict[str, Any]:
     if discovery and not discovery.get("token"):
         discovery["token"] = token
         write_discovery_payload(discovery)
+    chatgpt_config = build_chatgpt_desktop_config()
     return {
         "ready": bool(discovery and discovery.get("base_url")),
         "discovery_path": str(discovery_path()),
@@ -302,6 +331,8 @@ def setup_payload(*, port: int | None = None) -> dict[str, Any]:
         "base_url": (discovery or {}).get("base_url"),
         "port": (discovery or {}).get("port"),
         "claude_desktop_config": build_claude_desktop_config(),
+        "chatgpt_desktop_config": chatgpt_config,
+        "chatgpt_desktop_config_toml": chatgpt_config_toml(chatgpt_config),
         "instructions": DEFAULT_INSTRUCTIONS,
         "active_reader_path": str(Path(get_app_data_dir()) / "active_reader.json"),
     }

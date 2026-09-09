@@ -6,7 +6,9 @@ import importlib.metadata
 import json
 import logging
 from pathlib import Path
+import re
 import shutil
+import subprocess
 from threading import RLock, Thread
 from typing import Any
 from uuid import uuid4
@@ -21,6 +23,7 @@ from api.errors import (
     ProviderNotInstalled,
     ProviderRateLimited,
     ProviderUnavailable,
+    ResearchMarkerError,
 )
 from api.paper_context.builder import format_paper_context
 from api.paper_context.citations import extract_citations
@@ -29,14 +32,14 @@ from api.utils import get_app_data_dir
 from .base import AIProvider
 
 ApprovalMode = Codex = CodexConfig = Sandbox = None
-GetAccountRateLimitsResponse = None
+GetAccountRateLimitsResponse = ModelListResponse = None
 _CODEX_IMPORT_ATTEMPTED = False
 _CODEX_IMPORT_LOCK = RLock()
 
 
 def _load_codex_sdk() -> bool:
     global ApprovalMode, Codex, CodexConfig, Sandbox
-    global GetAccountRateLimitsResponse, _CODEX_IMPORT_ATTEMPTED
+    global GetAccountRateLimitsResponse, ModelListResponse, _CODEX_IMPORT_ATTEMPTED
     with _CODEX_IMPORT_LOCK:
         if _CODEX_IMPORT_ATTEMPTED:
             return Codex is not None
@@ -50,6 +53,7 @@ def _load_codex_sdk() -> bool:
             )
             from openai_codex.generated.v2_all import (
                 GetAccountRateLimitsResponse as LoadedRateLimitsResponse,
+                ModelListResponse as LoadedModelListResponse,
             )
         except ImportError:
             return False
@@ -58,6 +62,7 @@ def _load_codex_sdk() -> bool:
         CodexConfig = LoadedCodexConfig
         Sandbox = LoadedSandbox
         GetAccountRateLimitsResponse = LoadedRateLimitsResponse
+        ModelListResponse = LoadedModelListResponse
         return True
 
 LOGGER = logging.getLogger(__name__)
@@ -104,6 +109,28 @@ def _codex_error_message(error: Any) -> str:
     return str(error)
 
 
+def _newer_installed_codex(bundled_version: str | None) -> str | None:
+    """Prefer a newer user-installed CLI, retaining the bundled offline fallback."""
+    if not bundled_version:
+        return None
+    bundled = tuple(int(part) for part in bundled_version.split(".")[:3])
+    candidates = [shutil.which("codex"), str(Path.home() / ".local" / "bin" / "codex")]
+    for candidate in dict.fromkeys(candidates):
+        if not candidate or not Path(candidate).is_file():
+            continue
+        try:
+            result = subprocess.run(
+                [candidate, "--version"], capture_output=True, text=True, timeout=3,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            version = re.search(r"codex-cli (\d+)\.(\d+)\.(\d+)", result.stdout)
+            if result.returncode == 0 and version and tuple(map(int, version.groups())) > bundled:
+                return candidate
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+    return None
+
+
 class CodexProvider(AIProvider):
     def __init__(self) -> None:
         self._sdk: Any = None
@@ -134,6 +161,7 @@ class CodexProvider(AIProvider):
                 return self.get_status()
             try:
                 config = CodexConfig(
+                    codex_bin=_newer_installed_codex(self.sdk_version),
                     client_name="research_marker",
                     client_title="Research Marker",
                     client_version="1.1.3",
@@ -315,7 +343,19 @@ class CodexProvider(AIProvider):
             return None
 
     def models(self) -> list[dict[str, Any]]:
-        catalog = self._require_sdk().models()
+        sdk = self._require_sdk()
+        catalog = sdk.models()
+        items = list(catalog.data)
+        seen_cursors = set()
+        while catalog.next_cursor:
+            if catalog.next_cursor in seen_cursors:
+                raise ProviderUnavailable("Codex returned a repeated model catalog cursor.")
+            seen_cursors.add(catalog.next_cursor)
+            catalog = sdk._client.request(
+                "model/list", {"cursor": catalog.next_cursor, "includeHidden": False},
+                response_model=ModelListResponse,
+            )
+            items.extend(catalog.data)
         return [
             {
                 "id": item.model,
@@ -323,8 +363,13 @@ class CodexProvider(AIProvider):
                 "description": item.description,
                 "is_default": item.is_default,
                 "input_modalities": item.input_modalities,
+                "default_reasoning_effort": item.default_reasoning_effort.value,
+                "supported_reasoning_efforts": [
+                    {"effort": option.reasoning_effort.value, "description": option.description}
+                    for option in item.supported_reasoning_efforts
+                ],
             }
-            for item in catalog.data
+            for item in items
             if not item.hidden
         ]
 
@@ -448,6 +493,7 @@ class CodexProvider(AIProvider):
         paper_context: PaperContext,
         *,
         model: str | None = None,
+        reasoning_effort: str | None = None,
     ) -> Iterator[dict[str, Any]]:
         self._ensure_chatgpt_account()
         try:
@@ -471,15 +517,30 @@ class CodexProvider(AIProvider):
             raise ProviderUnavailable("The installed Codex SDK does not expose a turn transport.")
         thread_id = conversation.codex_thread_id
 
+        catalog = self.models()
+        resolved_model = model or next(
+            (item["id"] for item in catalog if item.get("is_default")),
+            catalog[0]["id"] if catalog else None,
+        )
+        model_info = next((item for item in catalog if item["id"] == resolved_model), {})
+        supported = {option["effort"] for option in model_info.get("supported_reasoning_efforts", [])}
+        if reasoning_effort and (not isinstance(reasoning_effort, str) or reasoning_effort not in supported):
+            raise ResearchMarkerError(
+                "This reasoning effort is not supported by the selected Codex model. "
+                "Refresh the models and choose again."
+            )
+        effort = reasoning_effort or model_info.get("default_reasoning_effort")
+
         self._append_message(conversation, role="user", content=question)
         turn_params: dict[str, Any] = {
             "cwd": str(session_dir.resolve()),
             "approvalPolicy": "never",
             "sandboxPolicy": READ_ONLY_SANDBOX_POLICY,
         }
-        resolved_model = model or self.default_model()
         if resolved_model:
             turn_params["model"] = resolved_model
+        if effort:
+            turn_params["effort"] = effort
         try:
             started = client.turn_start(
                 thread_id,

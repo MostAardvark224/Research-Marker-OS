@@ -429,8 +429,8 @@
                   class="text-indigo-400 text-lg flex-shrink-0"
                 />
                 <p class="text-xs text-indigo-200/80 leading-relaxed">
-                  Model lists are fetched live from each provider API and cached
-                  for one hour. Add API keys in General, then refresh here.
+                  API model lists are cached for one hour. Codex models come from its running runtime;
+                  a newer installed Codex CLI is used when available. Add keys in API Keys or sign in to Codex below, then refresh here.
                 </p>
               </div>
             </div>
@@ -447,6 +447,13 @@
                 Refresh models
               </button>
             </div>
+
+            <ChatgptMcpSetup
+              :setup="mcpSetup"
+              :busy="mcpBusy"
+              :error="mcpSetupError"
+              @refresh="refreshMcpSetup"
+            />
 
             <div class="p-4 rounded-xl border border-white/10 bg-white/[0.02] space-y-3">
               <div class="flex items-start justify-between gap-3">
@@ -811,6 +818,12 @@
                         {{ model }}
                       </option>
                     </select>
+                    <CodexReasoningSelect
+                      v-model="codexReasoningEffort"
+                      :options="codexReasoningOptions"
+                      :default-effort="codexDefaultReasoningEffort"
+                      :disabled="aiModelsLoading"
+                    />
                   </div>
                 </div>
                 <template v-else>
@@ -875,9 +888,13 @@ const {
   aiProviders,
   embeddingProviders,
   aiModels,
+  codexReasoningEffort,
+  codexReasoningOptions,
+  codexDefaultReasoningEffort,
   selectedAiProvider: defaultAiProvider,
   selectedProviderModels,
   initializeAiModels,
+  applySavedPreferences,
   fetchAiModels,
   aiModelsLoading,
 } = useAiModels();
@@ -1081,7 +1098,7 @@ async function refreshMcpSetup() {
     mcpSetup.value = await $fetch(`${apiBaseURL}/mcp/setup/`);
   } catch (error) {
     mcpSetupError.value =
-      error?.data?.message || error?.message || "Could not load Claude Desktop / Cowork setup.";
+      error?.data?.message || error?.message || "Could not load ChatGPT / Claude MCP setup.";
   } finally {
     mcpBusy.value = false;
   }
@@ -1394,11 +1411,7 @@ async function loadUserPreferences() {
 
     const aiPrefs = res.user_preferences?.ai;
     if (aiPrefs) {
-      defaultAiProvider.value = aiPrefs.default_provider || defaultAiProvider.value;
-      aiModels.value = {
-        ...aiModels.value,
-        ...(aiPrefs.models || {}),
-      };
+      applySavedPreferences(aiPrefs);
       const smartCollections = aiPrefs.smart_collections || {};
       smartCollectionEmbeddingProvider.value =
         smartCollections.embedding_provider || smartCollectionEmbeddingProvider.value;
@@ -1489,6 +1502,7 @@ async function saveSettings() {
         ai: {
           default_provider: defaultAiProvider.value,
           models: aiModels.value,
+          codex_reasoning_effort: codexReasoningEffort.value,
           smart_collections: {
             embedding_provider: smartCollectionEmbeddingProvider.value,
             embedding_models: smartCollectionEmbeddingModels.value,

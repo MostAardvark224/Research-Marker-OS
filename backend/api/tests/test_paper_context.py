@@ -298,6 +298,11 @@ class CodexProviderTests(TestCase):
             provider,
             "_require_sdk",
             return_value=SimpleNamespace(_client=client),
+        ), patch.object(
+            provider, "models", return_value=[{
+                "id": "gpt-5.4", "default_reasoning_effort": "medium",
+                "supported_reasoning_efforts": [{"effort": "high"}],
+            }],
         ):
             events = list(
                 provider.send_message(
@@ -305,6 +310,7 @@ class CodexProviderTests(TestCase):
                     "What is reported?",
                     context,
                     model="gpt-5.4",
+                    reasoning_effort="high",
                 )
             )
 
@@ -313,6 +319,7 @@ class CodexProviderTests(TestCase):
         assert client.params is not None
         assert client.inputs is not None
         self.assertEqual(client.params["sandboxPolicy"], READ_ONLY_SANDBOX_POLICY)
+        self.assertEqual(client.params["effort"], "high")
         self.assertFalse(client.params["sandboxPolicy"]["networkAccess"])
         self.assertEqual(client.inputs[1]["type"], "localImage")
         self.assertTrue(Path(client.inputs[1]["path"]).is_file())

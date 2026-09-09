@@ -88,10 +88,15 @@ class ModelCatalogAPITests(TestCase):
     ):
         provider = get_codex.return_value
         provider.get_status.return_value = {"subscription_usable": True}
-        provider.models.return_value = [{"id": "codex-model", "is_default": True}]
+        provider.models.return_value = [{
+            "id": "codex-model", "is_default": True,
+            "default_reasoning_effort": "medium",
+            "supported_reasoning_efforts": [{"effort": "high", "description": "More reasoning"}],
+        }]
 
         response = APIClient().get(reverse("ai-models"))
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual([item["id"] for item in response.data["providers"]], ["gemini", "codex"])
         self.assertEqual(response.data["embedding_providers"], [{"id": "local"}])
+        self.assertEqual(response.data["providers"][1]["model_details"], provider.models.return_value)

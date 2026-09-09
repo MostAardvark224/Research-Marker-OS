@@ -20,9 +20,13 @@ const downloadEventNames = {
 };
 
 const trackDownload = () => {
-  $analytics.trackEvent(downloadEventNames[props.os], {
+  const eventParameters = {
     link_url: props.downloadLink,
-  });
+    operating_system: props.os,
+  };
+
+  $analytics.trackEvent("total_downloads", eventParameters);
+  $analytics.trackEvent(downloadEventNames[props.os], eventParameters);
 };
 
 const osConfig = computed(() => {
