@@ -216,7 +216,7 @@ const displayText = computed(() => {
         <span class="min-w-0">
           <span class="block text-sm font-medium">Scrape table of contents</span>
           <span class="block text-[11px] leading-relaxed text-gray-600">
-            Import the PDF's chapters and subchapters using its actual PDF page numbers.
+            Import chapters from the PDF outline and, if needed, scan the printed contents pages.
           </span>
         </span>
       </label>

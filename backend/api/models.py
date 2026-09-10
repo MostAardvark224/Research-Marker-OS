@@ -57,6 +57,7 @@ class Document(models.Model):
         PROCESSING = "processing", "Processing"
         SUCCEEDED = "succeeded", "Succeeded"
         FAILED = "failed", "Failed"
+        CANCELLED = "cancelled", "Cancelled"
 
     id: int
     folder_id: int | None
@@ -98,6 +99,9 @@ class Document(models.Model):
     toc_error = models.TextField(blank=True, default="")
     toc_started_at = models.DateTimeField(blank=True, null=True)
     toc_completed_at = models.DateTimeField(blank=True, null=True)
+    toc_task_id = models.CharField(max_length=100, blank=True, default="")
+    toc_progress = models.PositiveSmallIntegerField(default=0)
+    toc_progress_message = models.CharField(max_length=200, blank=True, default="")
 
     if TYPE_CHECKING:
         context_pages: RelatedManager[DocumentPage]

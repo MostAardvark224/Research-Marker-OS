@@ -41,7 +41,8 @@ onBeforeUnmount(() => clearTimeout(copiedTimer));
     <ol class="list-decimal space-y-2 pl-5 text-xs leading-relaxed text-slate-400">
       <li>Keep Research Marker running and open a PDF.</li>
       <li>In ChatGPT Desktop, open <strong class="text-slate-200">Settings → MCP servers → Add server</strong>.</li>
-      <li>Choose <strong class="text-slate-200">STDIO</strong>, name it <code>research-marker</code>, and enter the command, arguments, and environment variables below.</li>
+      <li>Choose <strong class="text-slate-200">STDIO</strong>, name it <code>research-marker</code>, and enter the command and arguments below.</li>
+      <li>In that server’s <strong class="text-slate-200">Environment variables</strong> section, add both <code>RESEARCH_MARKER_MCP_DISCOVERY</code> and <code>USER_DATA_DIR</code> using the generated values below.</li>
       <li>Save, select <strong class="text-slate-200">Restart</strong>, then type <code>/mcp</code> in a chat to check the connection.</li>
     </ol>
 
@@ -52,7 +53,7 @@ onBeforeUnmount(() => clearTimeout(copiedTimer));
 
     <div v-if="server" class="space-y-2 text-xs">
       <div class="flex items-center justify-between text-slate-400">
-        <span>Command</span>
+        <span>Command to launch</span>
         <button type="button" class="text-indigo-300 hover:text-indigo-200" @click="copy(server.command, 'command')">
           {{ copied === 'command' ? "Copied" : "Copy command" }}
         </button>

@@ -1,3 +1,4 @@
+import atexit
 import multiprocessing
 import os
 import socket
@@ -105,6 +106,17 @@ def _queue_deferred_startup_work() -> None:
         print(f"Could not queue Scholar Inbox auto-import: {exc}", flush=True)
 
 
+def _cancel_toc_work_on_shutdown(reason: str) -> None:
+    try:
+        from api.table_of_contents import cancel_incomplete_table_of_contents
+        from api.task_queue import stop_qcluster
+
+        cancel_incomplete_table_of_contents(reason)
+        stop_qcluster()
+    except Exception as exc:
+        print(f"Could not cancel incomplete table-of-contents work: {exc}", flush=True)
+
+
 def _announce_when_listening(port: int) -> None:
     """
     Emit an explicit machine-readable readiness marker once the port accepts
@@ -136,6 +148,9 @@ if __name__ == "__main__":
         print("Migrations applied successfully.", flush=True)
     except Exception as e:
         print(f"Error applying migrations: {e}", flush=True)
+
+    _cancel_toc_work_on_shutdown("Cancelled because Research Marker restarted before it finished.")
+    atexit.register(_cancel_toc_work_on_shutdown, "Cancelled because Research Marker closed.")
 
     port = _reserve_port()
     _write_mcp_discovery(port)

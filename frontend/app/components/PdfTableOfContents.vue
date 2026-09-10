@@ -39,11 +39,37 @@ const displayedItems = computed(() =>
 );
 const tocStatus = computed(() => documentState.value?.toc_status || "not_started");
 const isProcessing = computed(() => ["queued", "processing"].includes(tocStatus.value));
+const tocProgressPercent = computed(() => {
+  if (tocStatus.value === "queued") return 12;
+  if (tocStatus.value === "processing") {
+    return Math.min(99, Math.max(8, Number(documentState.value?.toc_progress) || 8));
+  }
+  if (tocStatus.value === "succeeded") return 100;
+  return Number(documentState.value?.toc_progress) || 0;
+});
+const tocProgressLabel = computed(() => {
+  if (documentState.value?.toc_progress_message) return documentState.value.toc_progress_message;
+  if (tocStatus.value === "queued") return "Waiting for the background worker…";
+  if (tocStatus.value === "processing") return "Scanning the PDF for chapters…";
+  if (tocStatus.value === "cancelled") return "Scraper cancelled";
+  if (tocStatus.value === "failed") return "Last scrape failed";
+  if (tocStatus.value === "succeeded") return "Scraper completed";
+  return "Scraper has not run";
+});
 const runButtonLabel = computed(() => {
   if (isProcessing.value) return "Scraping…";
   if (tocStatus.value === "failed") return "Retry scrape";
   if (tocStatus.value === "succeeded") return "Re-run scrape";
   return "Run scraper";
+});
+const tocSourceLabel = computed(() => {
+  const source = documentState.value?.toc_source;
+  if (source === "manual") return "edited";
+  if (source === "printed") return "printed contents";
+  if (source === "hybrid") return "printed contents + detected headings";
+  if (source === "inferred") return "detected headings";
+  if (source === "embedded") return "PDF outline";
+  return source || "";
 });
 
 const activeItem = computed(() =>
@@ -235,7 +261,7 @@ function startPolling() {
     if (!document || !["queued", "processing"].includes(document.toc_status)) {
       stopPolling();
     }
-  }, 2000);
+  }, 1000);
 }
 
 async function runScraper() {
@@ -265,6 +291,24 @@ async function runScraper() {
   }
 }
 
+async function cancelScraper() {
+  if (!isProcessing.value || isSubmitting.value) return;
+  actionError.value = "";
+  isSubmitting.value = true;
+  try {
+    const document = await $fetch(
+      `${apiBaseURL}/documents/${props.documentId}/table-of-contents/`,
+      { method: "DELETE" },
+    );
+    documentState.value = document;
+    stopPolling();
+  } catch (error) {
+    actionError.value = error?.data?.error || error?.message || "Could not cancel the table of contents scraper.";
+  } finally {
+    isSubmitting.value = false;
+  }
+}
+
 onMounted(async () => {
   const document = await fetchDocumentState();
   if (document && ["queued", "processing"].includes(document.toc_status)) startPolling();
@@ -282,7 +326,7 @@ onUnmounted(stopPolling);
       <div class="min-w-0">
         <p class="text-[10px] text-slate-500">PDF page numbers</p>
         <p v-if="documentState?.toc_source" class="truncate text-[9px] text-slate-600">
-          Source: {{ documentState.toc_source === 'manual' ? 'edited' : documentState.toc_source }}
+          Source: {{ tocSourceLabel }}
         </p>
       </div>
       <div class="flex items-center gap-1">
@@ -320,23 +364,52 @@ onUnmounted(stopPolling);
       </div>
     </div>
 
-    <div class="flex shrink-0 items-center gap-2 border-b border-slate-800 px-3 py-2">
-      <span class="min-w-0 flex-1 truncate text-[10px] text-slate-500">
-        {{ isProcessing ? 'Reading embedded PDF chapters…' : tocStatus === 'failed' ? 'Last scrape failed' : tocStatus === 'succeeded' ? 'Scraper completed' : 'Scraper has not run' }}
-      </span>
-      <button
-        type="button"
-        class="shrink-0 rounded bg-slate-800 px-2 py-1 text-[10px] text-slate-300 hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
-        :disabled="isProcessing || isSubmitting || isEditing"
-        @click="runScraper"
-      >
-        {{ runButtonLabel }}
-      </button>
+    <div class="flex shrink-0 flex-col gap-2 border-b border-slate-800 px-3 py-2">
+      <div class="flex items-center gap-2">
+        <span class="min-w-0 flex-1 truncate text-[10px] text-slate-500">
+          {{ tocProgressLabel }}
+        </span>
+        <button
+          v-if="isProcessing"
+          type="button"
+          class="shrink-0 rounded px-2 py-1 text-[10px] text-amber-300 hover:bg-amber-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+          :disabled="isSubmitting"
+          @click="cancelScraper"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          class="shrink-0 rounded bg-slate-800 px-2 py-1 text-[10px] text-slate-300 hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+          :disabled="isProcessing || isSubmitting || isEditing"
+          @click="runScraper"
+        >
+          {{ runButtonLabel }}
+        </button>
+      </div>
+      <div v-if="isProcessing" class="h-1.5 overflow-hidden rounded-full bg-slate-800">
+        <div
+          class="h-full rounded-full bg-indigo-500 transition-all duration-500"
+          :class="{ 'animate-pulse': tocStatus === 'queued' }"
+          :style="{ width: `${tocProgressPercent}%` }"
+        ></div>
+      </div>
     </div>
 
     <div v-if="loading" class="flex flex-1 items-center justify-center gap-2 text-xs text-slate-500">
       <Icon name="svg-spinners:ring-resize" class="h-4 w-4" />
       Reading PDF contents…
+    </div>
+    <div v-else-if="isProcessing && !displayedItems.length" class="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-slate-500">
+      <Icon name="svg-spinners:ring-resize" class="h-5 w-5" />
+      <p class="text-xs leading-5">{{ tocProgressLabel }}</p>
+      <div class="h-1.5 w-full max-w-[220px] overflow-hidden rounded-full bg-slate-800">
+        <div
+          class="h-full rounded-full bg-indigo-500 transition-all duration-500"
+          :class="{ 'animate-pulse': tocStatus === 'queued' }"
+          :style="{ width: `${tocProgressPercent}%` }"
+        ></div>
+      </div>
     </div>
     <div v-else-if="(error || documentState?.toc_error) && !displayedItems.length" class="m-3 rounded-md border border-red-500/20 bg-red-500/5 p-3 text-xs text-red-300">
       {{ error || documentState?.toc_error }}

@@ -39,7 +39,13 @@ from api.scholar_inbox import ScholarInboxError
 from api.scholar_inbox_import import import_scholar_inbox_papers
 from api.startup_scripts import get_startup_scripts_status, sanitize_startup_script_paths
 from api.task_queue import enqueue_task
-from api.table_of_contents import sanitize_table_of_contents
+from api.table_of_contents import (
+    TOC_QUEUE_UPDATE_FIELDS,
+    TOC_TASK_FUNCTION,
+    cancel_document_table_of_contents,
+    prepare_table_of_contents_queue,
+    sanitize_table_of_contents,
+)
 from api.user_preferences import deep_get, load_user_preferences, write_user_preferences
 from api.utils import (
     get_env_vars_potential_list,
@@ -49,6 +55,25 @@ from api.utils import (
 )
 
 MAX_SCHOLAR_PDF_BYTES = 100 * 1024 * 1024
+
+
+def json_safe(value):
+    """Convert SDK response values into primitives accepted by DRF's JSON renderer.
+
+    The Codex SDK's model metadata can contain sets and enum-like values.  Those
+    are fine in the in-process API client used during development, but fail when
+    a packaged backend renders the real HTTP response.
+    """
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, dict):
+        return {str(key): json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return [json_safe(item) for item in value]
+    enum_value = getattr(value, "value", None)
+    if enum_value is not None:
+        return json_safe(enum_value)
+    return str(value)
 
 
 def async_task(*args, **kwargs):
@@ -357,13 +382,14 @@ class DocumentsViewSet(viewsets.ModelViewSet):
                 self.perform_create(serializer)
 
                 if scrape_toc:
-                    serializer.instance.toc_status = models.Document.TocStatus.QUEUED
-                    serializer.instance.toc_error = ""
-                    serializer.instance.save(update_fields=["toc_status", "toc_error"])
-                    async_task(
-                        "api.table_of_contents.scrape_document_table_of_contents",
+                    prepare_table_of_contents_queue(serializer.instance)
+                    serializer.instance.save(update_fields=TOC_QUEUE_UPDATE_FIELDS)
+                    task_id = async_task(
+                        TOC_TASK_FUNCTION,
                         serializer.instance.pk,
                     )
+                    serializer.instance.toc_task_id = str(task_id or "")[:100]
+                    serializer.instance.save(update_fields=["toc_task_id"])
 
                 if not skip_ocr:
                     serializer.instance.ocr_provider = ocr_provider
@@ -619,7 +645,7 @@ class AIModelsView(APIView):
         codex_default = ""
         if codex_status.get("subscription_usable"):
             try:
-                catalog = get_codex_provider().models()
+                catalog = json_safe(get_codex_provider().models())
                 codex_models = [item["id"] for item in catalog]
                 defaults = [item["id"] for item in catalog if item.get("is_default")]
                 codex_default = defaults[0] if defaults else (codex_models[0] if codex_models else "")
@@ -756,22 +782,14 @@ class DocumentTableOfContentsView(APIView):
                 status=status.HTTP_409_CONFLICT,
             )
 
-        document.toc_status = models.Document.TocStatus.QUEUED
-        document.toc_error = ""
-        document.toc_started_at = None
-        document.toc_completed_at = None
-        document.save(
-            update_fields=[
-                "toc_status",
-                "toc_error",
-                "toc_started_at",
-                "toc_completed_at",
-            ]
-        )
-        async_task(
-            "api.table_of_contents.scrape_document_table_of_contents",
+        prepare_table_of_contents_queue(document)
+        document.save(update_fields=TOC_QUEUE_UPDATE_FIELDS)
+        task_id = async_task(
+            TOC_TASK_FUNCTION,
             document.pk,
         )
+        document.toc_task_id = str(task_id or "")[:100]
+        document.save(update_fields=["toc_task_id"])
         return Response(
             {
                 "message": "Table of contents scraping queued.",
@@ -779,6 +797,18 @@ class DocumentTableOfContentsView(APIView):
             },
             status=status.HTTP_202_ACCEPTED,
         )
+
+    def delete(self, request, pk):
+        document = self.get_document(pk)
+        if not document:
+            return Response({"error": "Document not found."}, status=status.HTTP_404_NOT_FOUND)
+        if document.toc_status not in (models.Document.TocStatus.QUEUED, models.Document.TocStatus.PROCESSING):
+            return Response(
+                {"error": "No table of contents scrape is running.", "document": serializers.DocumentSerializer(document).data},
+                status=status.HTTP_409_CONFLICT,
+            )
+        cancel_document_table_of_contents(document, "Cancelled by user.")
+        return Response(serializers.DocumentSerializer(document).data)
 
     def put(self, request, pk):
         document = self.get_document(pk)
@@ -797,6 +827,8 @@ class DocumentTableOfContentsView(APIView):
         document.toc_source = "manual"
         document.toc_error = ""
         document.toc_completed_at = timezone.now()
+        document.toc_progress = 100
+        document.toc_progress_message = "Saved manual table of contents."
         document.save(
             update_fields=[
                 "toc_data",
@@ -804,6 +836,8 @@ class DocumentTableOfContentsView(APIView):
                 "toc_source",
                 "toc_error",
                 "toc_completed_at",
+                "toc_progress",
+                "toc_progress_message",
             ]
         )
         return Response(serializers.DocumentSerializer(document).data)

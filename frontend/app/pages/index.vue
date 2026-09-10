@@ -5,20 +5,62 @@
   >
     <div
       v-if="isUploading"
-      class="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm cursor-wait"
+      class="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm px-6"
+      :class="uploadPhase === 'toc' ? 'cursor-default' : 'cursor-wait'"
       @click.stop
     >
-      <Icon
-        name="material-symbols:progress-activity"
-        class="text-6xl text-blue-500 animate-spin mb-4"
-      />
-      <h3 class="text-xl font-semibold text-white">
-        Uploading & Processing...
-      </h3>
-      <p class="text-slate-400 mt-2 text-sm">
-        Please do not close this window. This may take a couple minutes
-        depending on the size of your file
-      </p>
+      <div class="w-full max-w-lg rounded-2xl border border-white/10 bg-slate-950/90 p-6 shadow-2xl">
+        <Icon
+          name="material-symbols:progress-activity"
+          class="mx-auto mb-4 text-5xl text-blue-500 animate-spin"
+        />
+        <h3 class="text-center text-xl font-semibold text-white">
+          {{ uploadPhase === "toc" ? "Extracting table of contents" : "Uploading papers" }}
+        </h3>
+        <p class="mt-2 text-center text-sm text-slate-400">
+          {{
+            uploadPhase === "toc"
+              ? tocUploadStatusLabel
+              : "Please wait while the PDF is saved to your library."
+          }}
+        </p>
+        <div class="mt-5 h-2 overflow-hidden rounded-full bg-white/10">
+          <div
+            class="h-full rounded-full bg-blue-500 transition-all duration-500"
+            :class="{ 'animate-pulse': uploadPhase === 'uploading' || tocUploadOverallProgress < 8 }"
+            :style="{ width: `${uploadPhase === 'uploading' ? 18 : tocUploadOverallProgress}%` }"
+          ></div>
+        </div>
+        <p class="mt-2 text-center text-xs font-medium tabular-nums text-slate-300">
+          {{ uploadPhase === "uploading" ? "Uploading…" : `${tocUploadOverallProgress}%` }}
+        </p>
+        <ul
+          v-if="uploadPhase === 'toc' && tocUploadJobs.length"
+          class="mt-4 max-h-40 space-y-2 overflow-y-auto text-left"
+        >
+          <li
+            v-for="job in tocUploadJobs"
+            :key="job.id"
+            class="rounded-lg border border-white/5 bg-white/5 px-3 py-2"
+          >
+            <p class="truncate text-xs font-medium text-slate-200">{{ job.title }}</p>
+            <p class="mt-0.5 truncate text-[11px] text-slate-500">
+              {{ job.toc_progress_message || job.toc_status }}
+            </p>
+          </li>
+        </ul>
+        <p v-if="tocStallWarning" class="mt-3 text-center text-xs leading-relaxed text-amber-300/90">
+          {{ tocStallWarning }}
+        </p>
+        <button
+          v-if="uploadPhase === 'toc'"
+          type="button"
+          class="mt-5 w-full rounded-lg border border-white/10 px-3 py-2 text-sm text-slate-300 hover:bg-white/5"
+          @click="continueUploadInBackground"
+        >
+          Continue in background
+        </button>
+      </div>
     </div>
 
     <div class="flex-1 flex flex-col w-full h-full overflow-hidden">
@@ -543,6 +585,21 @@
                           >
                             {{ paper.title }}
                           </p>
+                          <div
+                            v-if="isTocInProgress(paper)"
+                            class="mt-1.5 pr-4"
+                          >
+                            <div class="h-1 overflow-hidden rounded-full bg-white/10">
+                              <div
+                                class="h-full rounded-full bg-blue-500 transition-all duration-500"
+                                :class="{ 'animate-pulse': paper.toc_status === 'queued' }"
+                                :style="{ width: `${tocProgressForPaper(paper)}%` }"
+                              ></div>
+                            </div>
+                            <p class="mt-1 truncate text-[10px] text-slate-500">
+                              {{ paper.toc_progress_message || "Extracting table of contents…" }}
+                            </p>
+                          </div>
                         </div>
                       </td>
 
@@ -781,6 +838,12 @@ const vFocus = {
 
 // State vars
 const isUploading = ref(false);
+const uploadPhase = ref("uploading");
+const tocUploadJobs = ref([]);
+const tocStallWarning = ref("");
+let uploadTocPollTimer = null;
+let libraryTocPollTimer = null;
+let tocWaitStartedAt = 0;
 const isLibraryLoading = ref(true);
 const showUpload = ref(false);
 const showScholarInbox = ref(false);
@@ -1038,8 +1101,14 @@ async function fetchPastPapers() {
   }
 }
 
-onMounted(() => {
-  fetchPastPapers();
+onMounted(async () => {
+  await fetchPastPapers();
+  syncLibraryTocPolling();
+});
+
+onUnmounted(() => {
+  stopUploadTocPolling();
+  stopLibraryTocPolling();
 });
 
 // DOCUMENT HANDLING FUNCS
@@ -1070,6 +1139,9 @@ async function sendDocuments() {
   }
 
   isUploading.value = true;
+  uploadPhase.value = "uploading";
+  tocUploadJobs.value = [];
+  tocStallWarning.value = "";
 
   const formData = new FormData();
   filesToUpload.value.forEach((file) => {
@@ -1091,16 +1163,137 @@ async function sendDocuments() {
     });
     await fetchPastPapers();
     filesToUpload.value = [];
+    const uploaded = Array.isArray(res) ? res : res ? [res] : [];
+    const shouldWatchToc = uploadScrapeToc.value && uploaded.length;
     uploadSkipOcr.value = false;
     uploadOcrProvider.value = "paddleocr";
     uploadScrapeToc.value = true;
+
+    if (shouldWatchToc) {
+      uploadPhase.value = "toc";
+      tocWaitStartedAt = Date.now();
+      tocUploadJobs.value = uploaded;
+      startUploadTocPolling();
+      syncLibraryTocPolling();
+      return;
+    }
+    isUploading.value = false;
   } catch (error) {
     console.error("Error uploading files:", error);
     alert("Upload Failed");
-  } finally {
     isUploading.value = false;
   }
 }
+
+function isTocInProgress(paper) {
+  return ["queued", "processing"].includes(paper?.toc_status);
+}
+
+function tocProgressForPaper(paper) {
+  if (paper?.toc_status === "queued") return 12;
+  if (paper?.toc_status === "processing") {
+    return Math.min(99, Math.max(8, Number(paper.toc_progress) || 8));
+  }
+  if (paper?.toc_status === "succeeded") return 100;
+  return Number(paper?.toc_progress) || 0;
+}
+
+function collectLibraryDocuments(folders = folderList.value, unassigned = unassignedDocs.value) {
+  const documents = [...(unassigned || [])];
+  const visit = (items) => {
+    for (const folder of items || []) {
+      documents.push(...(folder.documents || []));
+      visit(folder.subfolders);
+    }
+  };
+  visit(folders);
+  return documents;
+}
+
+function stopLibraryTocPolling() {
+  if (libraryTocPollTimer) {
+    clearInterval(libraryTocPollTimer);
+    libraryTocPollTimer = null;
+  }
+}
+
+function syncLibraryTocPolling() {
+  const active = collectLibraryDocuments().some(isTocInProgress);
+  if (!active) {
+    stopLibraryTocPolling();
+    return;
+  }
+  if (libraryTocPollTimer) return;
+  libraryTocPollTimer = setInterval(async () => {
+    await fetchPastPapers();
+    if (!collectLibraryDocuments().some(isTocInProgress)) {
+      stopLibraryTocPolling();
+    }
+  }, 1000);
+}
+
+function stopUploadTocPolling() {
+  if (uploadTocPollTimer) {
+    clearInterval(uploadTocPollTimer);
+    uploadTocPollTimer = null;
+  }
+}
+
+function finishUploadOverlay() {
+  stopUploadTocPolling();
+  isUploading.value = false;
+  uploadPhase.value = "uploading";
+  tocUploadJobs.value = [];
+  tocStallWarning.value = "";
+  syncLibraryTocPolling();
+}
+
+function continueUploadInBackground() {
+  finishUploadOverlay();
+}
+
+async function refreshTocUploadJobs() {
+  const jobs = await Promise.all(
+    tocUploadJobs.value.map(async (job) => {
+      try {
+        return await $fetch(`${apiBaseURL}/documents/${job.id}/table-of-contents/`);
+      } catch {
+        return job;
+      }
+    }),
+  );
+  tocUploadJobs.value = jobs;
+  if (jobs.every((job) => !isTocInProgress(job))) {
+    await fetchPastPapers();
+    finishUploadOverlay();
+    return;
+  }
+  if (jobs.every((job) => job.toc_status === "queued") && Date.now() - tocWaitStartedAt > 20000) {
+    tocStallWarning.value =
+      "Still waiting for the background worker. You can continue in the library; progress will keep updating.";
+  }
+}
+
+function startUploadTocPolling() {
+  stopUploadTocPolling();
+  uploadTocPollTimer = setInterval(refreshTocUploadJobs, 1000);
+  refreshTocUploadJobs();
+}
+
+const tocUploadOverallProgress = computed(() => {
+  if (!tocUploadJobs.value.length) return 0;
+  const total = tocUploadJobs.value.reduce(
+    (sum, job) => sum + tocProgressForPaper(job),
+    0,
+  );
+  return Math.round(total / tocUploadJobs.value.length);
+});
+
+const tocUploadStatusLabel = computed(() => {
+  const firstMessage = tocUploadJobs.value.find((job) => job.toc_progress_message)?.toc_progress_message;
+  if (firstMessage) return firstMessage;
+  return "Reading the PDF outline and scanning printed contents pages.";
+});
 
 function promptDeletePaper(paper) {
   papersToDelete.value = [paper];

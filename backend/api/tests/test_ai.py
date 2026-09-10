@@ -100,3 +100,26 @@ class ModelCatalogAPITests(TestCase):
         self.assertEqual([item["id"] for item in response.data["providers"]], ["gemini", "codex"])
         self.assertEqual(response.data["embedding_providers"], [{"id": "local"}])
         self.assertEqual(response.data["providers"][1]["model_details"], provider.models.return_value)
+
+    @patch("api.providers.codex.get_codex_provider")
+    @patch("api.views.get_all_provider_models", return_value=[])
+    @patch("api.views.load_env_vars", return_value={})
+    @patch("api.providers.embeddings.embedding_provider_catalog", return_value=[])
+    def test_ai_models_serializes_codex_sdk_metadata(
+        self, _embedding, _env, _models, get_codex
+    ):
+        provider = get_codex.return_value
+        provider.get_status.return_value = {"subscription_usable": True}
+        provider.models.return_value = [{
+            "id": "codex-model",
+            "is_default": True,
+            "input_modalities": {"text", "image"},
+        }]
+
+        response = APIClient().get(reverse("ai-models"))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertCountEqual(
+            response.json()["providers"][0]["model_details"][0]["input_modalities"],
+            ["text", "image"],
+        )

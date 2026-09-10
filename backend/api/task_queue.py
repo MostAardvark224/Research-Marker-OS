@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import signal
 import subprocess
 import sys
 import time
@@ -97,6 +98,7 @@ def ensure_qcluster_running() -> bool:
                 env=env,
                 stdout=sys.stdout,
                 stderr=sys.stderr,
+                start_new_session=os.name != "nt",
             )
             path.write_text(str(process.pid), encoding="ascii")
             try:
@@ -108,6 +110,20 @@ def ensure_qcluster_running() -> bool:
             _remove_owned_pid_file(os.getpid())
             raise
     return False
+
+
+def stop_qcluster() -> None:
+    """Stop the on-demand cluster and all of its worker children."""
+    pid = _read_pid(_pid_path())
+    if pid is None or not _pid_is_alive(pid):
+        return
+    try:
+        if os.name != "nt":
+            os.killpg(pid, signal.SIGTERM)
+        else:
+            os.kill(pid, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
 
 
 def enqueue_task(*args: Any, **kwargs: Any) -> str:
