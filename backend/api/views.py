@@ -136,6 +136,12 @@ def _next_document_sort_order(folder_id):
     )["sort_order__max"]
     return (max_order if max_order is not None else -1) + 1
 
+def _next_note_sort_order(folder_id):
+    max_order = models.StandaloneNote.objects.filter(folder_id=folder_id).aggregate(
+        Max("sort_order")
+    )["sort_order__max"]
+    return (max_order if max_order is not None else -1) + 1
+
 def _next_folder_sort_order(parent_id):
     max_order = models.Folder.objects.filter(parent_id=parent_id).aggregate(
         Max("sort_order")
@@ -335,9 +341,15 @@ class CompleteFetch(APIView):
         )
         unassigned_serializer = serializers.DocumentSerializer(unassigned_docs, many=True)
 
+        unassigned_notes = models.StandaloneNote.objects.filter(folder__isnull=True).order_by(
+            "sort_order", "id"
+        )
+        unassigned_notes_serializer = serializers.StandaloneNoteSerializer(unassigned_notes, many=True)
+
         return Response({
             'folders': folder_serializer.data,
-            'Unassigned': unassigned_serializer.data
+            'Unassigned': unassigned_serializer.data,
+            'UnassignedNotes': unassigned_notes_serializer.data
         }, status=status.HTTP_200_OK)
 
 # View that handles all document-related operations
@@ -486,6 +498,33 @@ class ReorderDocumentsView(APIView):
             models.Document.objects.filter(pk=doc_id).update(sort_order=index)
 
         return Response({"message": "Documents reordered."}, status=status.HTTP_200_OK)
+
+
+class ReorderNotesView(APIView):
+    def post(self, request):
+        folder_id = request.data.get("folder_id")
+        note_ids = request.data.get("note_ids", [])
+
+        if folder_id in ("", "null", "undefined"):
+            folder_id = None
+
+        if not isinstance(note_ids, list) or not note_ids:
+            return Response(
+                {"error": "note_ids must be a non-empty list."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        notes = models.StandaloneNote.objects.filter(pk__in=note_ids, folder_id=folder_id)
+        if notes.count() != len(note_ids):
+            return Response(
+                {"error": "One or more notes do not belong to this folder."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        for index, note_id in enumerate(note_ids):
+            models.StandaloneNote.objects.filter(pk=note_id).update(sort_order=index)
+
+        return Response({"message": "Notes reordered."}, status=status.HTTP_200_OK)
 
 
 class ReorderFoldersView(APIView):
@@ -1119,6 +1158,8 @@ class AIChatView(APIView):
         print(f"at_recent: {at_recent}")
         paper_ids = None if paper_context is not None else request.data.get("paper_ids", None)
         print(f"paper_ids: {paper_ids}")
+        note_ids = request.data.get("note_ids", None)
+        print(f"note_ids: {note_ids}")
         folder_ids = request.data.get("folder_ids", None)
         print(f"folder_ids: {folder_ids}")
         rag_enabled = False if paper_context is not None else to_bool(request.data.get("rag_enabled", False))
@@ -1128,10 +1169,11 @@ class AIChatView(APIView):
 
         # making sure that only one flag is set
         paper_id_bool = (paper_ids != None and paper_ids != [])
+        note_id_bool = (note_ids != None and note_ids != [])
         folder_id_bool = (folder_ids != None and folder_ids != [])
-        
-        true_count = at_recent + paper_id_bool + folder_id_bool + rag_enabled
-        if true_count > 1: 
+
+        true_count = at_recent + paper_id_bool + note_id_bool + folder_id_bool + rag_enabled
+        if true_count > 1:
             return Response({"error": "You can only have one unique context flag, i.e. you cannot do @recent and @paper in the same prompt, but two @paper calls are allowed."}, status=status.HTTP_400_BAD_REQUEST)
 
         # handles @recent
@@ -1242,7 +1284,39 @@ class AIChatView(APIView):
                 "chat_id": chat_id,
                 "chat_name": chatlog_obj.name},
             status=status.HTTP_200_OK)
-            
+
+
+        # handles @note (standalone notes referenced by id), no PDFs involved
+        elif note_ids:
+            notes_qs = models.StandaloneNote.objects.filter(pk__in=note_ids)
+            notes_data = serializers.StandaloneNoteSerializer(notes_qs, many=True).data
+            try:
+                notes_context = json.dumps(list(notes_data))
+            except Exception as e:
+                print(f"error with converting @note data to JSON {e}")
+                notes_context = str(list(notes_data))
+
+            context_block = context_template.format(annot_data=notes_context)
+            new_prompt = prompt + "\n\n" + context_block
+
+            model_response = send_prompt(
+                provider = provider,
+                api_key = api_key,
+                model = model,
+                prompt = new_prompt,
+                chat_id = chat_id
+                )
+
+            # saving prompt to chatlogs (only original user question)
+            add_message_to_chat(chat_id, "user", original_prompt)
+
+            # Save and return model response
+            add_message_to_chat(chat_id, "model", model_response)
+            return Response({
+                "model_response": model_response,
+                "chat_id": chat_id,
+                "chat_name": chatlog_obj.name},
+            status=status.HTTP_200_OK)
 
         # handles @folder, doesn't send any paper pdfs
         elif folder_ids:
@@ -1400,6 +1474,22 @@ class ChatLogsViewset(viewsets.ModelViewSet):
 class StandaloneNoteViewSet(viewsets.ModelViewSet):
     queryset = models.StandaloneNote.objects.all().order_by("-updated_at")
     serializer_class = serializers.StandaloneNoteSerializer
+
+    def perform_create(self, serializer):
+        folder = serializer.validated_data.get("folder")
+        folder_id = folder.pk if folder else None
+        serializer.save(sort_order=_next_note_sort_order(folder_id))
+
+    def perform_update(self, serializer):
+        instance = serializer.instance
+        old_folder_id = instance.folder_id
+        folder = serializer.validated_data.get("folder", instance.folder)
+        folder_id = folder.pk if folder else None
+
+        extra = {}
+        if "folder" in serializer.validated_data and folder_id != old_folder_id:
+            extra["sort_order"] = _next_note_sort_order(folder_id)
+        serializer.save(**extra)
 
 
 # Note: entierty of smart collection logic is in ai.py file, here Im just running & polling progress & returning finished data

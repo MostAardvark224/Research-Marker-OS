@@ -29,6 +29,7 @@ class Folder(models.Model):
     if TYPE_CHECKING:
         subfolders: RelatedManager[Folder]
         documents: RelatedManager[Document]
+        notes: RelatedManager[StandaloneNote]
 
     class Meta:
         ordering = ["sort_order", "name"]
@@ -313,8 +314,13 @@ class StandaloneNote(models.Model):
     """A Markdown note that is not attached to a PDF."""
 
     id: int
+    folder_id: int | None
     title = models.CharField(max_length=255, default="Untitled note")
     content = models.TextField(blank=True, default="")
+    folder = models.ForeignKey(
+        Folder, related_name="notes", on_delete=models.SET_NULL, null=True, blank=True
+    )
+    sort_order = models.IntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

@@ -9,8 +9,49 @@ permissions:
   contents: write
 
 jobs:
+  test:
+    name: Run tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12.3"
+          cache: "pip"
+
+      - name: Install Backend Deps
+        run: pip install -r backend/requirements.txt
+
+      - name: Run Backend Tests
+        working-directory: ./backend
+        run: python manage.py test
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.23.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: "pnpm"
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install Frontend Deps
+        working-directory: ./frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Frontend Tests
+        working-directory: ./frontend
+        run: pnpm run test
+
   build:
     name: Build on ${{ matrix.os }}
+    needs: test
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:

@@ -21,6 +21,7 @@ urlpatterns = [
     path('complete-fetch/', views.CompleteFetch.as_view(), name='complete-fetch'),
     path('documents/reorder/', views.ReorderDocumentsView.as_view(), name='documents-reorder'),
     path('folders/reorder/', views.ReorderFoldersView.as_view(), name='folders-reorder'),
+    path('notes/reorder/', views.ReorderNotesView.as_view(), name='notes-reorder'),
     path('get-paper/<int:pk>/', views.getPaper.as_view(), name='get-paper'),
     path('user-preferences/', views.UserPreferencesView.as_view(), name='user-preferences'),
     path('startup-scripts/status/', views.StartupScriptsStatusView.as_view(), name='startup-scripts-status'),

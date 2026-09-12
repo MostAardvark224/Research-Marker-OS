@@ -135,7 +135,9 @@
 
       <div
         v-if="
-          !(folder.documents || []).length && !(folder.subfolders || []).length
+          !(folder.documents || []).length &&
+          !(folder.notes || []).length &&
+          !(folder.subfolders || []).length
         "
         :class="`px-2 py-1.5 text-xs ${colorScheme.textMuted} italic`"
       >
@@ -146,10 +148,10 @@
         v-for="(doc, docIndex) in folder.documents || []"
         :key="doc.id"
         draggable="true"
-        @dragstart="actions.onDragStart($event, doc, folder.id)"
-        @dragover.prevent="actions.onDragOverDocument(folder.id, docIndex)"
+        @dragstart="actions.onDragStart($event, doc, folder.id, 'document')"
+        @dragover.prevent="actions.onDragOverDocument(folder.id, docIndex, 'document')"
         @dragleave="actions.onDragLeaveDocument"
-        @drop.prevent="actions.onDropOnDocument($event, folder, docIndex)"
+        @drop.prevent="actions.onDropOnDocument($event, folder, docIndex, 'document')"
         @dblclick="
           actions.navigateToAnnotate(
             doc.id,
@@ -160,7 +162,8 @@
         :class="[
           `flex items-center gap-2 px-2 py-1.5 text-xs ${colorScheme.sidebarText} truncate select-none cursor-grab active:cursor-grabbing`,
           state.dragOverDoc?.folderId === folder.id &&
-          state.dragOverDoc?.index === docIndex
+          state.dragOverDoc?.index === docIndex &&
+          state.dragOverDoc?.itemType === 'document'
             ? 'bg-blue-500/10 ring-1 ring-blue-500/30 rounded'
             : colorScheme.sidebarTextHover,
         ]"
@@ -178,6 +181,32 @@
           @change.stop="actions.setDocumentRead(doc, $event)"
         />
         <span class="truncate">{{ doc.title }}</span>
+      </div>
+
+      <div
+        v-for="(note, noteIndex) in folder.notes || []"
+        :key="`note-${note.id}`"
+        draggable="true"
+        @dragstart="actions.onDragStart($event, note, folder.id, 'note')"
+        @dragover.prevent="actions.onDragOverDocument(folder.id, noteIndex, 'note')"
+        @dragleave="actions.onDragLeaveDocument"
+        @drop.prevent="actions.onDropOnDocument($event, folder, noteIndex, 'note')"
+        @dblclick="actions.navigateToNote(note.id)"
+        :class="[
+          `flex items-center gap-2 px-2 py-1.5 text-xs ${colorScheme.sidebarText} truncate select-none cursor-grab active:cursor-grabbing`,
+          state.dragOverDoc?.folderId === folder.id &&
+          state.dragOverDoc?.index === noteIndex &&
+          state.dragOverDoc?.itemType === 'note'
+            ? 'bg-blue-500/10 ring-1 ring-blue-500/30 rounded'
+            : colorScheme.sidebarTextHover,
+        ]"
+      >
+        <Icon
+          name="material-symbols:drag-indicator"
+          class="text-sm flex-shrink-0 opacity-40"
+        />
+        <Icon name="ph:notebook" class="shrink-0 text-indigo-400" />
+        <span class="truncate">{{ note.title }}</span>
       </div>
     </div>
   </div>
@@ -199,7 +228,7 @@ const vFocus = {
 
 const documentCount = computed(() => {
   const countDocs = (node) => {
-    let total = node.documents?.length || 0;
+    let total = (node.documents?.length || 0) + (node.notes?.length || 0);
     for (const sub of node.subfolders || []) {
       total += countDocs(sub);
     }

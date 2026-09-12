@@ -11,6 +11,7 @@ class DocumentSerializer(serializers.ModelSerializer):
 
 class FolderSerializer(serializers.ModelSerializer):
     documents = serializers.SerializerMethodField()
+    notes = serializers.SerializerMethodField()
     subfolders = serializers.SerializerMethodField()
 
     class Meta:
@@ -22,12 +23,17 @@ class FolderSerializer(serializers.ModelSerializer):
             "sort_order",
             "created_at",
             "documents",
+            "notes",
             "subfolders",
         ]
 
     def get_documents(self, folder):
         documents = folder.documents.order_by("sort_order", "id")
         return DocumentSerializer(documents, many=True).data
+
+    def get_notes(self, folder):
+        notes = folder.notes.order_by("sort_order", "id")
+        return StandaloneNoteSerializer(notes, many=True).data
 
     def get_subfolders(self, folder):
         children = folder.subfolders.order_by("sort_order", "name")
@@ -60,8 +66,8 @@ class AnnotationSerializer(serializers.ModelSerializer):
 class StandaloneNoteSerializer(serializers.ModelSerializer):
     class Meta:
         model = models.StandaloneNote
-        fields = ["id", "title", "content", "created_at", "updated_at"]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        fields = ["id", "title", "content", "folder", "sort_order", "created_at", "updated_at"]
+        read_only_fields = ["id", "sort_order", "created_at", "updated_at"]
 
     def validate_title(self, value):
         value = value.strip()

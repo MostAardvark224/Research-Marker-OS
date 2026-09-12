@@ -547,7 +547,7 @@
               >
                 <div
                   v-for="(suggestion, index) in filteredChatSuggestions"
-                  :key="suggestion.id"
+                  :key="`${suggestion.type}-${suggestion.id}`"
                   class="px-4 py-2.5 cursor-pointer hover:bg-white/5 flex items-center gap-3 transition-colors border-b border-white/5 last:border-0"
                   :class="{ 'bg-white/10': activeChatSuggestionIndex === index }"
                   @click="selectChatSuggestion(suggestion)"
@@ -557,6 +557,8 @@
                     :class="
                       suggestion.type === 'cmd'
                         ? 'bg-purple-500/20 text-purple-400'
+                        : suggestion.type === 'note'
+                        ? 'bg-cyan-500/20 text-cyan-400'
                         : 'bg-indigo-500/20 text-indigo-400'
                     "
                   >
@@ -565,6 +567,17 @@
                   <span class="text-sm text-slate-200 truncate">{{
                     suggestion.label
                   }}</span>
+                  <span
+                    v-if="suggestion.type !== 'cmd'"
+                    class="ml-auto shrink-0 text-[10px] uppercase tracking-wide"
+                    :class="
+                      suggestion.type === 'note'
+                        ? 'text-cyan-400/70'
+                        : 'text-indigo-400/70'
+                    "
+                  >
+                    {{ suggestion.type }}
+                  </span>
                 </div>
               </div>
 
@@ -649,7 +662,7 @@
                       : sendChatMessage()
                   "
                   rows="1"
-                  placeholder="Ask a question… use @paper or @recent for context"
+                  placeholder="Ask a question… use @paper, @note, or @recent for context"
                   class="chat-input-layer chat-input-textarea relative w-full bg-transparent text-transparent caret-white placeholder:text-slate-600 focus:outline-none resize-none overflow-y-auto custom-scrollbar"
                   style="min-height: 52px; max-height: 140px"
                 ></textarea>
@@ -734,6 +747,11 @@ import DOMPurify from "dompurify";
 import markedKatex from "marked-katex-extension";
 import "katex/dist/katex.min.css";
 import { renderAnnotationContent } from "../../utils/renderAnnotationContent.js";
+import {
+  hasContextTag as inputHasContextTag,
+  parseChatInputParts,
+  parseContextFromInput as parseChatContext,
+} from "../../utils/chatContextTags.js";
 
 const renderQuotedAnnotationContent = (content) =>
   renderAnnotationContent(`"${content ?? ""}"`);
@@ -1303,15 +1321,20 @@ function startNewChat() {
 const showChatSuggestions = ref(false);
 const activeChatSuggestionIndex = ref(0);
 
-// combine papers and special commands for suggestions
+// combine papers, standalone notes, and special commands for suggestions
 const chatSuggestions = computed(() => {
   const papers = userNotes.value.filter((n) => n.item_type !== "note").map((n) => ({
     type: "paper",
     label: n.title,
     id: n.doc_id,
   }));
+  const notes = userNotes.value.filter((n) => n.item_type === "note").map((n) => ({
+    type: "note",
+    label: n.title,
+    id: n.note_id,
+  }));
   const commands = [{ type: "cmd", label: "recent", id: "recent" }];
-  return [...commands, ...papers];
+  return [...commands, ...papers, ...notes];
 });
 
 const filteredChatSuggestions = computed(() => {
@@ -1344,11 +1367,13 @@ const navigateChatSuggestions = (direction) => {
 
 const selectChatSuggestion = (suggestion) => {
   const regex = /@([\w\s]*)$/;
-  // wrap paper titles in quotes to make parsing easier
+  // wrap paper/note titles in quotes to make parsing easier
   const replacement =
     suggestion.type === "paper"
       ? `@paper:"${suggestion.label}" `
-      : `@${suggestion.label} `;
+      : suggestion.type === "note"
+        ? `@note:"${suggestion.label}" `
+        : `@${suggestion.label} `;
 
   chatInput.value = chatInput.value.replace(regex, replacement);
   showChatSuggestions.value = false;
@@ -1359,9 +1384,7 @@ const selectChatSuggestion = (suggestion) => {
 // api logic
 
 // no rag if @xyz exists in prompt
-const hasContextTag = computed(() => {
-  return /(@recent|@paper:"[^"]+")/.test(chatInput.value);
-});
+const hasContextTag = computed(() => inputHasContextTag(chatInput.value));
 
 watch(hasContextTag, (newVal) => {
   if (newVal) {
@@ -1377,57 +1400,9 @@ const scrollToBottom = async () => {
   }
 };
 
-const parseChatInputParts = (text) => {
-  if (!text) return [{ type: "text", text: "" }];
-
-  const parts = [];
-  const regex = /(@recent|@paper:"[^"]*")/g;
-  let lastIndex = 0;
-  let match;
-
-  while ((match = regex.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push({ type: "text", text: text.slice(lastIndex, match.index) });
-    }
-    parts.push({ type: "tag", text: match[0] });
-    lastIndex = match.index + match[0].length;
-  }
-
-  if (lastIndex < text.length) {
-    parts.push({ type: "text", text: text.slice(lastIndex) });
-  }
-
-  return parts.length ? parts : [{ type: "text", text }];
-};
-
-// parse the raw input string to find context flags
-const parseContextFromInput = (text) => {
-  let paperIds = [];
-  let atRecent = false;
-  let cleanPrompt = text;
-
-  if (text.includes("@recent")) {
-    atRecent = true;
-    cleanPrompt = cleanPrompt.replace("@recent", "");
-  }
-
-  const paperMatches = [...text.matchAll(/@paper:"([^"]+)"/g)];
-
-  paperMatches.forEach((match) => {
-    const title = match[1];
-    const foundNote = userNotes.value.find((n) => n.title === title);
-    if (foundNote) {
-      paperIds.push(foundNote.doc_id);
-    }
-    cleanPrompt = cleanPrompt.replace(match[0], ""); // removes @xyz from prompt
-  });
-
-  return {
-    prompt: cleanPrompt.trim(),
-    paper_ids: paperIds,
-    at_recent: atRecent,
-  };
-};
+// resolve @paper / @note tags against the loaded search index
+const parseContextFromInput = (text) =>
+  parseChatContext(text, userNotes.value);
 
 const parseMarkdown = (rawText) => {
   if (!rawText) return "";
@@ -1475,6 +1450,7 @@ async function sendChatMessage() {
       prompt: contextData.prompt,
       chat_id: currentChatId.value,
       paper_ids: contextData.paper_ids,
+      note_ids: contextData.note_ids,
       at_recent: contextData.at_recent,
       rag_enabled: isRagEnabled.value,
       model_provider: selectedAiProvider.value,

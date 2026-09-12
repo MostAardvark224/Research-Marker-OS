@@ -340,7 +340,7 @@
                     <span
                       :class="`text-xs font-mono ${colorScheme.folderCountBg} px-1.5 py-0.5 rounded ${colorScheme.folderCount}`"
                     >
-                      {{ unassignedDocs.length }}
+                      {{ unassignedDocs.length + unassignedNotes.length }}
                     </span>
                     <div
                       :class="`h-6 w-6 flex items-center justify-center rounded ${colorScheme.folderHover} transition-colors`"
@@ -362,7 +362,7 @@
                   :class="`ml-3 pl-3 border-l ${colorScheme.sidebarBorder} overflow-hidden`"
                 >
                   <div
-                    v-if="unassignedDocs.length === 0"
+                    v-if="unassignedDocs.length === 0 && unassignedNotes.length === 0"
                     :class="`px-2 py-1.5 text-xs ${colorScheme.textMuted} italic`"
                   >
                     Empty folder
@@ -371,10 +371,10 @@
                     v-for="(doc, docIndex) in unassignedDocs"
                     :key="doc.id"
                     draggable="true"
-                    @dragstart="onDragStart($event, doc, null)"
-                    @dragover.prevent="onDragOverDocument(null, docIndex)"
+                    @dragstart="onDragStart($event, doc, null, 'document')"
+                    @dragover.prevent="onDragOverDocument(null, docIndex, 'document')"
                     @dragleave="onDragLeaveDocument"
-                    @drop.prevent="onDropOnDocument($event, unassignedFolder, docIndex)"
+                    @drop.prevent="onDropOnDocument($event, unassignedFolder, docIndex, 'document')"
                     @dblclick="
                       navigateToAnnotate(
                         doc.id,
@@ -384,7 +384,7 @@
                     "
                     :class="[
                       `flex items-center gap-2 px-2 py-1.5 text-xs ${colorScheme.sidebarText} truncate select-none cursor-grab active:cursor-grabbing`,
-                      dragOverDoc?.folderId === null && dragOverDoc?.index === docIndex
+                      dragOverDoc?.folderId === null && dragOverDoc?.index === docIndex && dragOverDoc?.itemType === 'document'
                         ? 'bg-blue-500/10 ring-1 ring-blue-500/30 rounded'
                         : colorScheme.sidebarTextHover,
                     ]"
@@ -402,6 +402,29 @@
                       @change.stop="setDocumentRead(doc, $event)"
                     />
                     <span class="truncate">{{ doc.title }}</span>
+                  </div>
+                  <div
+                    v-for="(note, noteIndex) in unassignedNotes"
+                    :key="`note-${note.id}`"
+                    draggable="true"
+                    @dragstart="onDragStart($event, note, null, 'note')"
+                    @dragover.prevent="onDragOverDocument(null, noteIndex, 'note')"
+                    @dragleave="onDragLeaveDocument"
+                    @drop.prevent="onDropOnDocument($event, unassignedFolder, noteIndex, 'note')"
+                    @dblclick="navigateToNote(note.id)"
+                    :class="[
+                      `flex items-center gap-2 px-2 py-1.5 text-xs ${colorScheme.sidebarText} truncate select-none cursor-grab active:cursor-grabbing`,
+                      dragOverDoc?.folderId === null && dragOverDoc?.index === noteIndex && dragOverDoc?.itemType === 'note'
+                        ? 'bg-blue-500/10 ring-1 ring-blue-500/30 rounded'
+                        : colorScheme.sidebarTextHover,
+                    ]"
+                  >
+                    <Icon
+                      name="material-symbols:drag-indicator"
+                      class="text-sm flex-shrink-0 opacity-40"
+                    />
+                    <Icon name="ph:notebook" class="shrink-0 text-indigo-400" />
+                    <span class="truncate">{{ note.title }}</span>
                   </div>
                 </div>
               </div>
@@ -425,20 +448,29 @@
             </div>
 
             <div
-              v-else-if="!hasPapers"
+              v-else-if="!hasPapers && !hasNotes"
               :class="`flex-1 flex flex-col items-center justify-center text-center border border-dashed ${colorScheme.emptyBorder} rounded-2xl ${colorScheme.emptyBg} px-4`"
             >
               <p
                 :class="`text-base md:text-lg ${colorScheme.emptyText} font-medium`"
               >
-                No past papers found.
+                No past papers or notes found.
               </p>
               <p :class="`mt-2 text-sm ${colorScheme.emptySubtext} max-w-md`">
-                Upload a paper or select a different folder.
+                Upload a paper, create a note, or select a different folder.
               </p>
+              <button
+                type="button"
+                class="mt-4 inline-flex items-center gap-2 rounded-lg bg-indigo-500 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-400"
+                :disabled="isCreatingNote"
+                @click="createNoteInFolder(activeFolderId)"
+              >
+                <Icon name="ph:plus" /> New note here
+              </button>
             </div>
 
             <div v-else class="flex-1 flex flex-col gap-3 min-h-0">
+              <template v-if="hasPapers">
               <div class="flex min-h-8 items-center justify-between gap-3 text-xs">
                 <p :class="`${colorScheme.textSecondary}`">
                   Showing
@@ -715,6 +747,64 @@
                   </tbody>
                 </table>
               </div>
+              </template>
+
+              <div class="shrink-0 flex flex-col gap-2">
+                <div class="flex min-h-8 items-center justify-between gap-3 text-xs">
+                  <p :class="`${colorScheme.textSecondary}`">
+                    <span :class="`font-semibold ${colorScheme.textPrimary}`">
+                      {{ filteredNotes.length }}
+                    </span>
+                    note<span v-if="filteredNotes.length !== 1">s</span>
+                  </p>
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-1 rounded-md bg-indigo-500/15 px-2 py-1.5 font-medium text-indigo-300 transition-colors hover:bg-indigo-500/25"
+                    :disabled="isCreatingNote"
+                    @click="createNoteInFolder(activeFolderId)"
+                  >
+                    <Icon name="ph:plus" /> New note
+                  </button>
+                </div>
+
+                <div
+                  v-if="hasNotes"
+                  :class="`grid max-h-56 grid-cols-2 gap-2 overflow-y-auto rounded-xl border ${colorScheme.tableBorder} ${colorScheme.tableBg} p-2 sm:grid-cols-3 lg:grid-cols-4`"
+                >
+                  <div
+                    v-for="(note, noteIndex) in filteredNotes"
+                    :key="note.id"
+                    draggable="true"
+                    @dragstart="onDragStart($event, note, activeFolderId, 'note')"
+                    @dragover.prevent="onDragOverDocument(activeFolderId, noteIndex, 'note')"
+                    @dragleave="onDragLeaveDocument"
+                    @drop.prevent="onDropOnDocument($event, findFolderById(folderList, activeFolderId) || unassignedFolder, noteIndex, 'note')"
+                    @dblclick="navigateToNote(note.id)"
+                    :class="[
+                      'group relative flex cursor-grab flex-col gap-1 rounded-lg border p-2.5 text-xs transition-colors active:cursor-grabbing',
+                      dragOverDoc?.folderId === activeFolderId && dragOverDoc?.index === noteIndex && dragOverDoc?.itemType === 'note'
+                        ? 'border-blue-500/50 bg-blue-500/10'
+                        : `${colorScheme.tableBorder} hover:bg-white/5`,
+                    ]"
+                  >
+                    <button
+                      type="button"
+                      class="absolute right-1.5 top-1.5 rounded p-1 text-slate-600 opacity-0 transition hover:bg-red-500/10 hover:text-red-400 group-hover:opacity-100"
+                      title="Delete note"
+                      @click.stop="deleteNoteFromLibrary(note)"
+                    >
+                      <Icon name="ph:trash" class="text-sm" />
+                    </button>
+                    <div class="flex items-center gap-1.5 pr-5">
+                      <Icon name="ph:notebook" class="shrink-0 text-indigo-400" />
+                      <span :class="`truncate font-medium ${colorScheme.textPrimary}`">{{ note.title }}</span>
+                    </div>
+                    <p :class="`line-clamp-2 ${colorScheme.textSecondary}`">
+                      {{ notePreview(note.content) }}
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -884,7 +974,9 @@ async function onArxivImported() {
 const filesToUpload = ref([]);
 const folderList = ref([]);
 const unassignedDocs = ref([]);
+const unassignedNotes = ref([]);
 const activeFolderId = ref(null);
+const isCreatingNote = ref(false);
 
 const uploadSkipOcr = ref(false);
 const uploadOcrProvider = ref("paddleocr");
@@ -926,6 +1018,7 @@ const unassignedFolder = computed(() => ({
   id: null,
   name: "Unassigned",
   documents: unassignedDocs.value,
+  notes: unassignedNotes.value,
 }));
 
 function findFolderById(folders, folderId) {
@@ -963,20 +1056,22 @@ function expandFolderAncestors(folderId) {
 
 // Funcs
 
-// Dragging Docs
+// Dragging docs and notes — both are draggable between folders the same
+// way; the `_itemType` tag on the drag payload is what tells these shared
+// handlers which array/endpoint (documents vs notes) to act on.
 
-function onDragStart(event, doc, sourceFolderId) {
+function onDragStart(event, item, sourceFolderId, itemType = "document") {
   draggedDocSourceFolderId.value = sourceFolderId;
   event.dataTransfer.dropEffect = "move";
   event.dataTransfer.effectAllowed = "move";
   event.dataTransfer.setData(
     "application/json",
-    JSON.stringify({ ...doc, _sourceFolderId: sourceFolderId }),
+    JSON.stringify({ ...item, _sourceFolderId: sourceFolderId, _itemType: itemType }),
   );
 }
 
-function onDragOverDocument(folderId, docIndex) {
-  dragOverDoc.value = { folderId, index: docIndex };
+function onDragOverDocument(folderId, docIndex, itemType = "document") {
+  dragOverDoc.value = { folderId, index: docIndex, itemType };
 }
 
 function onDragLeaveDocument() {
@@ -994,34 +1089,74 @@ async function reorderDocuments(folderId, documentIds) {
   await fetchPastPapers();
 }
 
-async function onDropOnDocument(event, folder, targetIndex) {
+async function reorderNotes(folderId, noteIds) {
+  await $fetch(`${apiBaseURL}/notes/reorder/`, {
+    method: "POST",
+    body: {
+      folder_id: folderId,
+      note_ids: noteIds,
+    },
+  });
+  await fetchPastPapers();
+}
+
+async function onDropOnDocument(event, folder, targetIndex, targetType = "document") {
   dragOverDoc.value = null;
   activeDropFolderId.value = null;
 
   const data = event.dataTransfer.getData("application/json");
   if (!data) return;
 
-  const doc = JSON.parse(data);
+  const item = JSON.parse(data);
+  const itemType = item._itemType || "document";
   const sourceFolderId =
-    doc._sourceFolderId !== undefined
-      ? doc._sourceFolderId
+    item._sourceFolderId !== undefined
+      ? item._sourceFolderId
       : draggedDocSourceFolderId.value;
   const targetFolderId = folder.id;
 
+  // Dropped onto the other list's row (e.g. a note dragged onto a document
+  // row) — just move it into this folder, there's no shared order to splice into.
+  if (itemType !== targetType) {
+    if (itemType === "note") await updateNoteFolder(item, targetFolderId);
+    else await updateDocumentFolder(item, targetFolderId);
+    draggedDocSourceFolderId.value = null;
+    return;
+  }
+
+  if (itemType === "note") {
+    if (sourceFolderId === targetFolderId) {
+      const notes = [...(folder.notes || [])];
+      const fromIndex = notes.findIndex((n) => n.id === item.id);
+      if (fromIndex === -1) return;
+
+      const [movedNote] = notes.splice(fromIndex, 1);
+      const insertIndex = fromIndex < targetIndex ? targetIndex - 1 : targetIndex;
+      notes.splice(insertIndex, 0, movedNote);
+
+      await reorderNotes(targetFolderId, notes.map((n) => n.id));
+      return;
+    }
+
+    await updateNoteFolder(item, targetFolderId);
+    draggedDocSourceFolderId.value = null;
+    return;
+  }
+
   if (sourceFolderId === targetFolderId) {
     const docs = [...(folder.documents || [])];
-    const fromIndex = docs.findIndex((item) => item.id === doc.id);
+    const fromIndex = docs.findIndex((doc) => doc.id === item.id);
     if (fromIndex === -1) return;
 
     const [movedDoc] = docs.splice(fromIndex, 1);
     const insertIndex = fromIndex < targetIndex ? targetIndex - 1 : targetIndex;
     docs.splice(insertIndex, 0, movedDoc);
 
-    await reorderDocuments(targetFolderId, docs.map((item) => item.id));
+    await reorderDocuments(targetFolderId, docs.map((doc) => doc.id));
     return;
   }
 
-  await updateDocumentFolder(doc, targetFolderId);
+  await updateDocumentFolder(item, targetFolderId);
   draggedDocSourceFolderId.value = null;
 }
 
@@ -1032,18 +1167,27 @@ async function onDrop(event, targetFolder) {
   const data = event.dataTransfer.getData("application/json");
   if (!data) return;
 
-  const doc = JSON.parse(data);
+  const item = JSON.parse(data);
+  const itemType = item._itemType || "document";
   const sourceFolderId =
-    doc._sourceFolderId !== undefined
-      ? doc._sourceFolderId
+    item._sourceFolderId !== undefined
+      ? item._sourceFolderId
       : draggedDocSourceFolderId.value;
 
-  const isAlreadyInFolder = (targetFolder.documents || []).some(
-    (item) => item.id === doc.id,
-  );
-
-  if (!isAlreadyInFolder || sourceFolderId !== targetFolder.id) {
-    await updateDocumentFolder(doc, targetFolder.id);
+  if (itemType === "note") {
+    const isAlreadyInFolder = (targetFolder.notes || []).some(
+      (n) => n.id === item.id,
+    );
+    if (!isAlreadyInFolder || sourceFolderId !== targetFolder.id) {
+      await updateNoteFolder(item, targetFolder.id);
+    }
+  } else {
+    const isAlreadyInFolder = (targetFolder.documents || []).some(
+      (doc) => doc.id === item.id,
+    );
+    if (!isAlreadyInFolder || sourceFolderId !== targetFolder.id) {
+      await updateDocumentFolder(item, targetFolder.id);
+    }
   }
 
   activeFolderId.value = targetFolder.id;
@@ -1096,6 +1240,9 @@ async function fetchPastPapers() {
       folderList.value = Array.isArray(res.folders) ? res.folders : [];
       unassignedDocs.value = Array.isArray(res.Unassigned)
         ? res.Unassigned
+        : [];
+      unassignedNotes.value = Array.isArray(res.UnassignedNotes)
+        ? res.UnassignedNotes
         : [];
 
       // Retrieve the last active folder from local storage
@@ -1517,6 +1664,67 @@ async function updateDocumentFolder(paper, newFolderId) {
   }
 }
 
+// Update the folder for a note
+async function updateNoteFolder(note, newFolderId) {
+  try {
+    await $fetch(`${apiBaseURL}/notes/${note.id}/`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: { folder: newFolderId },
+    });
+
+    await fetchPastPapers();
+  } catch (error) {
+    console.error("Error updating note folder:", error);
+    alert("Update Failed.");
+  }
+}
+
+// NOTE HANDLING FUNCS
+
+function navigateToNote(noteId) {
+  navigateTo(`/notes/${noteId}`);
+}
+
+async function createNoteInFolder(folderId) {
+  if (isCreatingNote.value) return;
+  isCreatingNote.value = true;
+  try {
+    const note = await $fetch(`${apiBaseURL}/notes/`, {
+      method: "POST",
+      body: { title: "Untitled note", content: "", folder: folderId },
+    });
+    await navigateTo(`/notes/${note.id}`);
+  } catch (error) {
+    console.error("Error creating note:", error);
+    alert("Could not create note.");
+  } finally {
+    isCreatingNote.value = false;
+  }
+}
+
+function notePreview(content) {
+  return (
+    String(content || "")
+      .replace(/[#>*_\[\]-]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim() || "Empty note"
+  );
+}
+
+async function deleteNoteFromLibrary(note) {
+  if (!confirm(`Delete "${note.title}"? This cannot be undone.`)) return;
+  try {
+    await $fetch(`${apiBaseURL}/notes/${note.id}/`, { method: "DELETE" });
+    await fetchPastPapers();
+  } catch (error) {
+    console.error("Error deleting note:", error);
+    alert("Delete Failed.");
+  }
+}
+
 // FOLDER HANDLING FUNCS
 
 // Opening dropdown when folder is activated
@@ -1741,9 +1949,53 @@ const currentDocuments = computed(() => {
   return folder ? folder.documents : [];
 });
 
+// Notes for current folder, same lookup as currentDocuments
+const currentNotes = computed(() => {
+  if (activeFolderId.value === null) {
+    return unassignedNotes.value;
+  }
+  const folder = findFolderById(folderList.value, activeFolderId.value);
+  return folder ? folder.notes || [] : [];
+});
+
 // Cgecks if there are any papers to show
 const hasPapers = computed(() => {
   return currentDocuments.value.length > 0;
+});
+
+const hasNotes = computed(() => {
+  return currentNotes.value.length > 0;
+});
+
+// Filters and sorts notes based on the same search box/sort select as papers
+const filteredNotes = computed(() => {
+  let list = [...currentNotes.value];
+
+  if (sortBy.value === "custom") {
+    list.sort(
+      (a, b) =>
+        (a.sort_order ?? 0) - (b.sort_order ?? 0) || (a.id ?? 0) - (b.id ?? 0),
+    );
+  } else if (sortBy.value === "newest") {
+    list.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  } else if (sortBy.value === "oldest") {
+    list.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  } else if (sortBy.value === "title") {
+    list.sort((a, b) =>
+      (a.title || "").localeCompare(b.title || "", undefined, {
+        sensitivity: "base",
+      }),
+    );
+  }
+
+  if (searchQuery.value.trim()) {
+    const q = searchQuery.value.toLowerCase();
+    list = list.filter((note) =>
+      `${note.title} ${note.content}`.toLowerCase().includes(q),
+    );
+  }
+
+  return list;
 });
 
 // Filters and sorts papers based on user input
@@ -1866,6 +2118,7 @@ provide("folderActions", {
   navigateToAnnotate,
   setDocumentRead,
   isUpdatingReadStatus,
+  navigateToNote,
 });
 </script>
 
