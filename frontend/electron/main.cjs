@@ -129,6 +129,7 @@ let mainWindow;
 let splashWindow;
 let sidebarWindow;
 let sidebarDocumentId = null;
+const paperWindows = new Set();
 let pythonProcess;
 let apiPort = null;
 let isAppReady = false;
@@ -812,6 +813,9 @@ function createWindow() {
     if (sidebarWindow && !sidebarWindow.isDestroyed()) {
       sidebarWindow.close();
     }
+    for (const paperWindow of paperWindows) {
+      if (!paperWindow.isDestroyed()) paperWindow.close();
+    }
   };
 
   // Begin closing the auxiliary window as soon as the main application window
@@ -913,6 +917,53 @@ function createSidebarWindow(documentId) {
   });
 }
 
+function createPaperWindow(documentId, page) {
+  const paperWindow = new BrowserWindow({
+    width: 1180,
+    height: 820,
+    minWidth: 760,
+    minHeight: 520,
+    show: false,
+    title: "Paper — Research Marker",
+    backgroundColor: SPLASH_BG,
+    webPreferences: {
+      preload: resolvePath("preload.cjs", "electron/preload.cjs"),
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+    },
+    icon: resolvePath(
+      "../app/assets/icons/icon.png",
+      "app/assets/icons/icon.png",
+    ),
+  });
+
+  paperWindows.add(paperWindow);
+  const routeHash = `/annotate/${documentId}?page=${page}`;
+  if (isDev) {
+    const applicationUrl = "http://localhost:3000";
+    installSessionGuards(paperWindow.webContents.session, { isDev });
+    installWindowGuards(paperWindow, applicationUrl);
+    const paperUrl = new URL(applicationUrl);
+    paperUrl.hash = routeHash;
+    paperWindow.loadURL(paperUrl.toString());
+  } else {
+    const applicationPath = path.join(
+      app.getAppPath(),
+      ".output/public/index.html",
+    );
+    const applicationUrl = pathToFileURL(applicationPath).href;
+    installSessionGuards(paperWindow.webContents.session, { isDev });
+    installWindowGuards(paperWindow, applicationUrl);
+    paperWindow.loadFile(applicationPath, { hash: routeHash });
+  }
+
+  paperWindow.once("ready-to-show", () => paperWindow.show());
+  paperWindow.on("closed", () => paperWindows.delete(paperWindow));
+}
+
 ipcMain.handle("get-api-port", (event) => {
   const sender = event.sender.id;
   log.info(`[Startup] Renderer ${sender} requested API port; returning ${apiPort}`);
@@ -937,6 +988,22 @@ ipcMain.handle("sidebar:pop-out", (event, payload = {}) => {
 
   createSidebarWindow(documentId);
   return { ok: true, alreadyOpen: false };
+});
+
+ipcMain.handle("paper:open-window", (event, payload = {}) => {
+  const senderWindow = BrowserWindow.fromWebContents(event.sender);
+  if (!senderWindow || senderWindow.isDestroyed()) {
+    return { ok: false, reason: "Unexpected window." };
+  }
+
+  const documentId = String(payload.documentId ?? "");
+  const page = Number(payload.page);
+  if (!/^\d+$/.test(documentId) || !Number.isInteger(page) || page < 1) {
+    return { ok: false, reason: "Invalid paper link." };
+  }
+
+  createPaperWindow(documentId, page);
+  return { ok: true };
 });
 
 ipcMain.handle("sidebar:focus-popout", (event) => {
@@ -1113,6 +1180,10 @@ app.on("will-quit", () => {
     sidebarWindow = null;
     sidebarDocumentId = null;
   }
+  for (const paperWindow of paperWindows) {
+    if (!paperWindow.isDestroyed()) paperWindow.destroy();
+  }
+  paperWindows.clear();
   if (updateCheckTimer) {
     clearInterval(updateCheckTimer);
     updateCheckTimer = null;

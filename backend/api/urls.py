@@ -13,6 +13,7 @@ router = DefaultRouter()
 router.register(r'documents', DocumentsViewSet, basename='documents')
 router.register(r'folders', views.FoldersViewSet, basename='folders')
 router.register(r'annotations', views.AnnotationsViewSet, basename='annotations')
+router.register(r'notes', views.StandaloneNoteViewSet, basename='notes')
 router.register(r'chatlogs', views.ChatLogsViewset, basename='chatlogs')
 
 

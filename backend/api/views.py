@@ -943,10 +943,23 @@ class SearchNotesView(APIView):
             annotations = item['annotations'][0]
             final_data.append(
                 dict(
+                    item_type="paper",
                     title=title,
                     doc_id=doc_id, 
                     annotations=annotations
                 )
+            )
+
+        for note in models.StandaloneNote.objects.all().order_by("-updated_at"):
+            final_data.append(
+                {
+                    "item_type": "note",
+                    "title": note.title,
+                    "note_id": note.pk,
+                    "content": note.content,
+                    "created_at": note.created_at,
+                    "updated_at": note.updated_at,
+                }
             )
             
             
@@ -1020,6 +1033,17 @@ class AIChatView(APIView):
         if not prompt:
             return Response({"error": "Prompt is required"}, status=status.HTTP_400_BAD_REQUEST)
         original_prompt = prompt
+        note = None
+        note_id = request.data.get("note_id")
+        if note_id not in (None, ""):
+            try:
+                note = models.StandaloneNote.objects.get(pk=int(note_id))
+            except (models.StandaloneNote.DoesNotExist, TypeError, ValueError):
+                return Response({"error": "Note not found"}, status=status.HTTP_404_NOT_FOUND)
+            prompt = (
+                f"{prompt}\n\n--- CURRENT NOTE ---\n"
+                f"Title: {note.title}\n{note.content}\n--- END CURRENT NOTE ---"
+            )
         paper_context = None
         document_id = request.data.get("document_id")
         if document_id:
@@ -1059,6 +1083,7 @@ class AIChatView(APIView):
             chat_name = name_chat(provider, api_key, original_prompt, model=model)
             chatlog_obj = models.ChatLogs.objects.create(
                 name=chat_name,
+                note=note,
             )
             chat_id = chatlog_obj.pk
         else: # get existing chatlog model obj
@@ -1066,6 +1091,14 @@ class AIChatView(APIView):
                 chatlog_obj = models.ChatLogs.objects.get(id=chat_id)
             except models.ChatLogs.DoesNotExist:
                 return Response({"error": "Chat session not found"}, status=404)   
+            if note is not None and chatlog_obj.note_id not in (None, note.pk):
+                return Response(
+                    {"error": "This chat belongs to a different note."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if note is not None and chatlog_obj.note_id is None:
+                chatlog_obj.note = note
+                chatlog_obj.save(update_fields=["note", "updated_at"])
 
         # handling context injections w/ @paper and @recent, etc.
         # plan is to append a contxt block to the prompt var
@@ -1075,7 +1108,7 @@ class AIChatView(APIView):
         - USE this data to answer queries accurately.
         - PRIORITIZE the information in this block over your general pre-trained knowledge.
         - IF the data is insufficient to answer a question, explicitly state what is missing.
-        - Refer to papers by their titles.
+        - Refer to papers and standalone notes by their titles.
 
         --- DATA START ---
         {annot_data}
@@ -1108,7 +1141,13 @@ class AIChatView(APIView):
                 annotations__in = models.Annotations.objects.filter(updated_at__gte=one_week_ago)
             )
             serializer = serializers.GroupedAnnotationsSerializer(recent_data, many=True)
-            annot_data = serializer.data
+            annot_data = {
+                "paper_annotations": serializer.data,
+                "standalone_notes": serializers.StandaloneNoteSerializer(
+                    models.StandaloneNote.objects.filter(updated_at__gte=one_week_ago),
+                    many=True,
+                ).data,
+            }
             try: 
                 annot_data = json.dumps(annot_data)
             except Exception as e: 
@@ -1346,6 +1385,21 @@ class AIChatView(APIView):
 class ChatLogsViewset(viewsets.ModelViewSet): 
     queryset = models.ChatLogs.objects.all()
     serializer_class = serializers.ChatLogSerializer
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        note_id = self.request.query_params.get("note")
+        document_id = self.request.query_params.get("document")
+        if note_id not in (None, ""):
+            queryset = queryset.filter(note_id=note_id)
+        if document_id not in (None, ""):
+            queryset = queryset.filter(document_id=document_id)
+        return queryset.order_by("-updated_at")
+
+
+class StandaloneNoteViewSet(viewsets.ModelViewSet):
+    queryset = models.StandaloneNote.objects.all().order_by("-updated_at")
+    serializer_class = serializers.StandaloneNoteSerializer
 
 
 # Note: entierty of smart collection logic is in ai.py file, here Im just running & polling progress & returning finished data

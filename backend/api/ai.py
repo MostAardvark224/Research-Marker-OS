@@ -715,7 +715,7 @@ In general embedding the user prompt could have its downsides, could have an LLM
 """
 
 # function that executes embedding search
-def embedding_search_rankings(query, annot_objs): 
+def embedding_search_rankings(query, annot_objs, query_embedding=None):
     from api.providers.embeddings import (
         EMBEDDING_PIPELINE_VERSION,
         build_embedding_provider,
@@ -723,7 +723,9 @@ def embedding_search_rankings(query, annot_objs):
     from api.smart_collections.config import get_smart_collection_config
 
     config = get_smart_collection_config(require_generation=False)
-    query_emb = build_embedding_provider(config.embedding).embed_texts([query])[0]
+    query_emb = query_embedding
+    if query_emb is None:
+        query_emb = build_embedding_provider(config.embedding).embed_texts([query])[0]
 
     # getting annotation model object rankings based on cos similarity 
     # must be above threshold of 0.6 to be included in the ranking
@@ -858,61 +860,82 @@ def rerank_rag(emb_ranks, bm_ranks):
     top_id_list =  [x[0] for x in top_ids]
     return top_id_list[:20]
 
-def rag_context_injection(original_prompt): 
+def rag_context_injection(original_prompt):
     annot_objs = models.Annotations.objects.filter(
         embedding_binary__isnull = False
     )
 
-    if annot_objs: 
-        
-        emb_rankings = embedding_search_rankings(original_prompt, annot_objs)
-        
+    context = []
+    word_limit = 1500
+    current_count = 0
+    note_queryset = models.StandaloneNote.objects.all()
+    has_note_embeddings = note_queryset.filter(embedding_binary__isnull=False).exists()
+    query_embedding = None
+    if annot_objs.exists() or has_note_embeddings:
+        from api.providers.embeddings import build_embedding_provider
+        from api.smart_collections.config import get_smart_collection_config
+
+        config = get_smart_collection_config(require_generation=False)
+        query_embedding = build_embedding_provider(config.embedding).embed_texts(
+            [original_prompt]
+        )[0]
+
+    if annot_objs:
+        emb_rankings = embedding_search_rankings(
+            original_prompt, annot_objs, query_embedding=query_embedding
+        )
         bm25_rankings = bm25_search_rankings(original_prompt, annot_objs)
-
-        # RRF to get finalized list of annots
-        # should be able to handle one of the rankings failing/returning nothing
-        ids = rerank_rag(emb_rankings, bm25_rankings) # list of annot obj, highest scoring first
-
-        # formatting annots for model readability             
-        objs = models.Annotations.objects.filter(pk__in = ids).prefetch_related("document") # unordered
+        ids = rerank_rag(emb_rankings, bm25_rankings)
+        objs = models.Annotations.objects.filter(pk__in=ids).prefetch_related("document")
         obj_map = {obj.pk: obj for obj in objs}
-        ordered_objs = [obj_map[id] for id in ids if id in obj_map] # ordered list of objs
-        
-        # keeping objects until I hit the token limit
-        # not going to use gemini token counter api to save http round trip time, will just cap at 1500 words
-        word_limit = 1500
-        current_count = 0 
-        context = []
-        for obj in ordered_objs: 
-            try: 
-                annotation = format_annotation_for_readability(obj) # dict
-
-                json_annotation = json.dumps(annotation) # str to count words
+        for obj in [obj_map[item_id] for item_id in ids if item_id in obj_map]:
+            try:
+                annotation = format_annotation_for_readability(obj)
+                json_annotation = json.dumps(annotation)
                 wcount = len(re.findall(r"\b\w+(?:['\-]\w+)*\b", json_annotation))
-                current_count += wcount
-
-                if current_count <= word_limit: 
-                     context.append(annotation)
-                else: 
-                    if (len(context) == 0): 
-                        continue # skip to next to try to get some context
-                    else: 
-                        break # reached limit
-
-            except Exception as e: 
+                if current_count + wcount <= word_limit:
+                    context.append(annotation)
+                    current_count += wcount
+                elif context:
+                    break
+            except Exception as e:
                 print(f"failed dumping annotation {e}")
                 continue
 
-        # retuning final context as json string
-        if not context: 
-            return
-        
-        try: 
-            fin = json.dumps(context)
-            return fin
-        except Exception as e: 
-            print(f"failed final dump {e}")
-            return
+    # Standalone notes remain searchable immediately, even before the optional
+    # embedding worker has processed them. Rank them by query-term overlap.
+    query_terms = set(re.findall(r"\b\w+(?:['\-]\w+)*\b", original_prompt.lower()))
+    semantic_note_ids = []
+    if has_note_embeddings:
+        semantic_note_ids = embedding_search_rankings(
+            original_prompt, note_queryset, query_embedding=query_embedding
+        ) or []
+    ranked_notes = []
+    for note in note_queryset.order_by("-updated_at")[:500]:
+        terms = note.get_meaningful_text_unformatted()
+        score = sum(terms.count(term) for term in query_terms)
+        if score:
+            ranked_notes.append((score, note))
+    ranked_notes.sort(key=lambda item: item[0], reverse=True)
+    lexical_notes = [note for _score, note in ranked_notes]
+    note_map = {note.pk: note for note in note_queryset.filter(pk__in=semantic_note_ids)}
+    ordered_notes = [note_map[note_id] for note_id in semantic_note_ids if note_id in note_map]
+    ordered_notes.extend(note for note in lexical_notes if note.pk not in semantic_note_ids)
+    for note in ordered_notes[:20]:
+        item = {"type": "standalone_note", "title": note.title, "content": note.content}
+        wcount = len(re.findall(r"\b\w+(?:['\-]\w+)*\b", json.dumps(item)))
+        if current_count + wcount > word_limit:
+            break
+        context.append(item)
+        current_count += wcount
+
+    if not context:
+        return None
+    try:
+        return json.dumps(context)
+    except Exception as e:
+        print(f"failed final dump {e}")
+        return None
 
 # main function that sends prompt and context to model and returns a response
 def _pdf_paths_with_bytes(pdf_paths):
@@ -2022,4 +2045,3 @@ def run_smart_collection():
         )
     
     
-

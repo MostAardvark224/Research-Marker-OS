@@ -298,6 +298,10 @@ def _annotation_text(annotation: models.Annotations) -> str:
     )[:12_000]
 
 
+def _standalone_note_text(note: models.StandaloneNote) -> str:
+    return f"Standalone note: {note.title}\n{note.content}"[:12_000]
+
+
 def _embedding_is_current(
     annotation: models.Annotations, spec: EmbeddingSpec
 ) -> bool:
@@ -312,6 +316,22 @@ def _embedding_is_current(
         and annotation.embedding_dimensions == spec.dimensions
         and annotation.embedding_version == EMBEDDING_PIPELINE_VERSION
         and byte_length == spec.dimensions * np.dtype(np.float32).itemsize
+    )
+
+
+def _note_embedding_is_current(
+    note: models.StandaloneNote, spec: EmbeddingSpec
+) -> bool:
+    binary = note.embedding_binary
+    return bool(
+        binary
+        and not note.needs_embedding
+        and note.content_hash == note.generate_content_hash()
+        and note.embedding_provider == spec.provider
+        and note.embedding_model == spec.model
+        and note.embedding_dimensions == spec.dimensions
+        and note.embedding_version == EMBEDDING_PIPELINE_VERSION
+        and len(binary or b"") == spec.dimensions * np.dtype(np.float32).itemsize
     )
 
 
@@ -345,6 +365,33 @@ def embed_pending_annotations(
             item.content_hash = item.generate_content_hash()
             item.needs_embedding = False
         models.Annotations.objects.bulk_update(
+            batch,
+            [
+                "embedding_binary",
+                "embedding_provider",
+                "embedding_model",
+                "embedding_dimensions",
+                "embedding_version",
+                "content_hash",
+                "needs_embedding",
+            ],
+            batch_size=provider.batch_size,
+        )
+        updated += len(batch)
+    notes = list(models.StandaloneNote.objects.order_by("id"))
+    stale_notes = [note for note in notes if not _note_embedding_is_current(note, config.embedding)]
+    for start in range(0, len(stale_notes), provider.batch_size):
+        batch = stale_notes[start : start + provider.batch_size]
+        vectors = provider.embed_texts([_standalone_note_text(item) for item in batch])
+        for item, vector in zip(batch, vectors, strict=True):
+            item.embedding_binary = vector.tobytes()
+            item.embedding_provider = config.embedding.provider
+            item.embedding_model = config.embedding.model
+            item.embedding_dimensions = config.embedding.dimensions
+            item.embedding_version = EMBEDDING_PIPELINE_VERSION
+            item.content_hash = item.generate_content_hash()
+            item.needs_embedding = False
+        models.StandaloneNote.objects.bulk_update(
             batch,
             [
                 "embedding_binary",

@@ -105,6 +105,27 @@
             </button>
 
             <div class="flex items-center gap-2">
+              <NuxtLink
+                to="/notes"
+                :class="[
+                  'group flex items-center gap-2 rounded-lg transition-all duration-200 ml-2',
+                  'p-2 sm:px-3 sm:py-2',
+                  colorScheme.btnPrimary,
+                  colorScheme.btnPrimaryHover,
+                ]"
+                aria-label="Open standalone notes"
+              >
+                <Icon
+                  name="ph:notebook"
+                  :class="['text-2xl flex-shrink-0', colorScheme.btnPrimaryText]"
+                />
+                <span
+                  :class="['hidden md:inline text-xs font-semibold leading-none', colorScheme.btnPrimaryText]"
+                >
+                  Notes
+                </span>
+              </NuxtLink>
+
               <button
                 type="button"
                 @click="showUpload = true"

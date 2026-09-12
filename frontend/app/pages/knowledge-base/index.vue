@@ -46,7 +46,7 @@
               >
             </h1>
             <p class="text-slate-400">
-              Manage your papers, annotations, and generated insights.
+              Search your papers, annotations, standalone notes, and generated insights.
             </p>
             <p class="pt-2 text-xs text-slate-500">
               See docs on GitHub for a full feature overview & advanced
@@ -404,7 +404,7 @@
               </h3>
               <p class="text-xs text-slate-500 max-w-xs leading-relaxed mb-4">
                 I have indexed
-                <strong class="text-slate-300">{{ countAnnotations }} papers</strong>.
+                <strong class="text-slate-300">{{ countAnnotations }} sources</strong>.
                 Ask me to summarize, compare, or explore your notes.
               </p>
               <div class="flex flex-wrap justify-center gap-2">
@@ -831,26 +831,28 @@ const carouselCards = computed(() => {
   Object.entries(userNotes.value).forEach(([idx, obj]) => {
     let content = "";
 
-    if (
+    if (obj.item_type === "note") {
+      content = obj.content;
+    } else if (
       lastPicked.value == "highlight" &&
-      obj.annotations.sticky_note_data.length != 0
+      (obj.annotations?.sticky_note_data || []).length != 0
     ) {
       // need to get a sticky note
       content = obj.annotations.sticky_note_data[0].content;
       lastPicked.value = "sticky";
     } else if (
       lastPicked.value == "sticky" &&
-      obj.annotations.highlight_data.length != 0
+      (obj.annotations?.highlight_data || []).length != 0
     ) {
       // get highlight
       content = obj.annotations.highlight_data[0].text;
       lastPicked.value = "highlight";
     } else {
       // default to whatever the paper has
-      if (obj.annotations.highlight_data.length != 0) {
+      if ((obj.annotations?.highlight_data || []).length != 0) {
         content = obj.annotations.highlight_data[0].text;
         lastPicked.value = "highlight";
-      } else if (obj.annotations.sticky_note_data.length != 0) {
+      } else if ((obj.annotations?.sticky_note_data || []).length != 0) {
         content = obj.annotations.sticky_note_data[0].content;
         lastPicked.value = "sticky";
       }
@@ -933,7 +935,7 @@ const searchInputRef = ref(null);
 
 // Auto-complete logic
 const showSuggestions = ref(false);
-const validFilters = ["paper", "highlight", "sticky", "notepad", "recent"];
+const validFilters = ["paper", "note", "highlight", "sticky", "notepad", "recent"];
 const activeSuggestionIndex = ref(0);
 
 const filteredSuggestions = computed(() => {
@@ -992,6 +994,7 @@ const handleSearchEnter = () => {
 function getSearchResults(
   query,
   at_paper,
+  at_note,
   at_highlight,
   at_notepad,
   at_sticky,
@@ -1005,7 +1008,7 @@ function getSearchResults(
 
   if (at_recent) {
     possibleVals = possibleVals.filter((obj) => {
-      const dateStr = obj.annotations?.updated_at;
+      const dateStr = obj.item_type === "note" ? obj.updated_at : obj.annotations?.updated_at;
       if (!dateStr) return false;
       const lastUpdate = new Date(dateStr);
       return lastUpdate >= oneWeekAgo;
@@ -1013,7 +1016,7 @@ function getSearchResults(
   }
 
   // makes sure that user can't select two of the following tags in same query
-  const trueCount = at_paper + at_highlight + at_sticky + at_notepad;
+  const trueCount = at_paper + at_note + at_highlight + at_sticky + at_notepad;
   if (trueCount >= 2) {
     errorMsg.value = "You can only use 1 filter + @recent at a time.";
     return [];
@@ -1022,6 +1025,29 @@ function getSearchResults(
   let flattenedResults = [];
 
   possibleVals.forEach((doc) => {
+    if (doc.item_type === "note") {
+      const dateStr = doc.updated_at;
+      const isRecent = dateStr ? new Date(dateStr) >= oneWeekAgo : false;
+      if (at_recent && !isRecent) return;
+      if (at_paper || at_highlight || at_sticky || at_notepad) return;
+      const cleanQuery = query.toLowerCase();
+      const titleMatches = String(doc.title || "").toLowerCase().includes(cleanQuery);
+      const contentMatches = String(doc.content || "").toLowerCase().includes(cleanQuery);
+      if ((at_note || trueCount === 0) && (titleMatches || contentMatches)) {
+        flattenedResults.push({
+          title: doc.title,
+          content: contentMatches ? doc.content : doc.title,
+          matchType: "Standalone Note",
+          typeColor: "text-cyan-400",
+          isRecent,
+          date: dateStr ? new Date(dateStr).toLocaleDateString() : "",
+          note_id: doc.note_id,
+          item_type: "note",
+        });
+      }
+      return;
+    }
+
     // check if document is within recent window (a week) for tagging
     const dateStr = doc.annotations?.updated_at;
     const isRecent = dateStr ? new Date(dateStr) >= oneWeekAgo : false;
@@ -1112,23 +1138,26 @@ const searchResults = computed(() => {
   if (!searchQuery.value) return [];
 
   const q = searchQuery.value;
-  const at_paper = q.includes("@paper");
-  const at_highlight = q.includes("@highlight");
-  const at_notepad = q.includes("@notepad");
-  const at_sticky = q.includes("@sticky");
-  const at_recent = q.includes("@recent");
+  const hasFilter = (name) => new RegExp(`@${name}(?=\\s|$)`).test(q);
+  const at_paper = hasFilter("paper");
+  const at_note = hasFilter("note");
+  const at_highlight = hasFilter("highlight");
+  const at_notepad = hasFilter("notepad");
+  const at_sticky = hasFilter("sticky");
+  const at_recent = hasFilter("recent");
 
   // Remove tags before query gets searched
   const cleanQuery = q
-    .replace(/@(paper|highlight|notepad|sticky|recent)\s?/g, "")
+    .replace(/@(paper|note|highlight|notepad|sticky|recent)\s?/g, "")
     .trim();
 
-  if (!cleanQuery && (at_paper || at_highlight || at_notepad || at_sticky))
+  if (!cleanQuery && (at_paper || at_note || at_highlight || at_notepad || at_sticky))
     return [];
 
   return getSearchResults(
     cleanQuery,
     at_paper,
+    at_note,
     at_highlight,
     at_notepad,
     at_sticky,
@@ -1145,6 +1174,10 @@ const highlightMatch = (text) => {
 
 // when result card clicked, send to url
 function sendToPaper(result) {
+  if (result.item_type === "note" || result.note_id) {
+    navigateTo(`/notes/${result.note_id}`);
+    return;
+  }
   const doc_id = result.paper_id;
   navigateTo(`/annotate/${doc_id}`);
 }
@@ -1272,7 +1305,7 @@ const activeChatSuggestionIndex = ref(0);
 
 // combine papers and special commands for suggestions
 const chatSuggestions = computed(() => {
-  const papers = userNotes.value.map((n) => ({
+  const papers = userNotes.value.filter((n) => n.item_type !== "note").map((n) => ({
     type: "paper",
     label: n.title,
     id: n.doc_id,

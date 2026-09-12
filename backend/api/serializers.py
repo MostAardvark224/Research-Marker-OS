@@ -57,6 +57,17 @@ class AnnotationSerializer(serializers.ModelSerializer):
         fields = "__all__"
 
 
+class StandaloneNoteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = models.StandaloneNote
+        fields = ["id", "title", "content", "created_at", "updated_at"]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+    def validate_title(self, value):
+        value = value.strip()
+        return value or "Untitled note"
+
+
 class GroupedAnnotationsSerializer(serializers.ModelSerializer):
     document__title = serializers.CharField(source="title")
     document__pk = serializers.IntegerField(source="pk")

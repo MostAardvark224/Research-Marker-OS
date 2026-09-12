@@ -309,6 +309,49 @@ class Annotations(models.Model):
         return f"Annotation for {self.document.title} at {self.created_at}"
 
 
+class StandaloneNote(models.Model):
+    """A Markdown note that is not attached to a PDF."""
+
+    id: int
+    title = models.CharField(max_length=255, default="Untitled note")
+    content = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    embedding_binary = models.BinaryField(null=True, blank=True)
+    needs_embedding = models.BooleanField(default=True)
+    embedding_provider = models.CharField(max_length=32, blank=True, default="")
+    embedding_model = models.CharField(max_length=128, blank=True, default="")
+    embedding_dimensions = models.PositiveIntegerField(default=0)
+    embedding_version = models.PositiveSmallIntegerField(default=0)
+    content_hash = models.CharField(max_length=64, blank=True, default="")
+
+    def generate_content_hash(self):
+        return hashlib.sha256(f"{self.title}|{self.content}".encode("utf-8")).hexdigest()
+
+    def save(self, *args, **kwargs):
+        self.title = (self.title or "").strip() or "Untitled note"
+        new_hash = self.generate_content_hash()
+        if new_hash != self.content_hash:
+            self.content_hash = new_hash
+            self.needs_embedding = True
+            update_fields = kwargs.get("update_fields")
+            if update_fields is not None:
+                kwargs["update_fields"] = set(update_fields) | {
+                    "content_hash",
+                    "needs_embedding",
+                }
+        super().save(*args, **kwargs)
+
+    def get_meaningful_text_unformatted(self):
+        return re.findall(
+            r"\b\w+(?:['\-]\w+)*\b", f"{self.title} {self.content}".lower()
+        )
+
+    def __str__(self):
+        return self.title
+
+
 # for bm25
 class SearchTerm(models.Model):
     id: int
@@ -337,11 +380,19 @@ class AnnotationIndex(models.Model):
 class ChatLogs(models.Model):
     id: int
     document_id: int | None
+    note_id: int | None
     name = models.CharField(max_length=255)
     content: Any = models.JSONField(default=list)
     provider = models.CharField(max_length=32, default="legacy", db_index=True)
     document = models.ForeignKey(
         Document,
+        related_name="chat_logs",
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+    )
+    note = models.ForeignKey(
+        StandaloneNote,
         related_name="chat_logs",
         on_delete=models.SET_NULL,
         blank=True,

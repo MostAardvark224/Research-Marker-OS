@@ -5,11 +5,6 @@ import "katex/dist/katex.min.css";
 import { marked } from "marked";
 import markedKatex from "marked-katex-extension";
 import DOMPurify from "dompurify";
-import { codeToTokensBase } from "shiki";
-import {
-  createNotepadHistory,
-  isMergeableNotepadInputType,
-} from "../../utils/notepadHistory.js";
 import { renderAnnotationContent } from "../../utils/renderAnnotationContent.js";
 import { normalizePdfOutline } from "../../utils/pdfOutline.js";
 
@@ -52,6 +47,8 @@ let factory = null;
 const savedHighlights = ref([]);
 const stickyNoteData = ref([]);
 const notepadData = ref("");
+const paperLinkDocuments = ref([]);
+const paperLinksLoaded = ref(false);
 
 const undoStack = ref([]);
 const redoStack = ref([]);
@@ -410,937 +407,30 @@ const handleMainScroll = () => {
   }, SCROLL_RENDER_SETTLE_MS);
 };
 
-const notepadTextarea = ref(null);
-const activeNotepadLine = ref(0);
-const isNotepadSelectingAll = ref(false);
-const notepadHistory = createNotepadHistory();
-const notepadHistorySignal = ref(0);
-const canUndoNotepad = computed(() => {
-  notepadHistorySignal.value;
-  return notepadHistory.canUndo;
-});
-const canRedoNotepad = computed(() => {
-  notepadHistorySignal.value;
-  return notepadHistory.canRedo;
-});
+// Notepad — the editor component (components/NotepadEditor.vue, shared with
+// the standalone note-taker) owns its own text, undo history, and keyboard
+// shortcuts. This page only keeps the cross-window sidebar-popout sync
+// bookkeeping and a ref used to reach into the component for that purpose.
 const notepadSyncSource = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const notepadRevision = reactive({ counter: 0, source: "" });
-
-const notifyNotepadHistoryChanged = () => {
-  notepadHistorySignal.value += 1;
-};
-
 const advanceNotepadRevision = () => {
   notepadRevision.counter += 1;
   notepadRevision.source = notepadSyncSource;
 };
 
-const notepadLines = computed(() => notepadData.value.split("\n"));
-const notepadCodeFenceLines = computed(() => {
-  let insideFence = false;
-  let language = "";
-  let blockStart = null;
-
-  return notepadLines.value.map((line, lineIndex) => {
-    const fence = line.match(/^\s*```([^`]*)$/);
-    if (!fence) {
-      return { insideFence, isFence: false, language, blockStart };
-    }
-
-    if (insideFence) {
-      const state = {
-        insideFence: true,
-        isFence: true,
-        isOpening: false,
-        language,
-        blockStart,
-      };
-      insideFence = false;
-      language = "";
-      blockStart = null;
-      return state;
-    }
-
-    insideFence = true;
-    language = fence[1].trim();
-    blockStart = lineIndex;
-    return {
-      insideFence: true,
-      isFence: true,
-      isOpening: true,
-      language,
-      blockStart,
-    };
-  });
-});
-
-watch(notepadLines, (lines) => {
-  if (activeNotepadLine.value >= lines.length) {
-    activeNotepadLine.value = Math.max(0, lines.length - 1);
-  }
-});
-
-const setNotepadTextareaRef = (element) => {
-  // Vue may clear the old row ref after assigning the newly active row.
-  // Ignoring that transient null keeps keyboard focus on the live editor.
-  if (!element) return;
-  notepadTextarea.value = element;
-  nextTick(resizeNotepadEditor);
-};
-
-const escapeNotepadCode = (line) =>
-  line
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-
-const highlightedNotepadCodeLines = shallowRef({});
-let syntaxHighlightRequest = 0;
-let syntaxHighlightDebounce = null;
-
-const renderShikiTokens = (tokens) =>
-  tokens
-    .map((token) => {
-      const color = /^#[\da-f]{3,8}$/i.test(token.color || "")
-        ? ` style="color:${token.color}"`
-        : "";
-      return `<span${color}>${escapeNotepadCode(token.content)}</span>`;
-    })
-    .join("");
-
-const refreshNotepadSyntaxHighlighting = async () => {
-  const requestId = ++syntaxHighlightRequest;
-  const highlightedLines = {};
-  const lines = notepadLines.value;
-  const fenceStates = notepadCodeFenceLines.value;
-
-  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
-    const fenceState = fenceStates[lineIndex];
-    if (!fenceState?.isOpening) continue;
-
-    const closingIndex = fenceStates.findIndex(
-      (state, candidateIndex) =>
-        candidateIndex > lineIndex &&
-        state?.isFence &&
-        !state.isOpening &&
-        state.blockStart === fenceState.blockStart,
-    );
-    const blockEnd = closingIndex === -1 ? lines.length : closingIndex;
-    const code = lines.slice(lineIndex + 1, blockEnd).join("\n");
-
-    try {
-      const tokenLines = await codeToTokensBase(code, {
-        lang: fenceState.language || "text",
-        theme: "github-dark-default",
-      });
-      tokenLines.forEach((tokens, tokenLineIndex) => {
-        highlightedLines[lineIndex + 1 + tokenLineIndex] =
-          renderShikiTokens(tokens);
-      });
-    } catch {
-      // Unknown language names remain readable as escaped plain code.
-    }
-
-    lineIndex = blockEnd;
-  }
-
-  if (requestId === syntaxHighlightRequest) {
-    highlightedNotepadCodeLines.value = highlightedLines;
-  }
-};
-
-const scheduleNotepadSyntaxHighlighting = () => {
-  if (!import.meta.client) return;
-  if (syntaxHighlightDebounce) clearTimeout(syntaxHighlightDebounce);
-  syntaxHighlightDebounce = setTimeout(refreshNotepadSyntaxHighlighting, 120);
-};
-
-watch(notepadData, scheduleNotepadSyntaxHighlighting, { immediate: true });
-
-const isNotepadCodeBlockActive = (lineIndex) => {
-  const lineState = notepadCodeFenceLines.value[lineIndex];
-  const activeLineState = notepadCodeFenceLines.value[activeNotepadLine.value];
-  return (
-    lineState?.insideFence &&
-    activeLineState?.insideFence &&
-    lineState.blockStart === activeLineState.blockStart
-  );
-};
-
-const isCollapsedCodeBlockEdge = (lineIndex, edge) => {
-  const lineState = notepadCodeFenceLines.value[lineIndex];
-  if (
-    !lineState?.insideFence ||
-    lineState.isFence ||
-    isNotepadCodeBlockActive(lineIndex)
-  ) {
-    return false;
-  }
-
-  const neighborIndex = edge === "start" ? lineIndex - 1 : lineIndex + 1;
-  const neighbor = notepadCodeFenceLines.value[neighborIndex];
-  return (
-    neighbor?.isFence &&
-    (edge === "start" ? neighbor.isOpening : !neighbor.isOpening)
-  );
-};
-
-const getNotepadCodeLineNumber = (lineIndex) => {
-  const lineState = notepadCodeFenceLines.value[lineIndex];
-  if (!lineState?.insideFence || lineState.isFence) return null;
-  return lineIndex - lineState.blockStart;
-};
-
-const renderNotepadLine = (line, lineIndex) => {
-  const codeFenceState = notepadCodeFenceLines.value[lineIndex];
-  if (codeFenceState?.isFence) {
-    return isNotepadCodeBlockActive(lineIndex)
-      ? `<code class="notepad-code-fence-source">${escapeNotepadCode(line)}</code>`
-      : "";
-  }
-
-  if (codeFenceState?.insideFence) {
-    const highlighted = highlightedNotepadCodeLines.value[lineIndex];
-    return `<pre class="notepad-code-block-line"><code>${highlighted || escapeNotepadCode(line) || "&#8203;"}</code></pre>`;
-  }
-
-  if (!line) return "&nbsp;";
-  const citationMarkdown = line.replace(
-    /~\[(\d+)\]~/g,
-    (_match, page) => `[\\[${page}\\]](#notepad-page-${page})`,
-  );
-  const html = marked.parse(citationMarkdown);
-  return DOMPurify.sanitize(html, {
-    ADD_TAGS: [
-      "math",
-      "semantics",
-      "mrow",
-      "mi",
-      "mo",
-      "mn",
-      "msup",
-      "mfrac",
-      "msqrt",
-      "mtext",
-      "annotation",
-      "annotation-xml",
-    ],
-    ADD_ATTR: ["xmlns", "display", "class", "style", "aria-hidden"],
-  });
-};
-
-const resizeNotepadEditor = () => {
-  const textarea = notepadTextarea.value;
-  if (!textarea) return;
-  textarea.style.height = "auto";
-  textarea.style.height = `${Math.max(32, textarea.scrollHeight)}px`;
-};
-
-const focusNotepadLine = (lineIndex, column = null) => {
-  const lastLineIndex = Math.max(0, notepadLines.value.length - 1);
-  activeNotepadLine.value = Math.min(
-    lastLineIndex,
-    Math.max(0, lineIndex),
-  );
-  nextTick(() => {
-    const textarea = notepadTextarea.value;
-    if (!textarea) return;
-    textarea.focus();
-    const cursor = Math.min(
-      textarea.value.length,
-      column === null ? textarea.value.length : Math.max(0, column),
-    );
-    textarea.setSelectionRange(cursor, cursor);
-    resizeNotepadEditor();
-    textarea.closest(".notepad-line")?.scrollIntoView({ block: "nearest" });
-  });
-};
-
-const getNotepadPositionFromOffset = (offset) => {
-  const safeOffset = Math.min(
-    notepadData.value.length,
-    Math.max(0, Number(offset) || 0),
-  );
-  const beforeCursor = notepadData.value.slice(0, safeOffset);
-  const linesBeforeCursor = beforeCursor.split("\n");
-  return {
-    line: linesBeforeCursor.length - 1,
-    column: linesBeforeCursor.at(-1)?.length ?? 0,
-  };
-};
-
-const getNotepadLineStart = (lineIndex) =>
-  notepadLines.value
-    .slice(0, Math.max(0, lineIndex))
-    .reduce((offset, line) => offset + line.length + 1, 0);
-
-const setNotepadSelection = (selection, { scroll = true } = {}) => {
-  const start = Math.min(
-    notepadData.value.length,
-    Math.max(0, Number(selection?.start) || 0),
-  );
-  const end = Math.min(
-    notepadData.value.length,
-    Math.max(start, Number(selection?.end) || start),
-  );
-  const direction = selection?.direction === "backward" ? "backward" : "forward";
-  const startPosition = getNotepadPositionFromOffset(start);
-  const endPosition = getNotepadPositionFromOffset(end);
-  const spansLines = startPosition.line !== endPosition.line;
-
-  isNotepadSelectingAll.value = spansLines;
-  activeNotepadLine.value = startPosition.line;
-  nextTick(() => {
-    const textarea = notepadTextarea.value;
-    if (!textarea) return;
-    textarea.focus({ preventScroll: true });
-
-    if (spansLines) {
-      textarea.setSelectionRange(start, end, direction);
-      resizeNotepadEditor();
-      if (scroll) {
-        const editor = textarea.closest(".notepad-live-editor");
-        const lineHeight =
-          textarea.scrollHeight / Math.max(1, notepadLines.value.length);
-        if (editor) {
-          editor.scrollTop = Math.max(
-            0,
-            startPosition.line * lineHeight - editor.clientHeight / 3,
-          );
-        }
-      }
-      return;
-    }
-
-    const lineStart = getNotepadLineStart(startPosition.line);
-    textarea.setSelectionRange(start - lineStart, end - lineStart, direction);
-    resizeNotepadEditor();
-    if (scroll) {
-      textarea.closest(".notepad-line")?.scrollIntoView({ block: "nearest" });
-    }
-  });
-};
-
-const setNotepadCursorFromOffset = (offset) => {
-  setNotepadSelection({ start: offset, end: offset, direction: "forward" });
-};
-
-const beginNotepadSelectAll = () => {
-  isNotepadSelectingAll.value = true;
-  nextTick(() => {
-    const textarea = notepadTextarea.value;
-    if (!textarea) return;
-    textarea.focus({ preventScroll: true });
-    textarea.select();
-    resizeNotepadEditor();
-  });
-};
-
-const leaveNotepadDocumentSelection = (offset, { focus = true } = {}) => {
-  const position = getNotepadPositionFromOffset(offset);
-  isNotepadSelectingAll.value = false;
-  activeNotepadLine.value = position.line;
-  if (focus) {
-    focusNotepadLine(position.line, position.column);
-  }
-};
-
-const getNotepadDocumentSelection = (lineIndex, textarea) => {
-  const documentOffset = lineIndex === null ? 0 : getNotepadLineStart(lineIndex);
-  return {
-    start: documentOffset + textarea.selectionStart,
-    end: documentOffset + textarea.selectionEnd,
-    direction:
-      textarea.selectionDirection === "backward" ? "backward" : "forward",
-  };
-};
-
-const inferNotepadSelectionBeforeInput = (before, after) => {
-  let prefixLength = 0;
-  const sharedLength = Math.min(before.length, after.length);
-  while (
-    prefixLength < sharedLength &&
-    before[prefixLength] === after[prefixLength]
-  ) {
-    prefixLength += 1;
-  }
-
-  let suffixLength = 0;
-  while (
-    suffixLength < sharedLength - prefixLength &&
-    before[before.length - 1 - suffixLength] ===
-      after[after.length - 1 - suffixLength]
-  ) {
-    suffixLength += 1;
-  }
-
-  return {
-    start: prefixLength,
-    end: before.length - suffixLength,
-    direction: "forward",
-  };
-};
-
-let pendingNotepadInput = null;
-
-const commitNotepadEdit = (
-  after,
-  {
-    before = notepadData.value,
-    beforeSelection,
-    afterSelection,
-    inputType = "unknown",
-    forceNewGroup = false,
-  } = {},
-) => {
-  if (before === after) return false;
-  const recorded = notepadHistory.record({
-    before,
-    after,
-    beforeSelection,
-    afterSelection,
-    inputType,
-    forceNewGroup,
-    timestamp: Date.now(),
-  });
-  if (!recorded) return false;
-
-  notepadData.value = after;
-  advanceNotepadRevision();
-  notifyNotepadHistoryChanged();
-  return true;
-};
-
-const handleNotepadBeforeInput = (lineIndex, event) => {
-  if (event.inputType === "historyUndo" || event.inputType === "historyRedo") {
-    event.preventDefault();
-    pendingNotepadInput = null;
-    if (event.inputType === "historyUndo") void performNotepadUndo();
-    else void performNotepadRedo();
-    return;
-  }
-
-  pendingNotepadInput = {
-    target: event.currentTarget,
-    before: notepadData.value,
-    beforeSelection: getNotepadDocumentSelection(
-      lineIndex,
-      event.currentTarget,
-    ),
-  };
-};
-
-const handleNotepadDocumentInput = (event) => {
-  const before = notepadData.value;
-  const after = event.currentTarget.value;
-  const afterSelection = getNotepadDocumentSelection(null, event.currentTarget);
-  const beforeSelection =
-    pendingNotepadInput?.target === event.currentTarget &&
-    pendingNotepadInput.before === before
-      ? pendingNotepadInput.beforeSelection
-      : inferNotepadSelectionBeforeInput(before, after);
-  pendingNotepadInput = null;
-  commitNotepadEdit(after, {
-    before,
-    beforeSelection,
-    afterSelection,
-    inputType: event.inputType,
-    forceNewGroup: !isMergeableNotepadInputType(event.inputType),
-  });
-  leaveNotepadDocumentSelection(afterSelection.end);
-};
-
-const finishNotepadDocumentSelection = (event) => {
-  const textarea = event.currentTarget;
-  if (textarea.selectionStart !== textarea.selectionEnd) return;
-  leaveNotepadDocumentSelection(textarea.selectionStart);
-};
-
-const blurNotepadDocumentSelection = (event) => {
-  notepadHistory.breakGroup();
-  leaveNotepadDocumentSelection(event.currentTarget.selectionStart, {
-    focus: false,
-  });
-};
-
-const activateNotepadLine = (lineIndex) => {
-  notepadHistory.breakGroup();
-  focusNotepadLine(lineIndex);
-};
-
-const handleNotepadRenderedLineClick = (event, lineIndex) => {
-  const citation = event.target.closest?.('a[href^="#notepad-page-"]');
-  if (!citation) {
-    activateNotepadLine(lineIndex);
-    return;
-  }
-
-  event.preventDefault();
-  event.stopPropagation();
-  const match = citation.getAttribute("href")?.match(/^#notepad-page-(\d+)$/);
-  if (!match) return;
-
-  navigateToPageWithHistory(Number(match[1]));
-};
-
-const updateNotepadLine = (lineIndex, event) => {
-  const before = notepadData.value;
-  const value = event.target.value;
-  const cursor = event.target.selectionStart;
-  const selectionEnd = event.target.selectionEnd;
-  const replacementLines = value.split("\n");
-  const lines = [...notepadLines.value];
-  const lineStart = getNotepadLineStart(lineIndex);
-  lines.splice(lineIndex, 1, ...replacementLines);
-  const after = lines.join("\n");
-  const afterSelection = {
-    start: lineStart + cursor,
-    end: lineStart + selectionEnd,
-    direction:
-      event.target.selectionDirection === "backward" ? "backward" : "forward",
-  };
-  const beforeSelection =
-    pendingNotepadInput?.target === event.currentTarget &&
-    pendingNotepadInput.before === before
-      ? pendingNotepadInput.beforeSelection
-      : inferNotepadSelectionBeforeInput(before, after);
-  pendingNotepadInput = null;
-  commitNotepadEdit(after, {
-    before,
-    beforeSelection,
-    afterSelection,
-    inputType: event.inputType,
-    forceNewGroup: !isMergeableNotepadInputType(event.inputType),
-  });
-
-  if (replacementLines.length > 1) {
-    const beforeCursor = value.slice(0, cursor).split("\n");
-    focusNotepadLine(
-      lineIndex + beforeCursor.length - 1,
-      beforeCursor.at(-1)?.length ?? 0,
-    );
-  } else {
-    nextTick(() => {
-      const textarea = notepadTextarea.value;
-      if (!textarea || activeNotepadLine.value !== lineIndex) return;
-      textarea.focus({ preventScroll: true });
-      textarea.setSelectionRange(cursor, selectionEnd);
-      resizeNotepadEditor();
-    });
-  }
-};
-
-const splitNotepadLine = (lineIndex, event) => {
-  event.preventDefault();
-  const textarea = event.currentTarget;
-  const before = notepadData.value;
-  const lineStart = getNotepadLineStart(lineIndex);
-  const line = notepadLines.value[lineIndex] ?? "";
-  const start = textarea.selectionStart;
-  const end = textarea.selectionEnd;
-  const lines = [...notepadLines.value];
-  lines.splice(lineIndex, 1, line.slice(0, start), line.slice(end));
-  const after = lines.join("\n");
-  const afterCursor = lineStart + start + 1;
-  commitNotepadEdit(after, {
-    before,
-    beforeSelection: getNotepadDocumentSelection(lineIndex, textarea),
-    afterSelection: {
-      start: afterCursor,
-      end: afterCursor,
-      direction: "forward",
-    },
-    inputType: "insertParagraph",
-    forceNewGroup: true,
-  });
-  focusNotepadLine(lineIndex + 1, 0);
-};
-
-const mergeNotepadLineBackward = (lineIndex, event) => {
-  const textarea = event.currentTarget;
-  if (
-    lineIndex === 0 ||
-    textarea.selectionStart !== 0 ||
-    textarea.selectionEnd !== 0
-  ) {
-    return;
-  }
-
-  event.preventDefault();
-  const before = notepadData.value;
-  const beforeSelection = getNotepadDocumentSelection(lineIndex, textarea);
-  const lines = [...notepadLines.value];
-  const previousLineStart = lines
-    .slice(0, lineIndex - 1)
-    .reduce((offset, line) => offset + line.length + 1, 0);
-  const previousLength = lines[lineIndex - 1].length;
-  lines.splice(
-    lineIndex - 1,
-    2,
-    lines[lineIndex - 1] + lines[lineIndex],
-  );
-  const after = lines.join("\n");
-  const afterCursor = previousLineStart + previousLength;
-  commitNotepadEdit(after, {
-    before,
-    after,
-    beforeSelection,
-    afterSelection: {
-      start: afterCursor,
-      end: afterCursor,
-      direction: "forward",
-    },
-    inputType: "deleteContentBackward",
-  });
-  focusNotepadLine(lineIndex - 1, previousLength);
-};
-
-const mergeNotepadLineForward = (lineIndex, event) => {
-  const textarea = event.currentTarget;
-  const line = notepadLines.value[lineIndex] ?? "";
-  if (
-    lineIndex >= notepadLines.value.length - 1 ||
-    textarea.selectionStart !== line.length ||
-    textarea.selectionEnd !== line.length
-  ) {
-    return;
-  }
-
-  event.preventDefault();
-  const before = notepadData.value;
-  const beforeSelection = getNotepadDocumentSelection(lineIndex, textarea);
-  const lines = [...notepadLines.value];
-  const lineStart = lines
-    .slice(0, lineIndex)
-    .reduce((offset, item) => offset + item.length + 1, 0);
-  lines.splice(lineIndex, 2, lines[lineIndex] + lines[lineIndex + 1]);
-  const after = lines.join("\n");
-  const afterCursor = lineStart + line.length;
-  commitNotepadEdit(after, {
-    before,
-    beforeSelection,
-    afterSelection: {
-      start: afterCursor,
-      end: afterCursor,
-      direction: "forward",
-    },
-    inputType: "deleteContentForward",
-  });
-  focusNotepadLine(lineIndex, line.length);
-};
-
-const moveNotepadCursorVertically = (lineIndex, direction, event) => {
-  if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
-  const nextLine = lineIndex + direction;
-  if (nextLine < 0 || nextLine >= notepadLines.value.length) return;
-  event.preventDefault();
-  focusNotepadLine(nextLine, event.currentTarget.selectionStart);
-};
-
-const NOTEPAD_TAB_SIZE = 2;
-
-const handleNotepadTab = (lineIndex, event) => {
-  event.preventDefault();
-  const textarea = event.currentTarget;
-  const beforeSelection = getNotepadDocumentSelection(lineIndex, textarea);
-  const value = textarea.value;
-  const start = textarea.selectionStart;
-  const end = textarea.selectionEnd;
-  let updatedValue = value;
-  let selectionStart = start;
-  let selectionEnd = end;
-
-  if (!event.shiftKey && start === end) {
-    const currentLineStart = value.lastIndexOf("\n", start - 1) + 1;
-    const column = start - currentLineStart;
-    const spaces = " ".repeat(
-      NOTEPAD_TAB_SIZE - (column % NOTEPAD_TAB_SIZE),
-    );
-    updatedValue = value.slice(0, start) + spaces + value.slice(end);
-    selectionStart = start + spaces.length;
-    selectionEnd = selectionStart;
-  } else {
-    const selectedLineStart = value.lastIndexOf("\n", start - 1) + 1;
-    const endProbe = end > start && value[end - 1] === "\n" ? end - 1 : end;
-    const followingNewline = value.indexOf("\n", endProbe);
-    const selectedLineEnd =
-      followingNewline === -1 ? value.length : followingNewline;
-    const selectedLines = value
-      .slice(selectedLineStart, selectedLineEnd)
-      .split("\n");
-
-    const transformedLines = selectedLines.map((selectedLine) => {
-      if (!event.shiftKey) return " ".repeat(NOTEPAD_TAB_SIZE) + selectedLine;
-      if (selectedLine.startsWith("\t")) return selectedLine.slice(1);
-      const spacesToRemove =
-        selectedLine.match(new RegExp(`^ {1,${NOTEPAD_TAB_SIZE}}`))?.[0]
-          .length ?? 0;
-      return selectedLine.slice(spacesToRemove);
-    });
-    const transformedSelection = transformedLines.join("\n");
-    updatedValue =
-      value.slice(0, selectedLineStart) +
-      transformedSelection +
-      value.slice(selectedLineEnd);
-
-    if (start === end) {
-      const removed = selectedLines[0].length - transformedLines[0].length;
-      selectionStart = Math.max(selectedLineStart, start - removed);
-      selectionEnd = selectionStart;
-    } else {
-      selectionStart = selectedLineStart;
-      selectionEnd = selectedLineStart + transformedSelection.length;
-    }
-  }
-
-  if (updatedValue === value) return;
-
-  const before = notepadData.value;
-  const documentOffset =
-    lineIndex === null
-      ? 0
-      : notepadLines.value
-          .slice(0, lineIndex)
-          .reduce((offset, line) => offset + line.length + 1, 0);
-  let after = updatedValue;
-
-  if (lineIndex !== null) {
-    const lines = [...notepadLines.value];
-    lines.splice(lineIndex, 1, ...updatedValue.split("\n"));
-    after = lines.join("\n");
-  }
-
-  commitNotepadEdit(after, {
-    before,
-    beforeSelection,
-    afterSelection: {
-      start: documentOffset + selectionStart,
-      end: documentOffset + selectionEnd,
-      direction:
-        textarea.selectionDirection === "backward" ? "backward" : "forward",
-    },
-    inputType: event.shiftKey ? "formatOutdent" : "formatIndent",
-    forceNewGroup: true,
-  });
-
-  nextTick(() => {
-    const editor = notepadTextarea.value;
-    if (!editor) return;
-    editor.focus({ preventScroll: true });
-    editor.setSelectionRange(selectionStart, selectionEnd);
-    resizeNotepadEditor();
-  });
-};
-
-const handleNotepadLineKeydown = (lineIndex, event) => {
-  if (
-    [
-      "ArrowLeft",
-      "ArrowRight",
-      "ArrowUp",
-      "ArrowDown",
-      "Home",
-      "End",
-      "PageUp",
-      "PageDown",
-    ].includes(event.key)
-  ) {
-    notepadHistory.breakGroup();
-  }
-
-  switch (event.key) {
-    case "Tab":
-      handleNotepadTab(lineIndex, event);
-      break;
-    case "Enter":
-      splitNotepadLine(lineIndex, event);
-      break;
-    case "Backspace":
-      mergeNotepadLineBackward(lineIndex, event);
-      break;
-    case "Delete":
-      mergeNotepadLineForward(lineIndex, event);
-      break;
-    case "ArrowUp":
-      moveNotepadCursorVertically(lineIndex, -1, event);
-      break;
-    case "ArrowDown":
-      moveNotepadCursorVertically(lineIndex, 1, event);
-      break;
-  }
-};
-
-const selectActiveNotepadLine = () => {
-  if (!isNotepadSelectingAll.value) {
-    notepadTextarea.value?.select();
-    return;
-  }
-
-  const offset = notepadTextarea.value?.selectionStart ?? 0;
-  leaveNotepadDocumentSelection(offset);
-  nextTick(() => notepadTextarea.value?.select());
-};
-
-// Formatting Helper
-const insertFormat = (format) => {
-  const textarea = notepadTextarea.value;
-  if (!textarea) return;
-
-  const lineStart = isNotepadSelectingAll.value
-    ? 0
-    : notepadLines.value
-        .slice(0, activeNotepadLine.value)
-        .reduce((offset, line) => offset + line.length + 1, 0);
-  const start = lineStart + textarea.selectionStart;
-  const end = lineStart + textarea.selectionEnd;
-  const text = notepadData.value;
-  const selection = text.substring(start, end);
-  const hasSelection = start !== end;
-
-  let insertion = "";
-  let newCursorPos = end;
-
-  switch (format) {
-    case "bold":
-      insertion = `**${selection}**`;
-      newCursorPos = hasSelection ? start + insertion.length : start + 2;
-      break;
-    case "italic":
-      insertion = `*${selection}*`;
-      newCursorPos = hasSelection ? start + insertion.length : start + 1;
-      break;
-    case "math-inline":
-      insertion = `$${selection}$`;
-      newCursorPos = hasSelection ? start + insertion.length : start + 1;
-      break;
-    case "math-block":
-      insertion = `$$\n${selection}\n$$`;
-      newCursorPos = hasSelection ? start + insertion.length : start + 3;
-      break;
-    case "code-block": {
-      insertion = `\`\`\`\n${selection}\n\`\`\``;
-      newCursorPos = hasSelection ? start + insertion.length : start + 4;
-      break;
-    }
-    case "quote": {
-      insertion = `> ${selection}`;
-      newCursorPos = start + insertion.length;
-      break;
-    }
-    case "citation": {
-      insertion = `~[${selection}]~`;
-      newCursorPos = hasSelection ? start + insertion.length : start + 2;
-      break;
-    }
-  }
-
-  const after = text.substring(0, start) + insertion + text.substring(end);
-  commitNotepadEdit(after, {
-    before: text,
-    beforeSelection: {
-      start,
-      end,
-      direction:
-        textarea.selectionDirection === "backward" ? "backward" : "forward",
-    },
-    afterSelection: {
-      start: newCursorPos,
-      end: newCursorPos,
-      direction: "forward",
-    },
-    inputType: `format-${format}`,
-    forceNewGroup: true,
-  });
-
-  isNotepadSelectingAll.value = false;
-  setNotepadCursorFromOffset(newCursorPos);
-};
-
-const persistNotepadHistoryChange = async () => {
-  await flushNotepadSave();
-};
-
-const performNotepadUndo = async () => {
-  const result = notepadHistory.undo(notepadData.value);
-  if (!result) return;
-
-  notepadData.value = result.value;
-  advanceNotepadRevision();
-  notifyNotepadHistoryChanged();
-  setNotepadSelection(result.selection);
-  await persistNotepadHistoryChange();
-};
-
-const performNotepadRedo = async () => {
-  const result = notepadHistory.redo(notepadData.value);
-  if (!result) return;
-
-  notepadData.value = result.value;
-  advanceNotepadRevision();
-  notifyNotepadHistoryChanged();
-  setNotepadSelection(result.selection);
-  await persistNotepadHistoryChange();
-};
+const notepadEditorRef = ref(null);
+const performNotepadUndo = () => notepadEditorRef.value?.undo();
+const performNotepadRedo = () => notepadEditorRef.value?.redo();
+const canUndoNotepad = computed(() => notepadEditorRef.value?.canUndo() ?? false);
+const canRedoNotepad = computed(() => notepadEditorRef.value?.canRedo() ?? false);
+const resizeNotepadEditor = () => notepadEditorRef.value?.resize();
 
 // keyboard shortcuts
 const handleKeyboardShortcuts = (e) => {
-  const isNotepadFocused = Boolean(
-    e.target?.closest?.(".notepad-live-editor") ||
-      document.activeElement === notepadTextarea.value,
-  );
-
-  if (isNotepadFocused) {
-    const hasCommandModifier = (e.ctrlKey || e.metaKey) && !e.altKey;
-    const key = e.key.toLowerCase();
-
-    if (
-      hasCommandModifier &&
-      ((key === "z" && !e.shiftKey) || (key === "y" && !e.shiftKey))
-    ) {
-      e.preventDefault();
-      if (key === "z") void performNotepadUndo();
-      else void performNotepadRedo();
-      return;
-    }
-    if (hasCommandModifier && key === "z" && e.shiftKey) {
-      e.preventDefault();
-      void performNotepadRedo();
-      return;
-    }
-
-    // Select the complete note, including lines currently rendered as Markdown.
-    if (hasCommandModifier && e.shiftKey && key === "a") {
-      e.preventDefault();
-      beginNotepadSelectAll();
-      return;
-    }
-    // Each live textarea represents one line, so Ctrl/Cmd+A selects that line.
-    if (hasCommandModifier && !e.shiftKey && key === "a") {
-      e.preventDefault();
-      selectActiveNotepadLine();
-      return;
-    }
-
-    const format = hasCommandModifier
-      ? {
-          "plain:b": "bold",
-          "plain:i": "italic",
-          "plain:k": "math-inline",
-          "shift:k": "math-block",
-          "shift:c": "code-block",
-          "plain:g": "quote",
-          "plain:p": "citation",
-        }[`${e.shiftKey ? "shift" : "plain"}:${key}`]
-      : null;
-
-    if (format) {
-      e.preventDefault();
-      insertFormat(format);
-    }
-    return; // Don't trigger reader or sidebar shortcuts while editing a note.
-  }
+  // NotepadEditor's own document-level listener (registered when it mounts,
+  // so it runs before this one) already handles every notepad shortcut;
+  // just make sure none of the shortcuts below also fire while typing there.
+  if (e.target?.closest?.(".notepad-live-editor")) return;
 
   const isSidebarToggle =
     (e.ctrlKey || e.metaKey) &&
@@ -2276,6 +1366,18 @@ async function fetchAnnotations() {
   }
 }
 
+async function fetchPaperLinkDocuments() {
+  try {
+    paperLinkDocuments.value = await $fetch(`${apiBaseURL}/documents/`, {
+      method: "GET",
+    });
+  } catch (error) {
+    console.error("Failed to load papers for page links", error);
+  } finally {
+    paperLinksLoaded.value = true;
+  }
+}
+
 // Tool bar helper functions
 const selectColor = (color) => {
   selectedColor.value = color;
@@ -2469,15 +1571,14 @@ const focusSidebarPane = async (pane) => {
   focusedSidebarPane.value = pane;
   await nextTick();
   const tabName = focusedSidebarTab.value;
+  if (tabName === "notepad") {
+    notepadEditorRef.value?.focus();
+    return;
+  }
   const paneElement = sidebarPanelContent.value?.querySelector(
     `[data-sidebar-tab="${tabName}"]`,
   );
-  const focusTarget =
-    tabName === "chat"
-      ? chatInputRef.value
-      : tabName === "notepad"
-        ? notepadTextarea.value
-        : paneElement;
+  const focusTarget = tabName === "chat" ? chatInputRef.value : paneElement;
   focusTarget?.focus({ preventScroll: true });
 };
 
@@ -2626,7 +1727,7 @@ const postSidebarState = () => {
     stickyNotes: cloneForSidebarSync(stickyNoteData.value),
     notepad: notepadData.value,
     notepadRevision: { ...notepadRevision },
-    notepadHistory: notepadHistory.exportState(notepadData.value),
+    notepadHistory: notepadEditorRef.value?.exportHistoryState(),
     currentPage: currentPage.value,
     capturedSelection: capturedSelection.value,
     capturedSelectionPage: capturedSelectionPage.value,
@@ -2674,12 +1775,10 @@ const applySidebarState = async (message) => {
       receivedNotepadUpdate = true;
       notepadRevision.counter = incomingNotepadRevision.counter;
       notepadRevision.source = incomingNotepadRevision.source;
-      if (
-        !notepadHistory.importState(message.notepadHistory, message.notepad)
-      ) {
-        notepadHistory.clear();
-      }
-      notifyNotepadHistoryChanged();
+      notepadEditorRef.value?.importHistoryState(
+        message.notepadHistory,
+        message.notepad,
+      );
     }
     if (isSidebarPopout && Number.isInteger(message.currentPage)) {
       currentPage.value = message.currentPage;
@@ -2996,7 +2095,12 @@ const formatCodexStreamError = (event) => {
   return message || technical || "Codex generation failed.";
 };
 
-const streamCodexMessage = async (rawInput, onAccepted) => {
+const streamCodexMessage = async (
+  rawInput,
+  selectedText,
+  selectedTextPage,
+  onAccepted,
+) => {
   if (!chatId.value || chatProvider.value !== "codex") {
     const conversation = await $fetch(`${apiBaseURL}/codex/conversations/`, {
       method: "POST",
@@ -3020,8 +2124,8 @@ const streamCodexMessage = async (rawInput, onAccepted) => {
         model: selectedAiModel.value,
         reasoning_effort: codexReasoningEffort.value,
         current_page: currentPage.value,
-        selected_text: capturedSelection.value,
-        selected_text_page: capturedSelectionPage.value,
+        selected_text: selectedText,
+        selected_text_page: selectedTextPage,
       }),
       signal: chatAbortController.signal,
     },
@@ -3031,7 +2135,6 @@ const streamCodexMessage = async (rawInput, onAccepted) => {
     throw new Error(payload.message || `Codex request failed (${response.status}).`);
   }
 
-  acceptChatDraft();
   onAccepted?.();
   const assistantMessage = reactive({
     role: "model",
@@ -3070,21 +2173,32 @@ const sendChatMessage = async () => {
   const rawInput = chatInput.value.trim();
   if (!rawInput || chatLoading.value || !selectedProviderHasModels.value) return;
 
+  // Snapshot the composer's context before clearing it — the request below
+  // still needs the selected text/page the user had attached at send time.
+  const selectedTextSnapshot = capturedSelection.value;
+  const selectedTextPageSnapshot = capturedSelectionPage.value;
+
   const userMessage = {
     role: "user",
     content: rawInput,
     timestamp: new Date().toISOString(),
   };
   chatMessages.value.push(userMessage);
+  acceptChatDraft(); // clear the chatbox the moment the prompt is sent
   scrollChatToBottom();
   chatLoading.value = true;
   let draftAccepted = false;
 
   try {
     if (selectedAiProvider.value === "codex") {
-      await streamCodexMessage(rawInput, () => {
-        draftAccepted = true;
-      });
+      await streamCodexMessage(
+        rawInput,
+        selectedTextSnapshot,
+        selectedTextPageSnapshot,
+        () => {
+          draftAccepted = true;
+        },
+      );
     } else {
       const { prompt } = buildContextFromInput(rawInput);
       const data = await $fetch(`${apiBaseURL}/ask-ai/`, {
@@ -3096,15 +2210,14 @@ const sendChatMessage = async () => {
             : {}),
           document_id: Number(id),
           current_page: currentPage.value,
-          selected_text: capturedSelection.value,
-          selected_text_page: capturedSelectionPage.value,
+          selected_text: selectedTextSnapshot,
+          selected_text_page: selectedTextPageSnapshot,
           model_provider: selectedAiProvider.value,
           model: selectedAiModel.value,
         },
       });
       chatId.value = data.chat_id;
       chatProvider.value = selectedAiProvider.value;
-      acceptChatDraft();
       draftAccepted = true;
       chatMessages.value.push({
         role: "model",
@@ -3277,6 +2390,11 @@ watch(
   notepadData,
   () => {
     if (isApplyingSidebarSync || isHydratingAnnotations) return;
+    // Every genuine local edit (typing, undo/redo, paper-link inserts, …)
+    // advances the cross-window sync clock — this used to happen inline
+    // inside the notepad's own commit function; now that the notepad is a
+    // shared component, this v-model watcher is the equivalent single hook.
+    advanceNotepadRevision();
     scheduleNotepadSave();
   },
   { flush: "sync" },
@@ -4105,7 +3223,11 @@ onMounted(async () => {
     await initializeAiModels();
 
     if (isSidebarPopout) {
-      await Promise.all([fetchAnnotations(), fetchPaperTitle()]);
+      await Promise.all([
+        fetchAnnotations(),
+        fetchPaperTitle(),
+        fetchPaperLinkDocuments(),
+      ]);
       // Fetch first so a late backend response cannot overwrite the newer
       // viewer state (and its undo history) received over BroadcastChannel.
       setupSidebarSync();
@@ -4126,7 +3248,7 @@ onMounted(async () => {
       console.warn("Could not load TextLayer.", e);
     }
 
-    await fetchAnnotations();
+    await Promise.all([fetchAnnotations(), fetchPaperLinkDocuments()]);
     await fetchPaper();
 
     mainScrollContainer.value?.addEventListener("scroll", handleMainScroll, {
@@ -5075,205 +4197,22 @@ watch(zoomLevel, schedulePageUpdate);
           </button>
         </div>
 
-        <div
+        <NotepadEditor
           v-show="isSidebarTabVisible('notepad')"
+          ref="notepadEditorRef"
+          v-model="notepadData"
           data-sidebar-tab="notepad"
           tabindex="-1"
-          class="flex-1 flex flex-col h-full overflow-hidden"
+          class="relative flex-1 flex flex-col h-full overflow-hidden"
           :class="sidebarPaneClasses('notepad')"
           :style="sidebarPaneStyle('notepad')"
+          :papers="paperLinkDocuments"
+          :exclude-paper-id="id"
+          :papers-ready="paperLinksLoaded"
           @pointerdown.capture="activateSidebarPaneForTab('notepad')"
           @focusin="activateSidebarPaneForTab('notepad')"
-        >
-          <div
-            class="flex items-center justify-between px-4 py-2 border-b border-slate-800 bg-slate-900 shrink-0"
-          >
-            <div class="flex gap-1">
-              <button
-                @mousedown.prevent
-                @click="performNotepadUndo"
-                class="toolbar-btn"
-                :disabled="!canUndoNotepad"
-                title="Undo (Ctrl+Z)"
-                aria-label="Undo notepad edit"
-              >
-                <Icon name="ph:arrow-u-up-left" class="w-4 h-4" />
-              </button>
-              <button
-                @mousedown.prevent
-                @click="performNotepadRedo"
-                class="toolbar-btn"
-                :disabled="!canRedoNotepad"
-                title="Redo (Ctrl+Shift+Z)"
-                aria-label="Redo notepad edit"
-              >
-                <Icon name="ph:arrow-u-up-right" class="w-4 h-4" />
-              </button>
-              <div class="mx-1 w-px bg-slate-700"></div>
-              <button
-                @mousedown.prevent
-                @click="insertFormat('bold')"
-                class="toolbar-btn"
-                title="Bold (Ctrl+B)"
-              >
-                <Icon name="ph:text-b" class="w-4 h-4" />
-              </button>
-              <button
-                @mousedown.prevent
-                @click="insertFormat('italic')"
-                class="toolbar-btn"
-                title="Italic (Ctrl+I)"
-              >
-                <Icon name="ph:text-italic" class="w-4 h-4" />
-              </button>
-
-              <button
-                @mousedown.prevent
-                @click="insertFormat('math-inline')"
-                class="toolbar-btn"
-                title="Inline Math (Ctrl+K)"
-              >
-                <Icon name="ph:function" class="w-4 h-4" />
-              </button>
-              <button
-                @mousedown.prevent
-                @click="insertFormat('math-block')"
-                class="toolbar-btn"
-                title="Block Math (Ctrl+Shift+K)"
-              >
-                <Icon name="ph:sigma" class="w-4 h-4" />
-              </button>
-              <div class="group relative">
-                <button
-                  @mousedown.prevent
-                  @click="insertFormat('code-block')"
-                  class="toolbar-btn"
-                  aria-label="Insert code block"
-                  aria-describedby="notepad-code-block-tip"
-                  title="Code block (Ctrl+Shift+C)"
-                >
-                  <Icon name="ph:code-block" class="w-4 h-4" />
-                </button>
-                <div
-                  id="notepad-code-block-tip"
-                  role="tooltip"
-                  class="pointer-events-none absolute left-1/2 top-full z-50 mt-2 hidden w-52 -translate-x-1/2 rounded-md border border-slate-700 bg-slate-950 px-2.5 py-2 text-[10px] leading-relaxed text-slate-400 shadow-xl group-hover:block group-focus-within:block"
-                >
-                  Add a language after the opening fence for highlighting, such
-                  as <code class="text-slate-200">```js</code> or
-                  <code class="text-slate-200">```python</code>.
-                </div>
-              </div>
-              <button
-                @mousedown.prevent
-                @click="insertFormat('quote')"
-                class="toolbar-btn"
-                title="Important quote (Ctrl+G)"
-                aria-label="Insert important quote"
-              >
-                <Icon name="ph:exclamation-mark" class="w-4 h-4" />
-              </button>
-              <button
-                @mousedown.prevent
-                @click="insertFormat('citation')"
-                class="toolbar-btn"
-                title="Page citation (Ctrl+P)"
-                aria-label="Insert page citation"
-              >
-                <Icon name="ph:link" class="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          <div
-            class="notepad-live-editor flex-1 overflow-y-auto p-3 relative custom-scrollbar"
-            role="textbox"
-            aria-label="Markdown notepad"
-            aria-multiline="true"
-          >
-            <textarea
-              v-if="isNotepadSelectingAll"
-              :ref="setNotepadTextareaRef"
-              :value="notepadData"
-              class="notepad-document-editor"
-              aria-label="Complete Markdown note selected"
-              @input="handleNotepadDocumentInput"
-              @beforeinput="handleNotepadBeforeInput(null, $event)"
-              @mouseup="finishNotepadDocumentSelection"
-              @keyup="finishNotepadDocumentSelection"
-              @blur="blurNotepadDocumentSelection"
-              @pointerdown="notepadHistory.breakGroup()"
-              @keydown.tab="handleNotepadTab(null, $event)"
-              @keydown.escape.prevent="
-                leaveNotepadDocumentSelection($event.currentTarget.selectionStart)
-              "
-            ></textarea>
-
-            <template v-else>
-              <div
-                v-for="(line, lineIndex) in notepadLines"
-                :key="lineIndex"
-                class="notepad-line"
-                :data-code-line-number="getNotepadCodeLineNumber(lineIndex)"
-                :class="{
-                  'notepad-line--active': activeNotepadLine === lineIndex,
-                  'notepad-line--quote': /^\s*>\s/.test(line),
-                  'notepad-line--code':
-                    notepadCodeFenceLines[lineIndex]?.insideFence,
-                  'notepad-line--code-opening':
-                    notepadCodeFenceLines[lineIndex]?.isOpening,
-                  'notepad-line--code-closing':
-                    notepadCodeFenceLines[lineIndex]?.isFence &&
-                    !notepadCodeFenceLines[lineIndex]?.isOpening,
-                  'notepad-line--code-fence-hidden':
-                    notepadCodeFenceLines[lineIndex]?.isFence &&
-                    !isNotepadCodeBlockActive(lineIndex),
-                  'notepad-line--code-collapsed-start':
-                    isCollapsedCodeBlockEdge(lineIndex, 'start'),
-                  'notepad-line--code-collapsed-end':
-                    isCollapsedCodeBlockEdge(lineIndex, 'end'),
-                }"
-              >
-                <textarea
-                  v-if="activeNotepadLine === lineIndex"
-                  :ref="setNotepadTextareaRef"
-                  :value="line"
-                  rows="1"
-                  :placeholder="
-                    lineIndex === 0 && notepadData === ''
-                      ? '# Notes — Markdown and $LaTeX$ supported'
-                      : ''
-                  "
-                  class="notepad-line-editor"
-                  @input="updateNotepadLine(lineIndex, $event)"
-                  @beforeinput="handleNotepadBeforeInput(lineIndex, $event)"
-                  @focus="activeNotepadLine = lineIndex"
-                  @pointerdown="notepadHistory.breakGroup()"
-                  @keydown="handleNotepadLineKeydown(lineIndex, $event)"
-                ></textarea>
-                <div
-                  v-else
-                  class="notepad-rendered-line"
-                  role="button"
-                  tabindex="0"
-                  :aria-label="`Edit line ${lineIndex + 1}`"
-                  v-html="renderNotepadLine(line, lineIndex)"
-                  @click="handleNotepadRenderedLineClick($event, lineIndex)"
-                  @keydown.enter.prevent="activateNotepadLine(lineIndex)"
-                  @keydown.space.prevent="activateNotepadLine(lineIndex)"
-                ></div>
-              </div>
-            </template>
-          </div>
-
-          <div
-            class="h-6 bg-slate-900 border-t border-slate-800 flex items-center justify-end px-2 shrink-0"
-          >
-            <span class="text-[10px] text-slate-500 font-mono">
-              Line {{ activeNotepadLine + 1 }} • Live Markdown • KaTeX Ready
-            </span>
-          </div>
-        </div>
+          @save="flushNotepadSave"
+        />
 
         <!-- OCR Tab -->
         <div
@@ -5949,289 +4888,12 @@ watch(zoomLevel, schedulePageUpdate);
   color: transparent;
 }
 
-.toolbar-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 4px;
-  color: #94a3b8;
-  transition: all 0.2s;
-}
-
-.toolbar-btn:hover {
-  background-color: #334155;
-  color: #f8fafc;
-}
-
-.toolbar-btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.35;
-}
-
-.toolbar-btn:disabled:hover {
-  background-color: transparent;
-  color: #94a3b8;
-}
-
 .prose {
   width: 100%;
   overflow-wrap: break-word;
   word-wrap: break-word;
   word-break: break-word;
   line-height: 1.6;
-}
-
-.notepad-line {
-  min-height: 2rem;
-  border-left: 2px solid transparent;
-  border-radius: 0.25rem;
-}
-
-.notepad-line--active {
-  border-left-color: rgb(99 102 241 / 0.8);
-  background: rgb(30 41 59 / 0.55);
-}
-
-.notepad-line--quote {
-  border-left-color: rgb(245 158 11 / 0.9);
-  background: rgb(245 158 11 / 0.06);
-}
-
-.notepad-line--code {
-  border-left-color: rgb(100 116 139 / 0.8);
-  border-radius: 0;
-  background: rgb(30 35 45 / 0.96);
-}
-
-.notepad-line--code[data-code-line-number] {
-  display: grid;
-  grid-template-columns: 2.75rem minmax(0, 1fr);
-}
-
-.notepad-line--code[data-code-line-number]::before {
-  content: attr(data-code-line-number);
-  padding: 0.15rem 0.65rem 0.15rem 0;
-  border-right: 1px solid rgb(71 85 105 / 0.55);
-  color: rgb(100 116 139);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.75rem;
-  line-height: 1.8667;
-  text-align: right;
-  user-select: none;
-}
-
-.notepad-line--code.notepad-line--active[data-code-line-number]::before {
-  padding-top: 0.35rem;
-  padding-bottom: 0.35rem;
-}
-
-.notepad-line--code-opening {
-  border-radius: 0.35rem 0.35rem 0 0;
-}
-
-.notepad-line--code-closing {
-  border-radius: 0 0 0.35rem 0.35rem;
-}
-
-.notepad-line--code-collapsed-start {
-  border-radius: 0.35rem 0.35rem 0 0;
-}
-
-.notepad-line--code-collapsed-end {
-  border-radius: 0 0 0.35rem 0.35rem;
-}
-
-.notepad-line--code-collapsed-start.notepad-line--code-collapsed-end {
-  border-radius: 0.35rem;
-}
-
-.notepad-line--code-fence-hidden {
-  display: none;
-}
-
-.notepad-line-editor {
-  display: block;
-  width: 100%;
-  min-height: 2rem;
-  padding: 0.35rem 0.65rem;
-  overflow: hidden;
-  resize: none;
-  border: 0;
-  outline: none;
-  background: transparent;
-  color: rgb(226 232 240);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.875rem;
-  line-height: 1.6;
-  overflow-wrap: anywhere;
-}
-
-.notepad-line-editor::placeholder {
-  color: rgb(71 85 105);
-}
-
-.notepad-document-editor {
-  display: block;
-  width: 100%;
-  min-height: 100%;
-  padding: 0.35rem 0.65rem;
-  overflow: hidden;
-  resize: none;
-  border: 0;
-  outline: none;
-  background: rgb(15 23 42 / 0.45);
-  color: rgb(226 232 240);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.875rem;
-  line-height: 1.6;
-  overflow-wrap: anywhere;
-}
-
-.notepad-rendered-line {
-  min-height: 2rem;
-  padding: 0.35rem 0.65rem;
-  cursor: text;
-  color: rgb(203 213 225);
-  font-size: 0.875rem;
-  line-height: 1.6;
-  overflow-wrap: anywhere;
-  transition: background-color 120ms ease;
-}
-
-.notepad-rendered-line:hover,
-.notepad-rendered-line:focus-visible {
-  background: rgb(30 41 59 / 0.4);
-  outline: none;
-}
-
-.notepad-rendered-line :deep(p),
-.notepad-rendered-line :deep(ul),
-.notepad-rendered-line :deep(ol),
-.notepad-rendered-line :deep(blockquote) {
-  margin: 0;
-}
-
-.notepad-rendered-line :deep(blockquote) {
-  border-radius: 0 0.25rem 0.25rem 0;
-  background: rgb(245 158 11 / 0.08);
-  padding: 0.45rem 0.75rem;
-  color: rgb(241 245 249);
-}
-
-.notepad-rendered-line :deep(ul),
-.notepad-rendered-line :deep(ol) {
-  padding-left: 1.25rem;
-}
-
-.notepad-rendered-line :deep(ul) {
-  list-style-type: disc;
-}
-
-.notepad-rendered-line :deep(ol) {
-  list-style-type: decimal;
-}
-
-.notepad-rendered-line :deep(li) {
-  display: list-item;
-}
-
-.notepad-rendered-line :deep(h1),
-.notepad-rendered-line :deep(h2),
-.notepad-rendered-line :deep(h3),
-.notepad-rendered-line :deep(h4),
-.notepad-rendered-line :deep(h5),
-.notepad-rendered-line :deep(h6) {
-  margin: 0;
-  color: rgb(165 180 252);
-  font-weight: 700;
-  line-height: 1.35;
-}
-
-.notepad-rendered-line :deep(h1) { font-size: 1.5rem; }
-.notepad-rendered-line :deep(h2) { font-size: 1.3rem; }
-.notepad-rendered-line :deep(h3) { font-size: 1.15rem; }
-.notepad-rendered-line :deep(h4),
-.notepad-rendered-line :deep(h5),
-.notepad-rendered-line :deep(h6) { font-size: 1rem; }
-
-.notepad-rendered-line :deep(strong) {
-  color: rgb(241 245 249);
-  font-weight: 700;
-}
-
-.notepad-rendered-line :deep(code) {
-  border-radius: 0.2rem;
-  background: rgb(30 41 59);
-  padding: 0.1rem 0.3rem;
-  color: rgb(252 211 77);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-}
-
-.notepad-line--code .notepad-rendered-line {
-  min-width: 0;
-  padding-top: 0.15rem;
-  padding-bottom: 0.15rem;
-}
-
-.notepad-line--code .notepad-line-editor {
-  min-width: 0;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.notepad-rendered-line :deep(.notepad-code-block-line) {
-  margin: 0;
-  max-width: 100%;
-  overflow-x: hidden;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.notepad-rendered-line :deep(.notepad-code-block-line code) {
-  display: block;
-  background: transparent;
-  padding: 0;
-  color: rgb(226 232 240);
-  white-space: inherit;
-  overflow-wrap: inherit;
-}
-
-.notepad-rendered-line :deep(.notepad-code-fence-source) {
-  display: block;
-  background: transparent;
-  padding: 0;
-  color: rgb(148 163 184);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.8rem;
-}
-
-.notepad-rendered-line :deep(a) {
-  color: rgb(129 140 248);
-  text-decoration: underline;
-}
-
-.notepad-rendered-line :deep(a[href^="#notepad-page-"]) {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 0.25rem;
-  background: rgb(79 70 229 / 0.2);
-  padding: 0.05rem 0.3rem;
-  color: rgb(165 180 252);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.8em;
-  font-weight: 600;
-  text-decoration: none;
-}
-
-.notepad-rendered-line :deep(a[href^="#notepad-page-"]:hover) {
-  background: rgb(79 70 229 / 0.35);
-  color: rgb(224 231 255);
-}
-
-.notepad-rendered-line :deep(.katex-display) {
-  margin: 0;
 }
 
 :deep(.katex-display) {

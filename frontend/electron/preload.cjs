@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke("sidebar:pop-out", { documentId }),
   focusSidebarPopout: () => ipcRenderer.invoke("sidebar:focus-popout"),
   closeSidebarPopout: () => ipcRenderer.invoke("sidebar:close-popout"),
+  openPaperWindow: (documentId, page) =>
+    ipcRenderer.invoke("paper:open-window", { documentId, page }),
   revealSidebarAnnotation: (payload) =>
     ipcRenderer.send("sidebar:reveal-annotation", payload),
   onSidebarPopoutClosed: (callback) => {
