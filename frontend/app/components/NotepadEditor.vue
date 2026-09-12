@@ -104,6 +104,80 @@
           <Icon name="ph:files" class="w-4 h-4" />
         </button>
       </div>
+
+      <div v-if="allowMarkdownImport" class="flex items-center">
+        <button
+          type="button"
+          class="flex h-7 items-center gap-1.5 rounded-md border border-slate-700 px-2 text-[10px] font-medium text-slate-400 transition hover:border-slate-600 hover:bg-slate-800 hover:text-slate-100"
+          title="Upload Markdown notes"
+          @click="openMarkdownFilePicker"
+        >
+          <Icon name="ph:upload-simple" class="h-3.5 w-3.5" />
+          Upload .md
+        </button>
+        <input
+          ref="markdownFileInput"
+          type="file"
+          accept=".md,text/markdown"
+          class="hidden"
+          aria-label="Choose a Markdown file to import"
+          @change="handleMarkdownFileSelection"
+        />
+      </div>
+    </div>
+
+    <div
+      v-if="pendingMarkdownImport"
+      class="absolute right-3 top-11 z-[60] w-[min(22rem,calc(100%-1.5rem))] rounded-xl border border-slate-700 bg-slate-950 p-3 shadow-2xl"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="notepad-markdown-import-title"
+      @keydown.escape.stop="cancelMarkdownImport"
+    >
+      <div class="flex items-start gap-2">
+        <span class="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-500/10 text-indigo-300">
+          <Icon name="ph:file-md" class="h-5 w-5" />
+        </span>
+        <div class="min-w-0 flex-1">
+          <h3 id="notepad-markdown-import-title" class="text-xs font-semibold text-slate-100">
+            Import Markdown notes
+          </h3>
+          <p class="mt-0.5 truncate text-[10px] text-slate-500" :title="pendingMarkdownImport.name">
+            {{ pendingMarkdownImport.name }}
+          </p>
+        </div>
+        <button
+          type="button"
+          class="rounded p-1 text-slate-500 hover:bg-slate-800 hover:text-white"
+          aria-label="Cancel Markdown import"
+          @click="cancelMarkdownImport"
+        >
+          <Icon name="ph:x" />
+        </button>
+      </div>
+
+      <p class="mt-3 text-[11px] leading-relaxed text-slate-400">
+        Choose how this file should be combined with the notes for this paper.
+      </p>
+      <div class="mt-3 grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          class="rounded-lg border border-red-500/20 bg-red-500/[0.06] px-3 py-2 text-left transition hover:bg-red-500/10"
+          @click="applyMarkdownImport('replace')"
+        >
+          <span class="block text-[11px] font-semibold text-red-300">Replace current</span>
+          <span class="mt-0.5 block text-[9px] leading-snug text-slate-500">Use only the uploaded file</span>
+        </button>
+        <button
+          type="button"
+          class="rounded-lg border border-indigo-500/25 bg-indigo-500/[0.08] px-3 py-2 text-left transition hover:bg-indigo-500/15"
+          @click="applyMarkdownImport('append')"
+        >
+          <span class="block text-[11px] font-semibold text-indigo-200">Append notes</span>
+          <span class="mt-0.5 block text-[9px] leading-snug text-slate-500">Keep current, then add file</span>
+        </button>
+      </div>
+      <p class="mt-2 text-[9px] text-slate-600">Either action can be undone from the notepad toolbar.</p>
     </div>
 
     <div
@@ -250,6 +324,12 @@ import {
   parsePaperPageHref,
   renderPaperPageLinks,
 } from "../utils/paperPageLinks.js";
+import {
+  MAX_NOTEPAD_MARKDOWN_BYTES,
+  decodeMarkdownBytes,
+  isMarkdownFilename,
+  mergeImportedMarkdown,
+} from "../utils/notepadMarkdownImport.js";
 
 marked.use(markedKatex({ throwOnError: false, output: "html" }));
 marked.use({ breaks: true, gfm: true });
@@ -274,6 +354,9 @@ const props = defineProps({
   // errors are suppressed so an empty/incomplete list doesn't flash bogus
   // "no such paper" errors before the real list arrives.
   papersReady: { type: Boolean, default: true },
+  // The PDF reader enables local Markdown imports; standalone notes retain
+  // their existing editor toolbar because they are imported from the library.
+  allowMarkdownImport: { type: Boolean, default: false },
 });
 const emit = defineEmits(["update:modelValue", "save"]);
 
@@ -305,6 +388,70 @@ const canRedoNotepad = computed(() => {
   notepadHistorySignal.value;
   return notepadHistory.canRedo;
 });
+
+const markdownFileInput = ref(null);
+const pendingMarkdownImport = ref(null);
+
+const openMarkdownFilePicker = () => {
+  markdownFileInput.value?.click();
+};
+
+const cancelMarkdownImport = () => {
+  pendingMarkdownImport.value = null;
+};
+
+const handleMarkdownFileSelection = async (event) => {
+  const input = event.currentTarget;
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file) return;
+
+  if (!isMarkdownFilename(file.name)) {
+    alert("Only .md files can be imported into the notepad.");
+    return;
+  }
+  if (file.size > MAX_NOTEPAD_MARKDOWN_BYTES) {
+    alert("Markdown files imported into the notepad must be 10 MB or smaller.");
+    return;
+  }
+
+  try {
+    const content = decodeMarkdownBytes(await file.arrayBuffer());
+    pendingMarkdownImport.value = { name: file.name, content };
+  } catch (error) {
+    console.error("Could not read Markdown file:", error);
+    alert("The Markdown file could not be read as UTF-8 text.");
+  }
+};
+
+const applyMarkdownImport = (mode) => {
+  const imported = pendingMarkdownImport.value;
+  if (!imported) return;
+
+  const before = notepadData.value;
+  const after = mergeImportedMarkdown(before, imported.content, mode);
+  const textarea = notepadTextarea.value;
+  const beforeSelection = textarea
+    ? getNotepadDocumentSelection(
+        isNotepadSelectingAll.value ? null : activeNotepadLine.value,
+        textarea,
+      )
+    : { start: before.length, end: before.length, direction: "forward" };
+  const cursor = after.length;
+  const changed = commitNotepadEdit(after, {
+    before,
+    beforeSelection,
+    afterSelection: { start: cursor, end: cursor, direction: "forward" },
+    inputType: `import-markdown-${mode}`,
+    forceNewGroup: true,
+  });
+
+  pendingMarkdownImport.value = null;
+  if (!changed) return;
+  isNotepadSelectingAll.value = false;
+  setNotepadCursorFromOffset(cursor);
+  emit("save");
+};
 
 const notifyNotepadHistoryChanged = () => {
   notepadHistorySignal.value += 1;

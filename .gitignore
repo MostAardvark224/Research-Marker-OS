@@ -1,6 +1,7 @@
 .vscode 
 .env 
-scripts/
+scripts/*
+!scripts/import_markdown_tree.sh
 .cursorignore
 backend/paper_context/
 backend/ai_sessions/

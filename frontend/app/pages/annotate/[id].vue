@@ -4209,6 +4209,7 @@ watch(zoomLevel, schedulePageUpdate);
           :papers="paperLinkDocuments"
           :exclude-paper-id="id"
           :papers-ready="paperLinksLoaded"
+          allow-markdown-import
           @pointerdown.capture="activateSidebarPaneForTab('notepad')"
           @focusin="activateSidebarPaneForTab('notepad')"
           @save="flushNotepadSave"

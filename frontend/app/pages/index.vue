@@ -781,6 +781,7 @@
       :default-folder-id="newNoteFolderId"
       @close="showNewNote = false"
       @created="onNoteCreated"
+      @imported="onNotesImported"
     />
 
     <SettingsModal v-if="showSettings" @close="showSettings = false" />
@@ -1673,6 +1674,10 @@ function openNewNoteModal(folderId = null) {
 
 async function onNoteCreated(note) {
   await navigateTo(`/notes/${note.id}`);
+}
+
+async function onNotesImported() {
+  await fetchPastPapers();
 }
 
 function notePreview(content) {

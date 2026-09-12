@@ -10,6 +10,7 @@ from pathlib import Path
 import requests
 from django.core.exceptions import ValidationError
 from django.core.files import File
+from django.db import transaction
 from django.db.models import Q, Max
 from django.http import FileResponse
 from django.utils.text import get_valid_filename
@@ -20,6 +21,12 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from api import models, serializers
+from api.note_import import (
+    NoteImportError,
+    create_imported_notes,
+    prepare_note_imports,
+    request_list,
+)
 from api.arxiv import fetch_arxiv_metadata, parse_arxiv_id
 from api.OCR import OCRError, get_ocr_providers, normalize_ocr_provider
 from api.ai import (
@@ -1490,6 +1497,118 @@ class StandaloneNoteViewSet(viewsets.ModelViewSet):
         if "folder" in serializer.validated_data and folder_id != old_folder_id:
             extra["sort_order"] = _next_note_sort_order(folder_id)
         serializer.save(**extra)
+
+
+class ImportStandaloneNotesView(APIView):
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
+
+    def post(self, request):
+        folder = None
+        folder_id = request.data.get("folder")
+        new_folder_name_value = request.data.get("new_folder_name")
+        new_folder_name = (
+            str(new_folder_name_value).strip()
+            if new_folder_name_value is not None
+            else ""
+        )
+        new_folder_parent_id = request.data.get("new_folder_parent")
+
+        if folder_id not in (None, "", "null", "undefined") and new_folder_name:
+            return Response(
+                {"error": "Choose an existing folder or create a new folder, not both."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if new_folder_name_value is not None and not new_folder_name:
+            return Response(
+                {"error": "Enter a name for the new folder."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if folder_id not in (None, "", "null", "undefined"):
+            try:
+                folder = models.Folder.objects.get(pk=folder_id)
+            except (models.Folder.DoesNotExist, TypeError, ValueError):
+                return Response(
+                    {"error": "Selected folder was not found."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        new_folder_parent = None
+        if new_folder_parent_id not in (None, "", "null", "undefined"):
+            if not new_folder_name:
+                return Response(
+                    {"error": "A new folder parent requires a new folder name."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                new_folder_parent = models.Folder.objects.get(pk=new_folder_parent_id)
+            except (models.Folder.DoesNotExist, TypeError, ValueError):
+                return Response(
+                    {"error": "Selected parent folder was not found."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        try:
+            prepared = prepare_note_imports(
+                request.FILES.getlist("files"),
+                request_list(request.data, "paths"),
+                request_list(request.data, "directories"),
+            )
+        except NoteImportError as exc:
+            return Response(
+                {"error": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        new_folder_serializer = None
+        if new_folder_name:
+            new_folder_serializer = serializers.FolderSerializer(
+                data={
+                    "name": new_folder_name,
+                    "parent": new_folder_parent.pk if new_folder_parent else None,
+                }
+            )
+            if not new_folder_serializer.is_valid():
+                first_error = next(iter(new_folder_serializer.errors.values()), None)
+                if isinstance(first_error, (list, tuple)) and first_error:
+                    first_error = first_error[0]
+                return Response(
+                    {
+                        "error": str(first_error or "The new folder is invalid."),
+                        "details": new_folder_serializer.errors,
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        with transaction.atomic():
+            if new_folder_serializer is not None:
+                folder = new_folder_serializer.save(
+                    sort_order=_next_folder_sort_order(
+                        new_folder_parent.pk if new_folder_parent else None
+                    )
+                )
+            notes = create_imported_notes(
+                prepared,
+                folder,
+                _next_note_sort_order(folder.pk if folder else None),
+            )
+
+        return Response(
+            {
+                "count": len(notes),
+                "folder": (
+                    {
+                        "id": folder.pk,
+                        "name": folder.name,
+                        "parent": folder.parent_id,
+                    }
+                    if new_folder_serializer is not None and folder is not None
+                    else None
+                ),
+                "notes": serializers.StandaloneNoteSerializer(notes, many=True).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 # Note: entierty of smart collection logic is in ai.py file, here Im just running & polling progress & returning finished data

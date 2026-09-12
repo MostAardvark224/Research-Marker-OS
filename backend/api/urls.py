@@ -22,6 +22,7 @@ urlpatterns = [
     path('documents/reorder/', views.ReorderDocumentsView.as_view(), name='documents-reorder'),
     path('folders/reorder/', views.ReorderFoldersView.as_view(), name='folders-reorder'),
     path('notes/reorder/', views.ReorderNotesView.as_view(), name='notes-reorder'),
+    path('notes/import/', views.ImportStandaloneNotesView.as_view(), name='notes-import'),
     path('get-paper/<int:pk>/', views.getPaper.as_view(), name='get-paper'),
     path('user-preferences/', views.UserPreferencesView.as_view(), name='user-preferences'),
     path('startup-scripts/status/', views.StartupScriptsStatusView.as_view(), name='startup-scripts-status'),
