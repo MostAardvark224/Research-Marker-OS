@@ -58,6 +58,38 @@ class StandaloneNoteAPITests(TestCase):
         complete = self.client.get(reverse("complete-fetch"))
         self.assertEqual(complete.data["folders"][0]["notes"][0]["id"], note.id)
 
+    def test_create_note_with_explicit_null_folder_lands_in_unassigned(self):
+        # The New Note modal sends folder=null when "Unassigned" is picked.
+        StandaloneNote.objects.create(title="Existing loose note", sort_order=0)
+
+        created = self.client.post(
+            reverse("notes-list"),
+            {"title": "Loose too", "content": "", "folder": None},
+            format="json",
+        )
+
+        self.assertEqual(created.status_code, 201)
+        note = StandaloneNote.objects.get(pk=created.data["id"])
+        self.assertIsNone(note.folder_id)
+        self.assertEqual(note.sort_order, 1)
+
+    def test_moving_note_out_of_a_folder_reassigns_sort_order(self):
+        # Dragging a note onto "Unassigned" patches folder back to null.
+        folder = Folder.objects.create(name="Research")
+        StandaloneNote.objects.create(title="Already unassigned", sort_order=0)
+        note = StandaloneNote.objects.create(title="Movable", folder=folder, sort_order=0)
+
+        moved = self.client.patch(
+            reverse("notes-detail", args=[note.id]),
+            {"folder": None},
+            format="json",
+        )
+
+        self.assertEqual(moved.status_code, 200)
+        note.refresh_from_db()
+        self.assertIsNone(note.folder_id)
+        self.assertEqual(note.sort_order, 1)
+
     def test_moving_note_between_folders_reassigns_sort_order(self):
         first_folder = Folder.objects.create(name="First")
         second_folder = Folder.objects.create(name="Second")

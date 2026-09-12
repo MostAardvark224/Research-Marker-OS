@@ -1,7 +1,7 @@
 <template>
   <main class="flex h-screen flex-col overflow-hidden bg-[#050508] text-white">
     <header class="flex h-16 shrink-0 items-center gap-3 border-b border-white/5 bg-[#07070b] px-4">
-      <NuxtLink to="/notes" class="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-white/5 hover:text-white" title="All notes"><Icon name="ph:arrow-left" /></NuxtLink>
+      <NuxtLink to="/" class="flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-white/5 hover:text-white" title="Back to library"><Icon name="ph:arrow-left" /></NuxtLink>
       <Icon name="ph:notebook" class="text-indigo-400" />
       <input
         v-model="title"
@@ -17,7 +17,7 @@
     </header>
 
     <div v-if="loading" class="flex flex-1 items-center justify-center text-sm text-slate-600">Loading note…</div>
-    <div v-else-if="error" class="flex flex-1 flex-col items-center justify-center gap-4 text-slate-500"><p>{{ error }}</p><NuxtLink to="/notes" class="text-indigo-400">Back to notes</NuxtLink></div>
+    <div v-else-if="error" class="flex flex-1 flex-col items-center justify-center gap-4 text-slate-500"><p>{{ error }}</p><NuxtLink to="/" class="text-indigo-400">Back to library</NuxtLink></div>
     <div v-else class="flex min-h-0 flex-1">
       <nav class="flex w-14 shrink-0 flex-col items-center gap-2 border-r border-white/5 bg-[#07070b] py-3">
         <button v-for="tab in tabs" :key="tab.id" class="relative flex h-10 w-10 items-center justify-center rounded-lg transition" :class="isVisible(tab.id) ? 'bg-indigo-500/15 text-indigo-300' : 'text-slate-600 hover:bg-white/5 hover:text-slate-300'" :title="tab.label" @click="activeTab = tab.id"><Icon :name="tab.icon" class="text-lg" /><span v-if="activeTab === tab.id" class="absolute -left-2 h-5 w-0.5 rounded-full bg-indigo-400"></span></button>

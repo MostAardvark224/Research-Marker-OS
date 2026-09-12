@@ -70,6 +70,13 @@
               New Subfolder
             </button>
             <button
+              @click.stop="actions.openNewNoteModal(folder.id)"
+              :class="`w-full text-left px-3 py-1.5 text-xs ${colorScheme.sidebarText} ${colorScheme.folderHover} ${colorScheme.folderIconActive} flex items-center gap-2`"
+            >
+              <Icon name="ph:note-pencil" />
+              New Note
+            </button>
+            <button
               @click.stop="actions.startRenamingFolder(folder)"
               :class="`w-full text-left px-3 py-1.5 text-xs ${colorScheme.sidebarText} ${colorScheme.folderHover} ${colorScheme.folderIconActive} flex items-center gap-2`"
             >

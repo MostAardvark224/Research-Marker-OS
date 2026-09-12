@@ -68,115 +68,92 @@
         :class="`flex-1 flex flex-col overflow-hidden ${colorScheme.containerBorder} ${colorScheme.containerBg}`"
       >
         <header
-          :class="`flex shrink-0 items-center justify-between px-4 md:px-5 py-3 border-b ${colorScheme.headerBorder} ${colorScheme.headerBg}`"
+          :class="`flex shrink-0 items-center justify-between gap-2 px-3 md:px-5 py-3 border-b ${colorScheme.headerBorder} ${colorScheme.headerBg}`"
         >
-          <div class="flex items-center gap-2">
-            <span
-              :class="`inline-flex h-2.5 w-2.5 rounded-full ${colorScheme.dotRed}`"
-            ></span>
-            <span
-              :class="`inline-flex h-2.5 w-2.5 rounded-full ${colorScheme.dotAmber}`"
-            ></span>
-            <span
-              :class="`inline-flex h-2.5 w-2.5 rounded-full ${colorScheme.dotGreen}`"
-            ></span>
+          <div class="flex min-w-0 items-center gap-2">
+            <div class="hidden shrink-0 items-center gap-2 sm:flex">
+              <span
+                :class="`inline-flex h-2.5 w-2.5 rounded-full ${colorScheme.dotRed}`"
+              ></span>
+              <span
+                :class="`inline-flex h-2.5 w-2.5 rounded-full ${colorScheme.dotAmber}`"
+              ></span>
+              <span
+                :class="`inline-flex h-2.5 w-2.5 rounded-full ${colorScheme.dotGreen}`"
+              ></span>
+            </div>
 
             <h2
-              :class="`ml-3 text-sm md:text-base font-semibold tracking-wide ${colorScheme.headerText}`"
+              :class="`hidden shrink-0 text-sm font-semibold tracking-wide sm:block md:text-base ${colorScheme.headerText}`"
             >
               Research Marker
             </h2>
 
-            <Icon
-              @click="showSettings = true"
-              name="material-symbols:settings"
-              :class="`ml-3 text-2xl ${colorScheme.headerText} cursor-pointer hover:text-blue-400 transition-colors`"
-            />
-            <button
-              type="button"
-              aria-label="Open the Research Marker project page"
-              @click="openProjectPage"
-              class="flex items-center"
-            >
+            <div class="flex shrink-0 items-center gap-1 sm:ml-1 sm:gap-2">
               <Icon
-                name="uil:github"
-                :class="`ml-3 text-2xl ${colorScheme.headerText} hover:text-gray-400 transition-colors`"
+                @click="showSettings = true"
+                name="material-symbols:settings"
+                title="Settings"
+                :class="`${topBarBtnIcon} ${colorScheme.headerText} cursor-pointer hover:text-blue-400 transition-colors`"
               />
-            </button>
-
-            <div class="flex items-center gap-2">
-              <NuxtLink
-                to="/notes"
-                :class="[
-                  'group flex items-center gap-2 rounded-lg transition-all duration-200 ml-2',
-                  'p-2 sm:px-3 sm:py-2',
-                  colorScheme.btnPrimary,
-                  colorScheme.btnPrimaryHover,
-                ]"
-                aria-label="Open standalone notes"
+              <button
+                type="button"
+                aria-label="Open the Research Marker project page"
+                title="Project page"
+                @click="openProjectPage"
+                class="flex items-center"
               >
                 <Icon
-                  name="ph:notebook"
-                  :class="['text-2xl flex-shrink-0', colorScheme.btnPrimaryText]"
+                  name="uil:github"
+                  :class="`${topBarBtnIcon} ${colorScheme.headerText} hover:text-gray-400 transition-colors`"
                 />
-                <span
-                  :class="['hidden md:inline text-xs font-semibold leading-none', colorScheme.btnPrimaryText]"
-                >
-                  Notes
+              </button>
+            </div>
+
+            <div class="flex min-w-0 items-center gap-1.5 sm:gap-2">
+              <button
+                type="button"
+                @click="openNewNoteModal(activeFolderId)"
+                :class="[topBarBtn, colorScheme.btnNote, colorScheme.btnNoteHover]"
+                aria-label="Create a new note"
+                title="New note"
+              >
+                <Icon
+                  name="ph:note-pencil"
+                  :class="[topBarBtnIcon, colorScheme.btnPrimaryText]"
+                />
+                <span :class="[topBarBtnLabel, colorScheme.btnPrimaryText]">
+                  New Note
                 </span>
-              </NuxtLink>
+              </button>
 
               <button
                 type="button"
                 @click="showUpload = true"
-                :class="[
-                  'group flex items-center gap-2 rounded-lg transition-all duration-200 ml-2',
-                  'p-2 sm:px-3 sm:py-2',
-                  colorScheme.btnPrimary,
-                  colorScheme.btnPrimaryHover,
-                ]"
+                :class="[topBarBtn, colorScheme.btnPrimary, colorScheme.btnPrimaryHover]"
                 aria-label="Upload Papers"
+                title="Upload papers"
               >
                 <Icon
                   name="material-symbols:upload-sharp"
-                  :class="[
-                    'text-2xl flex-shrink-0',
-                    colorScheme.btnPrimaryText,
-                  ]"
+                  :class="[topBarBtnIcon, colorScheme.btnPrimaryText]"
                 />
-                <span
-                  :class="[
-                    'hidden md:inline text-xs font-semibold leading-none',
-                    colorScheme.btnPrimaryText,
-                  ]"
-                >
+                <span :class="[topBarBtnLabel, colorScheme.btnPrimaryText]">
                   Upload Papers
                 </span>
               </button>
 
               <NuxtLink
                 to="/knowledge-base"
-                :class="[
-                  'group flex items-center gap-2 rounded-lg transition-all duration-200',
-                  'p-2 sm:px-3 sm:py-2',
-                  colorScheme.btnSecondary,
-                  colorScheme.btnSecondaryHover,
-                ]"
+                :class="[topBarBtn, colorScheme.btnSecondary, colorScheme.btnSecondaryHover]"
                 aria-label="Knowledge Index"
+                title="Knowledge index"
               >
                 <Icon
                   name="material-symbols:book-ribbon-outline"
-                  :class="[
-                    'text-2xl flex-shrink-0',
-                    colorScheme.btnPrimaryText,
-                  ]"
+                  :class="[topBarBtnIcon, colorScheme.btnPrimaryText]"
                 />
-                <span
-                  :class="[
-                    'hidden md:inline text-xs font-semibold leading-none',
-                    colorScheme.btnPrimaryText,
-                  ]"
-                >
+                <span :class="[topBarBtnLabel, colorScheme.btnPrimaryText]">
                   Knowledge Index
                 </span>
               </NuxtLink>
@@ -184,27 +161,15 @@
               <button
                 type="button"
                 @click="showScholarInbox = true"
-                :class="[
-                  'group flex items-center gap-2 rounded-lg transition-all duration-200',
-                  'p-2 sm:px-3 sm:py-2',
-                  colorScheme.btnTertiary,
-                  colorScheme.btnTertiaryHover,
-                ]"
+                :class="[topBarBtn, colorScheme.btnTertiary, colorScheme.btnTertiaryHover]"
                 aria-label="Scholar Inbox"
+                title="Scholar inbox"
               >
                 <Icon
                   name="material-symbols:school"
-                  :class="[
-                    'text-2xl flex-shrink-0',
-                    colorScheme.btnPrimaryText,
-                  ]"
+                  :class="[topBarBtnIcon, colorScheme.btnPrimaryText]"
                 />
-                <span
-                  :class="[
-                    'hidden md:inline text-xs font-semibold leading-none',
-                    colorScheme.btnPrimaryText,
-                  ]"
-                >
+                <span :class="[topBarBtnLabel, colorScheme.btnPrimaryText]">
                   Scholar Inbox
                 </span>
               </button>
@@ -212,43 +177,31 @@
               <button
                 type="button"
                 @click="showArxivImport = true"
-                :class="[
-                  'group flex items-center gap-2 rounded-lg transition-all duration-200 mr-2',
-                  'p-2 sm:px-3 sm:py-2',
-                  colorScheme.btnArxiv,
-                  colorScheme.btnArxivHover,
-                ]"
+                :class="[topBarBtn, colorScheme.btnArxiv, colorScheme.btnArxivHover]"
                 aria-label="Import from arXiv"
+                title="Import from arXiv"
               >
                 <Icon
                   name="academicons:arxiv"
-                  :class="[
-                    'text-2xl flex-shrink-0',
-                    colorScheme.btnPrimaryText,
-                  ]"
+                  :class="[topBarBtnIcon, colorScheme.btnPrimaryText]"
                 />
-                <span
-                  :class="[
-                    'hidden md:inline text-xs font-semibold leading-none',
-                    colorScheme.btnPrimaryText,
-                  ]"
-                >
+                <span :class="[topBarBtnLabel, colorScheme.btnPrimaryText]">
                   From arXiv
                 </span>
               </button>
             </div>
           </div>
 
-          <div class="flex items-center gap-2">
+          <div class="flex shrink-0 items-center gap-2">
             <input
               v-model="searchQuery"
               type="text"
               placeholder="Search title…"
-              :class="`hidden sm:block ${colorScheme.inputBg} border ${colorScheme.inputBorder} rounded-lg px-2.5 py-1.5 text-xs ${colorScheme.inputText} ${colorScheme.inputPlaceholder} focus:outline-none focus:ring-1 ${colorScheme.inputFocusRing} ${colorScheme.inputFocusBorder}`"
+              :class="`hidden w-28 sm:block lg:w-40 xl:w-48 ${colorScheme.inputBg} border ${colorScheme.inputBorder} rounded-lg px-2.5 py-1.5 text-xs ${colorScheme.inputText} ${colorScheme.inputPlaceholder} focus:outline-none focus:ring-1 ${colorScheme.inputFocusRing} ${colorScheme.inputFocusBorder}`"
             />
             <select
               v-model="sortBy"
-              :class="`${colorScheme.inputBg} border ${colorScheme.inputBorder} rounded-lg px-1 py-1.5 text-xs ${colorScheme.inputText} focus:outline-none focus:ring-1 ${colorScheme.inputFocusRing} ${colorScheme.inputFocusBorder}`"
+              :class="`max-w-28 ${colorScheme.inputBg} border ${colorScheme.inputBorder} rounded-lg px-1 py-1.5 text-xs ${colorScheme.inputText} focus:outline-none focus:ring-1 ${colorScheme.inputFocusRing} ${colorScheme.inputFocusBorder}`"
             >
               <option value="custom">Custom order</option>
               <option value="newest">Newest first</option>
@@ -462,8 +415,7 @@
               <button
                 type="button"
                 class="mt-4 inline-flex items-center gap-2 rounded-lg bg-indigo-500 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-400"
-                :disabled="isCreatingNote"
-                @click="createNoteInFolder(activeFolderId)"
+                @click="openNewNoteModal(activeFolderId)"
               >
                 <Icon name="ph:plus" /> New note here
               </button>
@@ -760,8 +712,7 @@
                   <button
                     type="button"
                     class="inline-flex items-center gap-1 rounded-md bg-indigo-500/15 px-2 py-1.5 font-medium text-indigo-300 transition-colors hover:bg-indigo-500/25"
-                    :disabled="isCreatingNote"
-                    @click="createNoteInFolder(activeFolderId)"
+                    @click="openNewNoteModal(activeFolderId)"
                   >
                     <Icon name="ph:plus" /> New note
                   </button>
@@ -824,6 +775,14 @@
       @imported="onArxivImported"
     />
 
+    <NewNoteModal
+      v-if="showNewNote"
+      :folders="folderList"
+      :default-folder-id="newNoteFolderId"
+      @close="showNewNote = false"
+      @created="onNoteCreated"
+    />
+
     <SettingsModal v-if="showSettings" @close="showSettings = false" />
 
     <FileUploadModal
@@ -878,6 +837,9 @@ const colorScheme = ref({
   btnPrimary: "bg-blue-600",
   btnPrimaryHover: "hover:bg-blue-700",
   btnPrimaryText: "text-white",
+
+  btnNote: "bg-violet-600",
+  btnNoteHover: "hover:bg-violet-700",
 
   btnSecondary: "bg-emerald-600",
   btnSecondaryHover: "hover:bg-green-700",
@@ -943,6 +905,19 @@ const colorScheme = ref({
   textMuted: "text-slate-600",
 });
 
+// Every top-bar action shares one shape so the row stays uniform and scales
+// down together. Icons get an explicit square box rather than a font size
+// because the buttons draw from different icon sets (material-symbols,
+// phosphor, academicons) whose glyphs fill their viewBox differently and so
+// render at visibly different sizes for the same `text-*`.
+const topBarBtn =
+  "group flex shrink-0 items-center gap-2 rounded-lg transition-all duration-200 p-1.5 sm:p-2 xl:px-3 xl:py-2";
+const topBarBtnIcon = "shrink-0 size-[18px] sm:size-5";
+// Labels only appear at xl — five of them plus the title and the search
+// controls need well over 1024px before they stop colliding.
+const topBarBtnLabel =
+  "hidden xl:inline text-xs font-semibold leading-none whitespace-nowrap";
+
 const vFocus = {
   mounted: (el) => el.focus(),
 };
@@ -976,7 +951,8 @@ const folderList = ref([]);
 const unassignedDocs = ref([]);
 const unassignedNotes = ref([]);
 const activeFolderId = ref(null);
-const isCreatingNote = ref(false);
+const showNewNote = ref(false);
+const newNoteFolderId = ref(null);
 
 const uploadSkipOcr = ref(false);
 const uploadOcrProvider = ref("paddleocr");
@@ -1688,21 +1664,15 @@ function navigateToNote(noteId) {
   navigateTo(`/notes/${noteId}`);
 }
 
-async function createNoteInFolder(folderId) {
-  if (isCreatingNote.value) return;
-  isCreatingNote.value = true;
-  try {
-    const note = await $fetch(`${apiBaseURL}/notes/`, {
-      method: "POST",
-      body: { title: "Untitled note", content: "", folder: folderId },
-    });
-    await navigateTo(`/notes/${note.id}`);
-  } catch (error) {
-    console.error("Error creating note:", error);
-    alert("Could not create note.");
-  } finally {
-    isCreatingNote.value = false;
-  }
+// Opens the creation modal with `folderId` preselected, mirroring how the
+// upload modal files a paper into a folder.
+function openNewNoteModal(folderId = null) {
+  newNoteFolderId.value = folderId;
+  showNewNote.value = true;
+}
+
+async function onNoteCreated(note) {
+  await navigateTo(`/notes/${note.id}`);
 }
 
 function notePreview(content) {
@@ -2119,6 +2089,7 @@ provide("folderActions", {
   setDocumentRead,
   isUpdatingReadStatus,
   navigateToNote,
+  openNewNoteModal,
 });
 </script>
 
