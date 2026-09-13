@@ -110,12 +110,11 @@
             <div class="p-4 rounded-xl border border-white/10 bg-white/[0.02] space-y-4">
               <div>
                 <h4 class="text-sm font-medium text-white tracking-wide">
-                  Startup shell scripts
+                  Shell scripts
                 </h4>
                 <p class="text-xs text-slate-500 leading-relaxed mt-1">
-                  Absolute paths to shell scripts on this machine. Research Marker runs them
-                  sequentially in a background worker on startup so they do not delay loading or
-                  using the app.
+                  Store trusted shell scripts for use inside the PDF viewer. Select which scripts
+                  should also run automatically when Research Marker starts.
                 </p>
               </div>
 
@@ -138,25 +137,35 @@
 
               <div class="space-y-2">
                 <div
-                  v-for="(scriptPath, index) in startupScripts"
+                  v-for="(script, index) in shellScripts"
                   :key="index"
-                  class="flex items-center gap-2"
+                  class="rounded-lg border border-white/10 bg-[#0A0A0C] p-3"
                 >
-                  <input
-                    v-model="startupScripts[index]"
-                    type="text"
-                    placeholder="/absolute/path/to/script.sh"
-                    spellcheck="false"
-                    class="flex-1 bg-[#0A0A0C] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-700 focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 outline-none font-mono"
-                  />
-                  <button
-                    type="button"
-                    @click="removeStartupScript(index)"
-                    class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
-                    aria-label="Remove script path"
-                  >
-                    <Icon name="material-symbols:close" class="text-lg" />
-                  </button>
+                  <div class="flex items-center gap-2">
+                    <input
+                      v-model="script.path"
+                      type="text"
+                      placeholder="/absolute/path/to/script.sh"
+                      spellcheck="false"
+                      class="flex-1 bg-black/20 border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-700 focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 outline-none font-mono"
+                    />
+                    <button
+                      type="button"
+                      @click="removeShellScript(index)"
+                      class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+                      aria-label="Remove script path"
+                    >
+                      <Icon name="material-symbols:close" class="text-lg" />
+                    </button>
+                  </div>
+                  <label class="mt-2 inline-flex items-center gap-2 text-xs text-slate-400 cursor-pointer">
+                    <input
+                      v-model="script.run_on_startup"
+                      type="checkbox"
+                      class="accent-indigo-500 w-4 h-4 rounded border-white/20 bg-white/5"
+                    />
+                    Run on app startup
+                  </label>
                 </div>
                 <div
                   v-if="startupScriptErrors.length"
@@ -174,10 +183,10 @@
 
               <button
                 type="button"
-                @click="addStartupScript"
+                @click="addShellScript"
                 class="px-3 py-1.5 rounded-lg text-xs bg-white/5 text-slate-300 border border-white/10 hover:bg-white/10"
               >
-                Add script path
+                Add shell script
               </button>
               <p
                 v-if="startupScriptsSaveError"
@@ -965,7 +974,7 @@ const AI_ENV_KEYS = new Set([
 
 const SCHOLAR_ENV_KEYS = new Set(["SCHOLAR_INBOX_API_KEY"]);
 
-const startupScripts = ref([""]);
+const shellScripts = ref([{ path: "", run_on_startup: false }]);
 const startupScriptErrors = ref([]);
 const startupScriptsSaveError = ref("");
 
@@ -1227,7 +1236,7 @@ const activeTabLabel = computed(
 const activeTabDescription = computed(() => {
   switch (activeTab.value) {
     case "general":
-      return "Workspace tools, startup scripts, and Scholar credentials.";
+      return "Workspace tools, shell scripts, and Scholar credentials.";
     case "updates":
       return "Check for and install app updates.";
     case "scholar":
@@ -1316,27 +1325,36 @@ const scholarEnvList = computed(() =>
   computedEnvList.value.filter((env) => SCHOLAR_ENV_KEYS.has(env.key)),
 );
 
-function addStartupScript() {
-  startupScripts.value = [...startupScripts.value, ""];
+function addShellScript() {
+  shellScripts.value = [
+    ...shellScripts.value,
+    { path: "", run_on_startup: false },
+  ];
 }
 
-function removeStartupScript(index) {
-  const next = startupScripts.value.filter((_, i) => i !== index);
-  startupScripts.value = next.length ? next : [""];
+function removeShellScript(index) {
+  const next = shellScripts.value.filter((_, i) => i !== index);
+  shellScripts.value = next.length
+    ? next
+    : [{ path: "", run_on_startup: false }];
   startupScriptErrors.value = [];
   startupScriptsSaveError.value = "";
 }
 
-function validateStartupScriptsClient() {
+function validateShellScriptsClient() {
   const errors = [];
   const cleaned = [];
   const seen = new Set();
 
-  for (const raw of startupScripts.value) {
-    const path = (raw || "").trim();
+  for (const script of shellScripts.value) {
+    const path = (script?.path || "").trim();
     if (!path) continue;
 
-    if (!path.startsWith("/")) {
+    const isAbsolutePath =
+      path.startsWith("/") ||
+      path.startsWith("\\\\") ||
+      /^[A-Za-z]:[\\/]/.test(path);
+    if (!isAbsolutePath) {
       errors.push({
         path,
         error: `${path}: use an absolute path (for example /home/you/scripts/setup.sh).`,
@@ -1346,7 +1364,10 @@ function validateStartupScriptsClient() {
 
     if (seen.has(path)) continue;
     seen.add(path);
-    cleaned.push(path);
+    cleaned.push({
+      path,
+      run_on_startup: Boolean(script.run_on_startup),
+    });
   }
 
   return { cleaned, errors };
@@ -1404,10 +1425,21 @@ async function loadUserPreferences() {
     }
 
     const generalPrefs = res.user_preferences?.general || {};
-    const savedScripts = Array.isArray(generalPrefs.startup_scripts)
-      ? generalPrefs.startup_scripts.filter((item) => typeof item === "string" && item.trim())
-      : [];
-    startupScripts.value = savedScripts.length ? savedScripts : [""];
+    const savedScripts = Array.isArray(generalPrefs.shell_scripts)
+      ? generalPrefs.shell_scripts
+          .filter((item) => item && typeof item.path === "string" && item.path.trim())
+          .map((item) => ({
+            path: item.path,
+            run_on_startup: Boolean(item.run_on_startup),
+          }))
+      : Array.isArray(generalPrefs.startup_scripts)
+        ? generalPrefs.startup_scripts
+            .filter((item) => typeof item === "string" && item.trim())
+            .map((path) => ({ path, run_on_startup: true }))
+        : [];
+    shellScripts.value = savedScripts.length
+      ? savedScripts
+      : [{ path: "", run_on_startup: false }];
     startupScriptErrors.value = [];
     startupScriptsSaveError.value = "";
 
@@ -1480,7 +1512,7 @@ async function saveSettings() {
     startupScriptErrors.value = [];
 
     const { cleaned: cleanedScripts, errors: clientErrors } =
-      validateStartupScriptsClient();
+      validateShellScriptsClient();
     if (clientErrors.length) {
       startupScriptErrors.value = clientErrors.map(
         (item) => item.error || item.message || "Invalid path",
@@ -1494,7 +1526,7 @@ async function saveSettings() {
     const prefsPayload = {
       user_preferences: {
         general: {
-          startup_scripts: cleanedScripts,
+          shell_scripts: cleanedScripts,
         },
         scholar_inbox: {
           auto_import: autoImportEnabled.value,

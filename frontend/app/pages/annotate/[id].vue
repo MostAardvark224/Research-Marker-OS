@@ -1396,6 +1396,7 @@ const sidebarTabs = [
   { id: "stickyNotes", label: "Sticky Notes", icon: "ph:note" },
   { id: "highlights", label: "Highlights", icon: "ph:highlighter" },
   { id: "notepad", label: "Notepad", icon: "ph:notebook" },
+  { id: "shellScripts", label: "Shell Scripts", icon: "ph:terminal-window" },
   { id: "chat", label: "Chat", icon: "ph:chat-circle-dots" },
   { id: "ocr", label: "OCR", icon: "ph:text-aa" },
 ];
@@ -4215,6 +4216,20 @@ watch(zoomLevel, schedulePageUpdate);
           @focusin="activateSidebarPaneForTab('notepad')"
           @save="flushNotepadSave"
         />
+
+        <!-- Shell Scripts Tab -->
+        <div
+          v-show="isSidebarTabVisible('shellScripts')"
+          data-sidebar-tab="shellScripts"
+          tabindex="-1"
+          class="flex-1 flex min-h-0 overflow-hidden"
+          :class="sidebarPaneClasses('shellScripts')"
+          :style="sidebarPaneStyle('shellScripts')"
+          @pointerdown.capture="activateSidebarPaneForTab('shellScripts')"
+          @focusin="activateSidebarPaneForTab('shellScripts')"
+        >
+          <ShellScriptsPanel />
+        </div>
 
         <!-- OCR Tab -->
         <div

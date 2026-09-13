@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -17,35 +18,28 @@ SCRIPT_TIMEOUT_SECONDS = 600
 MAX_OUTPUT_CHARS = 2000
 
 _STATUS_FILENAME = "startup_scripts_status.json"
+_RUNTIME_STATUS_FILENAME = "shell_scripts_status.json"
 _queued_this_process = False
+_runtime_queue_lock = threading.Lock()
+
+
+class ShellScriptsBusyError(RuntimeError):
+    pass
 
 
 def _status_path() -> Path:
     return Path(get_app_data_dir()) / _STATUS_FILENAME
 
 
+def _runtime_status_path() -> Path:
+    return Path(get_app_data_dir()) / _RUNTIME_STATUS_FILENAME
+
+
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _read_status() -> dict:
-    path = _status_path()
-    if not path.is_file():
-        return {
-            "run_id": None,
-            "status": "idle",
-            "started_at": None,
-            "finished_at": None,
-            "results": [],
-            "summary": None,
-        }
-    try:
-        with open(path, "r", encoding="utf-8") as handle:
-            data = json.load(handle)
-        if isinstance(data, dict):
-            return data
-    except Exception:
-        pass
+def _empty_status() -> dict:
     return {
         "run_id": None,
         "status": "idle",
@@ -56,15 +50,43 @@ def _read_status() -> dict:
     }
 
 
-def write_status(payload: dict) -> None:
-    path = _status_path()
+def _read_status(path: Path | None = None) -> dict:
+    path = path or _status_path()
+    if not path.is_file():
+        return _empty_status()
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+    return _empty_status()
+
+
+def write_status(payload: dict, path: Path | None = None) -> None:
+    path = path or _status_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as handle:
-        json.dump(payload, handle, indent=2)
+    temporary_path = path.with_name(f".{path.name}.{os.getpid()}.{uuid.uuid4().hex}.tmp")
+    try:
+        with open(temporary_path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, path)
+    finally:
+        try:
+            temporary_path.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def get_startup_scripts_status() -> dict:
     return _read_status()
+
+
+def get_shell_scripts_status() -> dict:
+    return _read_status(_runtime_status_path())
 
 
 def _truncate(text: str, limit: int = MAX_OUTPUT_CHARS) -> str:
@@ -179,25 +201,94 @@ def sanitize_startup_script_paths(paths) -> tuple[list[str], list[dict]]:
     return cleaned, errors
 
 
-def load_configured_startup_scripts() -> list[str]:
+def sanitize_shell_script_entries(entries) -> tuple[list[dict], list[dict]]:
+    """Validate stored script entries while accepting the legacy string format."""
+    if entries is None:
+        return [], []
+    if isinstance(entries, (str, dict)):
+        entries = [entries]
+    if not isinstance(entries, (list, tuple)):
+        return [], [{"path": "", "error": "shell_scripts must be a list."}]
+
+    normalized_entries: list[dict] = []
+    errors: list[dict] = []
+    seen: set[str] = set()
+
+    for item in entries:
+        if isinstance(item, str):
+            raw_path = item
+            run_on_startup = True
+        elif isinstance(item, dict):
+            raw_path = item.get("path", "")
+            run_on_startup = item.get("run_on_startup", False)
+            if not isinstance(run_on_startup, bool):
+                errors.append(
+                    {
+                        "path": str(raw_path or ""),
+                        "error": "run_on_startup must be true or false.",
+                    }
+                )
+                continue
+        else:
+            errors.append({"path": "", "error": "Each shell script must be a path or object."})
+            continue
+
+        raw_path = str(raw_path or "").strip()
+        if not raw_path:
+            continue
+        if len(normalized_entries) >= MAX_SCRIPTS:
+            errors.append(
+                {"path": raw_path, "error": f"Too many scripts (maximum {MAX_SCRIPTS})."}
+            )
+            continue
+
+        ok, message, normalized = validate_shell_script_path(raw_path)
+        if not ok or not normalized:
+            errors.append({"path": raw_path, "error": message})
+            continue
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        normalized_entries.append(
+            {"path": normalized, "run_on_startup": run_on_startup}
+        )
+
+    return normalized_entries, errors
+
+
+def load_configured_shell_scripts() -> list[dict]:
     from .user_preferences import deep_get, load_user_preferences
 
     prefs = load_user_preferences()
     general = deep_get(prefs, "general", {}) or {}
     if not isinstance(general, dict):
         return []
-    paths = general.get("startup_scripts", [])
-    cleaned, _errors = sanitize_startup_script_paths(paths)
+    raw_entries = general.get("shell_scripts")
+    if raw_entries is None:
+        raw_entries = general.get("startup_scripts", [])
+    cleaned, _errors = sanitize_shell_script_entries(raw_entries)
     return cleaned
 
 
-def run_startup_scripts(script_paths: list[str] | None = None) -> dict:
-    """Run configured startup scripts sequentially. Intended for django-q workers."""
-    paths = script_paths if script_paths is not None else load_configured_startup_scripts()
-    run_id = str(uuid.uuid4())
+def load_configured_startup_scripts() -> list[str]:
+    return [
+        entry["path"]
+        for entry in load_configured_shell_scripts()
+        if entry["run_on_startup"]
+    ]
+
+
+def run_shell_scripts(
+    script_paths: list[str],
+    run_id: str | None = None,
+    run_kind: str = "runtime",
+) -> dict:
+    """Run validated shell scripts sequentially. Intended for django-q workers."""
+    status_path = _status_path() if run_kind == "startup" else _runtime_status_path()
+    run_id = run_id or str(uuid.uuid4())
     started_at = _utc_now_iso()
 
-    if not paths:
+    if not script_paths:
         payload = {
             "run_id": run_id,
             "status": "completed",
@@ -206,7 +297,7 @@ def run_startup_scripts(script_paths: list[str] | None = None) -> dict:
             "results": [],
             "summary": None,
         }
-        write_status(payload)
+        write_status(payload, status_path)
         return payload
 
     write_status(
@@ -217,11 +308,12 @@ def run_startup_scripts(script_paths: list[str] | None = None) -> dict:
             "finished_at": None,
             "results": [],
             "summary": None,
-        }
+        },
+        status_path,
     )
 
     results: list[dict] = []
-    for raw_path in paths:
+    for raw_path in script_paths:
         ok, message, normalized = validate_shell_script_path(raw_path)
         if not ok or not normalized:
             results.append(
@@ -285,15 +377,16 @@ def run_startup_scripts(script_paths: list[str] | None = None) -> dict:
             )
 
     failures = [item for item in results if not item.get("ok")]
+    script_label = "startup script" if run_kind == "startup" else "shell script"
     if failures:
         status = "failed"
         if len(failures) == len(results):
-            summary = f"All {len(results)} startup script(s) failed."
+            summary = f"All {len(results)} {script_label}(s) failed."
         else:
-            summary = f"{len(failures)} of {len(results)} startup script(s) failed."
+            summary = f"{len(failures)} of {len(results)} {script_label}(s) failed."
     else:
         status = "completed"
-        summary = f"All {len(results)} startup script(s) completed successfully."
+        summary = f"All {len(results)} {script_label}(s) completed successfully."
 
     payload = {
         "run_id": run_id,
@@ -303,8 +396,69 @@ def run_startup_scripts(script_paths: list[str] | None = None) -> dict:
         "results": results,
         "summary": summary,
     }
-    write_status(payload)
+    write_status(payload, status_path)
     return payload
+
+
+def run_startup_scripts(script_paths: list[str] | None = None) -> dict:
+    """Run configured startup scripts sequentially. Intended for django-q workers."""
+    paths = script_paths if script_paths is not None else load_configured_startup_scripts()
+    return run_shell_scripts(paths, run_kind="startup")
+
+
+def queue_shell_scripts(script_paths: list[str]) -> dict:
+    """Queue a runtime batch after confirming every path is currently configured."""
+    configured = {entry["path"] for entry in load_configured_shell_scripts()}
+    cleaned, errors = sanitize_startup_script_paths(script_paths)
+    if errors:
+        raise ValueError(errors[0]["error"])
+    if not cleaned:
+        raise ValueError("Select at least one configured shell script.")
+    if any(path not in configured for path in cleaned):
+        raise ValueError("Only shell scripts saved in Settings can be run.")
+
+    with _runtime_queue_lock:
+        current_status = get_shell_scripts_status()
+        if current_status.get("status") in {"queued", "running"}:
+            raise ShellScriptsBusyError("A shell script batch is already running.")
+
+        run_id = str(uuid.uuid4())
+        write_status(
+            {
+                "run_id": run_id,
+                "status": "queued",
+                "started_at": _utc_now_iso(),
+                "finished_at": None,
+                "results": [],
+                "summary": f"Queued {len(cleaned)} shell script(s).",
+            },
+            _runtime_status_path(),
+        )
+
+    from api.task_queue import enqueue_task
+
+    try:
+        task_id = enqueue_task(
+            "api.startup_scripts.run_shell_scripts",
+            cleaned,
+            run_id,
+            "runtime",
+            timeout=(SCRIPT_TIMEOUT_SECONDS * len(cleaned)) + 60,
+        )
+    except Exception as exc:
+        write_status(
+            {
+                "run_id": run_id,
+                "status": "failed",
+                "started_at": _utc_now_iso(),
+                "finished_at": _utc_now_iso(),
+                "results": [],
+                "summary": f"Could not queue shell scripts: {exc}",
+            },
+            _runtime_status_path(),
+        )
+        raise
+    return {"run_id": run_id, "task_id": task_id, "status": "queued"}
 
 
 def queue_startup_scripts() -> str | None:
@@ -344,5 +498,5 @@ def queue_startup_scripts() -> str | None:
     return enqueue_task(
         "api.startup_scripts.run_startup_scripts",
         paths,
-        timeout=SCRIPT_TIMEOUT_SECONDS + 60,
+        timeout=(SCRIPT_TIMEOUT_SECONDS * len(paths)) + 60,
     )

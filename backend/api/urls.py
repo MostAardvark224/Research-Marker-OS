@@ -26,6 +26,7 @@ urlpatterns = [
     path('get-paper/<int:pk>/', views.getPaper.as_view(), name='get-paper'),
     path('user-preferences/', views.UserPreferencesView.as_view(), name='user-preferences'),
     path('startup-scripts/status/', views.StartupScriptsStatusView.as_view(), name='startup-scripts-status'),
+    path('shell-scripts/', views.ShellScriptsView.as_view(), name='shell-scripts'),
     path('env-vars/', views.EnvironmentVariablesView.as_view(), name='environment-variables'),
     path('ai-models/', views.AIModelsView.as_view(), name='ai-models'),
     path('ocr-providers/', views.OCRProvidersView.as_view(), name='ocr-providers'),

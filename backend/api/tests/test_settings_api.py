@@ -4,6 +4,8 @@ from django.test import TestCase
 from django.urls import reverse
 from rest_framework.test import APIClient
 
+from api.startup_scripts import ShellScriptsBusyError
+
 
 class SettingsAPITests(TestCase):
     def setUp(self):
@@ -44,6 +46,23 @@ class SettingsAPITests(TestCase):
         self.assertEqual(response.status_code, 400)
         write.assert_not_called()
 
+    @patch("api.views.sanitize_shell_script_entries")
+    @patch("api.views.write_user_preferences")
+    def test_put_structured_shell_scripts(self, write, sanitize):
+        cleaned = [{"path": "/tmp/manual.sh", "run_on_startup": False}]
+        sanitize.return_value = (cleaned, [])
+        preferences = {
+            "user_preferences": {"general": {"shell_scripts": cleaned}}
+        }
+
+        response = self.client.put(
+            reverse("user-preferences"), {"preferences": preferences}, format="json"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        sanitize.assert_called_once_with(cleaned)
+        write.assert_called_once_with(preferences)
+
     @patch("api.views.get_env_vars_potential_list", return_value=["GEMINI_API_KEY"])
     @patch("api.views.intitial_env_vars_data", return_value={"exists": False})
     @patch("api.views.load_env_vars", return_value={"exists": True, "GEMINI_API_KEY": "secret"})
@@ -70,6 +89,42 @@ class SettingsAPITests(TestCase):
         response = self.client.get(reverse("startup-scripts-status"))
         self.assertEqual(response.status_code, 200)
         self.assertIs(response.data["complete"], True)
+
+    @patch("api.views.get_shell_scripts_status", return_value={"status": "idle"})
+    @patch(
+        "api.views.load_configured_shell_scripts",
+        return_value=[{"path": "/tmp/example.sh", "run_on_startup": False}],
+    )
+    def test_get_shell_scripts_catalog(self, _load, _status):
+        response = self.client.get(reverse("shell-scripts"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["scripts"][0]["path"], "/tmp/example.sh")
+        self.assertEqual(response.data["run"]["status"], "idle")
+
+    @patch(
+        "api.views.load_configured_shell_scripts",
+        return_value=[{"path": "/tmp/example.sh", "run_on_startup": False}],
+    )
+    @patch(
+        "api.views.queue_shell_scripts",
+        return_value={"run_id": "run-1", "task_id": "task-1", "status": "queued"},
+    )
+    def test_run_all_shell_scripts(self, queue, _load):
+        response = self.client.post(
+            reverse("shell-scripts"), {"paths": "all"}, format="json"
+        )
+        self.assertEqual(response.status_code, 202)
+        queue.assert_called_once_with(["/tmp/example.sh"])
+
+    @patch(
+        "api.views.queue_shell_scripts",
+        side_effect=ShellScriptsBusyError("already running"),
+    )
+    def test_shell_script_overlap_returns_conflict(self, _queue):
+        response = self.client.post(
+            reverse("shell-scripts"), {"paths": ["/tmp/example.sh"]}, format="json"
+        )
+        self.assertEqual(response.status_code, 409)
 
     @patch("api.views.get_ocr_providers", return_value=[{"id": "paddleocr"}])
     @patch("api.views.load_env_vars", return_value={})

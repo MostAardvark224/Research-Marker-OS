@@ -44,7 +44,15 @@ from api.ai import (
 )
 from api.scholar_inbox import ScholarInboxError
 from api.scholar_inbox_import import import_scholar_inbox_papers
-from api.startup_scripts import get_startup_scripts_status, sanitize_startup_script_paths
+from api.startup_scripts import (
+    get_shell_scripts_status,
+    get_startup_scripts_status,
+    load_configured_shell_scripts,
+    queue_shell_scripts,
+    sanitize_shell_script_entries,
+    sanitize_startup_script_paths,
+    ShellScriptsBusyError,
+)
 from api.task_queue import enqueue_task
 from api.table_of_contents import (
     TOC_QUEUE_UPDATE_FIELDS,
@@ -637,7 +645,20 @@ class UserPreferencesView(APIView):
         user_prefs = preferences.get('user_preferences')
         if isinstance(user_prefs, dict):
             general = user_prefs.get('general')
-            if isinstance(general, dict) and 'startup_scripts' in general:
+            if isinstance(general, dict) and 'shell_scripts' in general:
+                cleaned, errors = sanitize_shell_script_entries(general.get('shell_scripts'))
+                if errors:
+                    return Response(
+                        {
+                            'message': 'One or more shell script entries are invalid.',
+                            'errors': errors,
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                general['shell_scripts'] = cleaned
+                user_prefs['general'] = general
+                preferences['user_preferences'] = user_prefs
+            elif isinstance(general, dict) and 'startup_scripts' in general:
                 cleaned, errors = sanitize_startup_script_paths(general.get('startup_scripts'))
                 if errors:
                     return Response(
@@ -658,6 +679,40 @@ class UserPreferencesView(APIView):
 class StartupScriptsStatusView(APIView):
     def get(self, request):
         return Response(get_startup_scripts_status(), status=status.HTTP_200_OK)
+
+
+class ShellScriptsView(APIView):
+    def get(self, request):
+        return Response(
+            {
+                'scripts': load_configured_shell_scripts(),
+                'run': get_shell_scripts_status(),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    def post(self, request):
+        requested_paths = request.data.get('paths')
+        configured = load_configured_shell_scripts()
+        if requested_paths == 'all':
+            requested_paths = [entry['path'] for entry in configured]
+        if not isinstance(requested_paths, list):
+            return Response(
+                {'message': 'paths must be a list or "all".'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            queued = queue_shell_scripts(requested_paths)
+        except ValueError as exc:
+            return Response({'message': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except ShellScriptsBusyError as exc:
+            return Response({'message': str(exc)}, status=status.HTTP_409_CONFLICT)
+        except Exception as exc:
+            return Response(
+                {'message': f'Could not queue shell scripts: {exc}'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response(queued, status=status.HTTP_202_ACCEPTED)
     
 # get/set env vars
 class EnvironmentVariablesView(APIView): 

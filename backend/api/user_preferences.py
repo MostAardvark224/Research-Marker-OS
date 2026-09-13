@@ -8,7 +8,7 @@ def intitial_user_prefs():
     init_data = {
         "user_preferences": {
             "general": {
-                "startup_scripts": [],
+                "shell_scripts": [],
             },
             "scholar_inbox": {
             "auto_import": False,
