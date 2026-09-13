@@ -6,6 +6,18 @@ export const isMarkdownFilename = (filename) =>
 export const decodeMarkdownBytes = (bytes) =>
   new TextDecoder("utf-8", { fatal: true }).decode(bytes);
 
+export const markdownDownloadFilename = (title) => {
+  const filenameStem = String(title || "")
+    .trim()
+    .replace(/\.md$/i, "")
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-")
+    .replace(/\s+/g, " ")
+    .replace(/[. ]+$/g, "")
+    .trim();
+
+  return `${filenameStem || "notes"}.md`;
+};
+
 export const mergeImportedMarkdown = (current, imported, mode) => {
   const currentText = String(current ?? "");
   const importedText = String(imported ?? "");

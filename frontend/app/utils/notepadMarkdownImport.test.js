@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   decodeMarkdownBytes,
   isMarkdownFilename,
+  markdownDownloadFilename,
   mergeImportedMarkdown,
 } from "./notepadMarkdownImport.js";
 
@@ -49,4 +50,11 @@ test("decodes UTF-8 Markdown and strips its byte-order mark", () => {
     () => decodeMarkdownBytes(Uint8Array.from([0xff, 0xfe])),
     /encoded data/i,
   );
+});
+
+test("builds a safe Markdown download filename from the note title", () => {
+  assert.equal(markdownDownloadFilename("Research notes"), "Research notes.md");
+  assert.equal(markdownDownloadFilename("Research.md"), "Research.md");
+  assert.equal(markdownDownloadFilename("Paper: notes / draft"), "Paper- notes - draft.md");
+  assert.equal(markdownDownloadFilename("  "), "notes.md");
 });

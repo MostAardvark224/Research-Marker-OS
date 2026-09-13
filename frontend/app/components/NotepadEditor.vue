@@ -290,7 +290,17 @@
       </template>
     </div>
 
-    <div class="h-6 bg-slate-900 border-t border-slate-800 flex items-center justify-end px-2 shrink-0">
+    <div class="h-7 bg-slate-900 border-t border-slate-800 flex items-center justify-between gap-2 px-2 shrink-0">
+      <button
+        type="button"
+        class="flex shrink-0 items-center gap-1 text-[10px] font-medium text-slate-500 transition hover:text-slate-100"
+        title="Download notepad as Markdown"
+        aria-label="Download notepad as a Markdown file"
+        @click="downloadMarkdown"
+      >
+        <Icon name="ph:download-simple" class="h-3.5 w-3.5" />
+        Download .md
+      </button>
       <span class="text-[10px] text-slate-500 font-mono">
         Line {{ activeNotepadLine + 1 }} • Ctrl+Shift+P links another paper
       </span>
@@ -328,6 +338,7 @@ import {
   MAX_NOTEPAD_MARKDOWN_BYTES,
   decodeMarkdownBytes,
   isMarkdownFilename,
+  markdownDownloadFilename,
   mergeImportedMarkdown,
 } from "../utils/notepadMarkdownImport.js";
 
@@ -357,6 +368,7 @@ const props = defineProps({
   // The PDF reader enables local Markdown imports; standalone notes retain
   // their existing editor toolbar because they are imported from the library.
   allowMarkdownImport: { type: Boolean, default: false },
+  downloadTitle: { type: String, default: "notes" },
 });
 const emit = defineEmits(["update:modelValue", "save"]);
 
@@ -391,6 +403,20 @@ const canRedoNotepad = computed(() => {
 
 const markdownFileInput = ref(null);
 const pendingMarkdownImport = ref(null);
+
+const downloadMarkdown = () => {
+  const blob = new Blob([notepadData.value], {
+    type: "text/markdown;charset=utf-8",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = markdownDownloadFilename(props.downloadTitle);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+};
 
 const openMarkdownFilePicker = () => {
   markdownFileInput.value?.click();

@@ -25,7 +25,12 @@
       </nav>
 
       <section v-show="isVisible('note')" class="min-w-0 flex-1" :class="{ 'border-r border-white/5': split }">
-        <NotepadEditor v-model="content" :papers="papers" @save="flushSave" />
+        <NotepadEditor
+          v-model="content"
+          :papers="papers"
+          :download-title="title"
+          @save="flushSave"
+        />
       </section>
 
       <section v-show="isVisible('chat')" class="flex min-w-0 flex-1 flex-col bg-[#08080d]">
