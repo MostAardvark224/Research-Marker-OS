@@ -198,6 +198,134 @@
 
           </div>
 
+          <div v-else-if="activeTab === 'note-sync'" class="space-y-6 max-w-2xl">
+            <div class="p-4 rounded-xl border border-white/10 bg-white/[0.02] space-y-4">
+              <div>
+                <h4 class="text-sm font-medium text-white tracking-wide">Markdown note folders</h4>
+                <p class="text-xs text-slate-500 leading-relaxed mt-1">
+                  Research Marker scans these folders recursively for Markdown files containing a
+                  paper code such as <span class="font-mono text-indigo-300">#rm:7F4K9Q2ABC</span>.
+                  Files are read-only: Research Marker never writes back to them.
+                </p>
+              </div>
+
+              <div class="p-3 rounded-lg border border-emerald-500/20 bg-emerald-500/5">
+                <p class="text-xs text-emerald-100/80 leading-relaxed">
+                  Existing notepads are preserved as revisions before imports. If both copies
+                  changed, refresh stops and asks you how to resolve the conflict.
+                </p>
+              </div>
+
+              <div class="space-y-2">
+                <div
+                  v-for="(directory, index) in noteSyncDirectories"
+                  :key="index"
+                  class="flex items-center gap-2"
+                >
+                  <input
+                    v-model="noteSyncDirectories[index]"
+                    type="text"
+                    placeholder="/absolute/path/to/markdown-notes"
+                    spellcheck="false"
+                    class="flex-1 bg-[#0A0A0C] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-700 focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/50 outline-none font-mono"
+                  />
+                  <button
+                    type="button"
+                    class="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+                    aria-label="Remove notes directory"
+                    @click="removeNoteSyncDirectory(index)"
+                  >
+                    <Icon name="material-symbols:close" class="text-lg" />
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                class="px-3 py-1.5 rounded-lg text-xs bg-white/5 text-slate-300 border border-white/10 hover:bg-white/10"
+                @click="addNoteSyncDirectory"
+              >
+                Add notes directory
+              </button>
+
+              <label class="flex items-center justify-between p-3 rounded-lg border border-white/10 bg-white/[0.02] cursor-pointer">
+                <span class="text-sm text-slate-300">Refresh notes when the app starts</span>
+                <input
+                  v-model="noteSyncOnStartup"
+                  type="checkbox"
+                  class="accent-indigo-500 w-4 h-4"
+                />
+              </label>
+
+              <div v-if="noteSyncErrors.length" class="space-y-1">
+                <p
+                  v-for="(message, index) in noteSyncErrors"
+                  :key="index"
+                  class="break-words text-[11px] text-red-300 [overflow-wrap:anywhere]"
+                >
+                  {{ message }}
+                </p>
+              </div>
+
+              <div class="flex items-center gap-3">
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs bg-indigo-500/15 text-indigo-300 border border-indigo-500/20 hover:bg-indigo-500/25 disabled:opacity-50"
+                  :disabled="noteSyncRefreshing"
+                  @click="refreshAllNotes"
+                >
+                  <Icon
+                    :name="noteSyncRefreshing ? 'ph:spinner' : 'ph:arrows-clockwise'"
+                    :class="{ 'animate-spin': noteSyncRefreshing }"
+                  />
+                  {{ noteSyncRefreshing ? "Refreshing…" : "Refresh all notes" }}
+                </button>
+                <p class="text-[10px] text-slate-600">Directory settings are saved before refresh.</p>
+              </div>
+            </div>
+
+            <div
+              v-if="noteSyncResult"
+              class="p-4 rounded-xl border border-white/10 bg-white/[0.02] space-y-3"
+            >
+              <h4 class="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                Refresh results
+              </h4>
+              <div class="flex flex-wrap gap-2">
+                <span
+                  v-for="(count, statusName) in noteSyncResult.counts"
+                  :key="statusName"
+                  class="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[10px] text-slate-300"
+                >
+                  {{ statusName.replaceAll('_', ' ') }}: {{ count }}
+                </span>
+                <span
+                  v-if="!Object.keys(noteSyncResult.counts || {}).length"
+                  class="text-[10px] text-slate-500"
+                >
+                  No linked Markdown notes were found.
+                </span>
+              </div>
+              <div class="max-h-52 space-y-1.5 overflow-y-auto custom-scrollbar">
+                <div
+                  v-for="(result, index) in noteSyncResult.results"
+                  :key="`${result.document_id || result.file_path}-${index}`"
+                  class="rounded-md border border-white/5 bg-black/20 px-2.5 py-2"
+                >
+                  <p class="text-[11px] text-slate-300">
+                    {{ result.title || result.file_path || result.code || "Note scan" }}
+                  </p>
+                  <p
+                    class="mt-0.5 text-[10px]"
+                    :class="result.status === 'conflict' || result.status === 'error' ? 'text-amber-300' : 'text-slate-500'"
+                  >
+                    {{ result.message }}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div v-else-if="activeTab === 'api-keys'" class="space-y-6 max-w-2xl">
             <div
               class="p-3 rounded-lg border border-indigo-500/20 bg-indigo-500/5"
@@ -956,6 +1084,7 @@ const {
 const activeTab = ref("general");
 const tabs = [
   { id: "general", label: "General", icon: "uil:setting" },
+  { id: "note-sync", label: "Note Sync", icon: "ph:note-pencil" },
   { id: "updates", label: "Updates", icon: "uil:sync" },
   { id: "scholar", label: "Scholar Inbox", icon: "uil:envelope-alt" },
   { id: "api-keys", label: "API Keys", icon: "material-symbols:key" },
@@ -977,6 +1106,11 @@ const SCHOLAR_ENV_KEYS = new Set(["SCHOLAR_INBOX_API_KEY"]);
 const shellScripts = ref([{ path: "", run_on_startup: false }]);
 const startupScriptErrors = ref([]);
 const startupScriptsSaveError = ref("");
+const noteSyncDirectories = ref([""]);
+const noteSyncOnStartup = ref(false);
+const noteSyncErrors = ref([]);
+const noteSyncRefreshing = ref(false);
+const noteSyncResult = ref(null);
 
 const codexStatus = ref({ state: "not_connected" });
 const codexRateLimits = ref(null);
@@ -1237,6 +1371,8 @@ const activeTabDescription = computed(() => {
   switch (activeTab.value) {
     case "general":
       return "Workspace tools, shell scripts, and Scholar credentials.";
+    case "note-sync":
+      return "Link Markdown files from your editor to PDF notepads.";
     case "updates":
       return "Check for and install app updates.";
     case "scholar":
@@ -1332,6 +1468,101 @@ function addShellScript() {
   ];
 }
 
+function addNoteSyncDirectory() {
+  noteSyncDirectories.value = [...noteSyncDirectories.value, ""];
+}
+
+function removeNoteSyncDirectory(index) {
+  const next = noteSyncDirectories.value.filter((_, i) => i !== index);
+  noteSyncDirectories.value = next.length ? next : [""];
+  noteSyncErrors.value = [];
+}
+
+function isAbsoluteLocalPath(path) {
+  return (
+    path.startsWith("/") ||
+    path.startsWith("\\\\") ||
+    /^[A-Za-z]:[\\/]/.test(path)
+  );
+}
+
+function validateNoteSyncDirectoriesClient() {
+  const cleaned = [];
+  const errors = [];
+  const seen = new Set();
+  for (const raw of noteSyncDirectories.value) {
+    const path = (raw || "").trim();
+    if (!path) continue;
+    if (!isAbsoluteLocalPath(path)) {
+      errors.push(`${path}: use an absolute directory path.`);
+      continue;
+    }
+    if (seen.has(path)) continue;
+    seen.add(path);
+    cleaned.push(path);
+  }
+  return { cleaned, errors };
+}
+
+async function refreshAllNotes() {
+  noteSyncErrors.value = [];
+  noteSyncResult.value = null;
+  const { cleaned, errors } = validateNoteSyncDirectoriesClient();
+  if (errors.length) {
+    noteSyncErrors.value = errors;
+    return;
+  }
+
+  noteSyncRefreshing.value = true;
+  try {
+    const pendingSaves = [];
+    window.dispatchEvent(
+      new CustomEvent("research-marker:before-notes-refresh", {
+        detail: {
+          waitUntil(promise) {
+            pendingSaves.push(Promise.resolve(promise));
+          },
+        },
+      }),
+    );
+    const saveResults = await Promise.all(pendingSaves);
+    if (saveResults.some((saved) => saved === false)) {
+      throw new Error("An open paper notepad could not be saved. Refresh was cancelled.");
+    }
+    await $fetch(`${apiBaseURL}/user-preferences/`, {
+      method: "PUT",
+      body: {
+        preferences: {
+          user_preferences: {
+            general: {
+              note_sync_directories: cleaned,
+              note_sync_on_startup: noteSyncOnStartup.value,
+            },
+          },
+        },
+      },
+    });
+    noteSyncDirectories.value = cleaned.length ? cleaned : [""];
+    noteSyncResult.value = await $fetch(`${apiBaseURL}/note-sync/refresh/`, {
+      method: "POST",
+    });
+    window.dispatchEvent(
+      new CustomEvent("research-marker:notes-refreshed", {
+        detail: noteSyncResult.value,
+      }),
+    );
+  } catch (error) {
+    const serverErrors = error?.data?.errors;
+    noteSyncErrors.value = Array.isArray(serverErrors)
+      ? serverErrors.map(
+          (item) => `${item.path ? `${item.path}: ` : ""}${item.error || "Invalid directory"}`,
+        )
+      : [error?.data?.message || error?.message || "Could not refresh notes."];
+  } finally {
+    noteSyncRefreshing.value = false;
+  }
+}
+
 function removeShellScript(index) {
   const next = shellScripts.value.filter((_, i) => i !== index);
   shellScripts.value = next.length
@@ -1350,11 +1581,7 @@ function validateShellScriptsClient() {
     const path = (script?.path || "").trim();
     if (!path) continue;
 
-    const isAbsolutePath =
-      path.startsWith("/") ||
-      path.startsWith("\\\\") ||
-      /^[A-Za-z]:[\\/]/.test(path);
-    if (!isAbsolutePath) {
+    if (!isAbsoluteLocalPath(path)) {
       errors.push({
         path,
         error: `${path}: use an absolute path (for example /home/you/scripts/setup.sh).`,
@@ -1425,6 +1652,16 @@ async function loadUserPreferences() {
     }
 
     const generalPrefs = res.user_preferences?.general || {};
+    const savedNoteDirectories = Array.isArray(generalPrefs.note_sync_directories)
+      ? generalPrefs.note_sync_directories.filter(
+          (item) => typeof item === "string" && item.trim(),
+        )
+      : [];
+    noteSyncDirectories.value = savedNoteDirectories.length
+      ? savedNoteDirectories
+      : [""];
+    noteSyncOnStartup.value = Boolean(generalPrefs.note_sync_on_startup);
+    noteSyncErrors.value = [];
     const savedScripts = Array.isArray(generalPrefs.shell_scripts)
       ? generalPrefs.shell_scripts
           .filter((item) => item && typeof item.path === "string" && item.path.trim())
@@ -1510,6 +1747,7 @@ async function saveSettings() {
   try {
     startupScriptsSaveError.value = "";
     startupScriptErrors.value = [];
+    noteSyncErrors.value = [];
 
     const { cleaned: cleanedScripts, errors: clientErrors } =
       validateShellScriptsClient();
@@ -1522,11 +1760,20 @@ async function saveSettings() {
       activeTab.value = "general";
       return;
     }
+    const { cleaned: cleanedNoteDirectories, errors: noteDirectoryErrors } =
+      validateNoteSyncDirectoriesClient();
+    if (noteDirectoryErrors.length) {
+      noteSyncErrors.value = noteDirectoryErrors;
+      activeTab.value = "note-sync";
+      return;
+    }
 
     const prefsPayload = {
       user_preferences: {
         general: {
           shell_scripts: cleanedScripts,
+          note_sync_directories: cleanedNoteDirectories,
+          note_sync_on_startup: noteSyncOnStartup.value,
         },
         scholar_inbox: {
           auto_import: autoImportEnabled.value,
@@ -1566,6 +1813,14 @@ async function saveSettings() {
     console.error("Failed to save settings:", error);
     const serverErrors = error?.data?.errors;
     if (Array.isArray(serverErrors) && serverErrors.length) {
+      if ((error?.data?.message || "").toLowerCase().includes("note sync")) {
+        noteSyncErrors.value = serverErrors.map(
+          (item) =>
+            `${item.path ? `${item.path}: ` : ""}${item.error || item.message || "Invalid directory"}`,
+        );
+        activeTab.value = "note-sync";
+        return;
+      }
       startupScriptErrors.value = serverErrors.map(
         (item) =>
           `${item.path ? `${item.path}: ` : ""}${item.error || item.message || "Invalid path"}`,

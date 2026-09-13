@@ -44,17 +44,6 @@ export const parsePaperPageHref = (href) => {
   return { paperId: Number(match[1]), page: Number(match[2]) };
 };
 
-export const findPaperTitleAutocomplete = (text, cursor) => {
-  const beforeCursor = String(text || "").slice(0, Math.max(0, Number(cursor) || 0));
-  const match = beforeCursor.match(/\[([^\]\n]*)$/);
-  if (!match) return null;
-  return {
-    query: match[1],
-    start: beforeCursor.length - match[0].length,
-    end: beforeCursor.length,
-  };
-};
-
 export const paperPageSource = (paper, page) => `[${paper.title}][${Number(page)}]`;
 
 export const openPaperPageWindow = async (paperId, page) => {

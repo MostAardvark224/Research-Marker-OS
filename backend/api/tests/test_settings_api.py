@@ -63,6 +63,19 @@ class SettingsAPITests(TestCase):
         sanitize.assert_called_once_with(cleaned)
         write.assert_called_once_with(preferences)
 
+    @patch("api.views.write_user_preferences")
+    def test_invalid_note_sync_directory_does_not_write_preferences(self, write):
+        preferences = {
+            "user_preferences": {
+                "general": {"note_sync_directories": ["relative/notes"]}
+            }
+        }
+        response = self.client.put(
+            reverse("user-preferences"), {"preferences": preferences}, format="json"
+        )
+        self.assertEqual(response.status_code, 400)
+        write.assert_not_called()
+
     @patch("api.views.get_env_vars_potential_list", return_value=["GEMINI_API_KEY"])
     @patch("api.views.intitial_env_vars_data", return_value={"exists": False})
     @patch("api.views.load_env_vars", return_value={"exists": True, "GEMINI_API_KEY": "secret"})

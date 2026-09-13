@@ -1,7 +1,7 @@
 <template>
-  <section ref="rootEl" class="relative flex h-full min-h-0 flex-col overflow-hidden bg-[#08080d]">
-    <div class="flex items-center justify-between border-b border-slate-800 bg-slate-900 px-4 py-2 shrink-0">
-      <div class="flex gap-1">
+  <section ref="rootEl" class="notepad-editor-root relative flex h-full min-h-0 flex-col overflow-hidden bg-[#08080d]">
+    <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 bg-slate-900 px-4 py-2 shrink-0">
+      <div class="flex min-w-0 flex-1 flex-wrap gap-1">
         <button
           @mousedown.prevent
           @click="performNotepadUndo"
@@ -113,7 +113,7 @@
           @click="openMarkdownFilePicker"
         >
           <Icon name="ph:upload-simple" class="h-3.5 w-3.5" />
-          Upload .md
+          <span class="notepad-upload-label">Upload .md</span>
         </button>
         <input
           ref="markdownFileInput"
@@ -123,6 +123,99 @@
           aria-label="Choose a Markdown file to import"
           @change="handleMarkdownFileSelection"
         />
+      </div>
+    </div>
+
+    <div
+      v-if="syncCode"
+      class="shrink-0 border-b border-slate-800 bg-slate-950/80 px-3 py-2"
+    >
+      <div class="flex items-center gap-2">
+        <button
+          type="button"
+          class="inline-flex min-w-0 items-center gap-1.5 rounded-md border border-cyan-500/20 bg-cyan-500/10 px-2 py-1 font-mono text-[10px] text-cyan-300 transition hover:bg-cyan-500/15"
+          title="Copy this code into the paper's Markdown file"
+          @click="$emit('copy-sync-code')"
+        >
+          <Icon name="ph:copy" class="h-3 w-3 shrink-0" />
+          {{ syncMarker }}
+        </button>
+        <div class="group relative shrink-0">
+          <button
+            type="button"
+            class="flex h-5 w-5 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-800 hover:text-slate-200 focus:bg-slate-800 focus:text-slate-200"
+            aria-label="How Markdown note sync works"
+          >
+            <Icon name="ph:info" class="h-3.5 w-3.5" />
+          </button>
+          <div
+            role="tooltip"
+            class="pointer-events-none absolute left-1/2 top-full z-[70] mt-2 hidden w-56 -translate-x-1/2 rounded-md border border-slate-700 bg-slate-950 px-2.5 py-2 text-[10px] leading-relaxed text-slate-300 shadow-xl group-hover:block group-focus-within:block"
+          >
+            Sync a local Markdown file with this notepad by including
+            <span class="font-mono text-cyan-300">{{ syncMarker }}</span>
+            on its own line, saving the file, and clicking Refresh.
+          </div>
+        </div>
+        <span
+          v-if="syncState?.file_path"
+          class="min-w-0 flex-1 truncate text-[9px] text-slate-600"
+          :title="syncState.file_path"
+        >
+          {{ syncState.file_path }}
+        </span>
+        <span v-else class="min-w-0 flex-1"></span>
+        <button
+          type="button"
+          class="inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-700 px-2 py-1 text-[10px] text-slate-300 transition hover:bg-slate-800 hover:text-white disabled:opacity-50"
+          :disabled="syncBusy"
+          title="Refresh this paper's Markdown note"
+          @click="$emit('refresh-sync')"
+        >
+          <Icon
+            :name="syncBusy ? 'ph:spinner' : 'ph:arrows-clockwise'"
+            class="h-3 w-3"
+            :class="{ 'animate-spin': syncBusy }"
+          />
+          Refresh
+        </button>
+      </div>
+
+      <div
+        v-if="syncState?.message && syncState?.status !== 'unlinked'"
+        class="mt-1.5 text-[9px] leading-relaxed"
+        :class="syncState.status === 'conflict' || syncState.status === 'error' ? 'text-amber-300' : 'text-slate-500'"
+      >
+        {{ syncState.message }}
+      </div>
+      <div
+        v-if="
+          syncState?.status === 'conflict' &&
+          ['initial_mismatch', 'both_changed'].includes(syncState?.conflict_type)
+        "
+        class="mt-2 flex flex-wrap gap-1.5"
+      >
+        <button
+          type="button"
+          class="rounded border border-indigo-500/25 bg-indigo-500/10 px-2 py-1 text-[9px] text-indigo-200 hover:bg-indigo-500/20"
+          @click="$emit('resolve-sync', 'keep_both')"
+        >
+          Keep both
+        </button>
+        <button
+          type="button"
+          class="rounded border border-slate-700 px-2 py-1 text-[9px] text-slate-300 hover:bg-slate-800"
+          @click="$emit('resolve-sync', 'use_markdown')"
+        >
+          Use Markdown
+        </button>
+        <button
+          type="button"
+          class="rounded border border-slate-700 px-2 py-1 text-[9px] text-slate-300 hover:bg-slate-800"
+          @click="$emit('resolve-sync', 'keep_research_marker')"
+        >
+          Keep Research Marker
+        </button>
       </div>
     </div>
 
@@ -178,27 +271,6 @@
         </button>
       </div>
       <p class="mt-2 text-[9px] text-slate-600">Either action can be undone from the notepad toolbar.</p>
-    </div>
-
-    <div
-      v-if="notepadPaperAutocomplete && !showNotepadPaperPicker"
-      class="absolute left-4 right-4 top-12 z-50 overflow-hidden rounded-lg border border-slate-700 bg-slate-950 shadow-2xl"
-    >
-      <button
-        v-for="(paper, index) in notepadPaperSuggestions"
-        :key="paper.id"
-        type="button"
-        class="flex w-full items-center gap-2 border-b border-slate-800 px-3 py-2 text-left text-xs last:border-0"
-        :class="index === notepadPaperSuggestionIndex ? 'bg-indigo-500/15 text-white' : 'text-slate-400 hover:bg-slate-900'"
-        @mousedown.prevent="chooseNotepadPaperSuggestion(paper)"
-      >
-        <Icon name="ph:file-pdf" class="shrink-0 text-indigo-400" />
-        <span class="truncate">{{ paper.title }}</span>
-        <span class="ml-auto shrink-0 text-[10px] text-slate-600">{{ paper.page_count || '?' }} pages</span>
-      </button>
-      <p v-if="!notepadPaperSuggestions.length" class="px-3 py-2.5 text-xs text-red-400">
-        No paper matches “{{ notepadPaperAutocomplete.query }}”.
-      </p>
     </div>
 
     <div
@@ -271,7 +343,6 @@
             @input="updateNotepadLine(lineIndex, $event)"
             @beforeinput="handleNotepadBeforeInput(lineIndex, $event)"
             @focus="activeNotepadLine = lineIndex"
-            @click="updateNotepadPaperAutocomplete(lineIndex, $event.currentTarget.value, $event.currentTarget.selectionStart)"
             @pointerdown="notepadHistory.breakGroup()"
             @keydown="handleNotepadLineKeydown(lineIndex, $event)"
           ></textarea>
@@ -301,9 +372,6 @@
         <Icon name="ph:download-simple" class="h-3.5 w-3.5" />
         Download .md
       </button>
-      <span class="text-[10px] text-slate-500 font-mono">
-        Line {{ activeNotepadLine + 1 }} • Ctrl+Shift+P links another paper
-      </span>
     </div>
 
     <PaperPageLinkPicker
@@ -328,7 +396,6 @@ import {
   isMergeableNotepadInputType,
 } from "../utils/notepadHistory.js";
 import {
-  findPaperTitleAutocomplete,
   openPaperPageWindow,
   paperPageSource,
   parsePaperPageHref,
@@ -369,8 +436,18 @@ const props = defineProps({
   // their existing editor toolbar because they are imported from the library.
   allowMarkdownImport: { type: Boolean, default: false },
   downloadTitle: { type: String, default: "notes" },
+  syncCode: { type: String, default: "" },
+  syncState: { type: Object, default: null },
+  syncBusy: { type: Boolean, default: false },
 });
-const emit = defineEmits(["update:modelValue", "save"]);
+const emit = defineEmits([
+  "update:modelValue",
+  "save",
+  "copy-sync-code",
+  "refresh-sync",
+  "resolve-sync",
+]);
+const syncMarker = computed(() => `#rm:${props.syncCode}`);
 
 const rootEl = ref(null);
 const notepadData = ref(props.modelValue);
@@ -907,12 +984,6 @@ const handleNotepadDocumentInput = (event) => {
     inputType: event.inputType,
     forceNewGroup: !isMergeableNotepadInputType(event.inputType),
   });
-  const cursorPosition = getNotepadPositionFromOffset(afterSelection.end);
-  updateNotepadPaperAutocomplete(
-    cursorPosition.line,
-    after.split("\n")[cursorPosition.line] || "",
-    cursorPosition.column,
-  );
   leaveNotepadDocumentSelection(afterSelection.end);
 };
 
@@ -946,14 +1017,11 @@ const handleNotepadRenderedLineClick = (event, lineIndex) => {
     return;
   }
 
-  // Page citations (~[N]~) point at a PDF page, which only makes sense in
-  // the annotate viewer; the standalone note-taker has no PDF to jump to, so
-  // clicking one here just starts editing the line like any other click.
+  // Clicking elsewhere on a rendered line enters editing mode. Once editing,
+  // paper-link source is ordinary text and does not trigger autocomplete.
   activateNotepadLine(lineIndex);
 };
 
-const notepadPaperAutocomplete = ref(null);
-const notepadPaperSuggestionIndex = ref(0);
 const showNotepadPaperPicker = ref(false);
 const notepadPickerInitialTitle = ref("");
 const notepadPickerReplacement = ref(null);
@@ -962,28 +1030,6 @@ const availablePaperLinkDocuments = computed(() =>
     (paper) => String(paper.id) !== String(props.excludePaperId ?? ""),
   ),
 );
-const notepadPaperSuggestions = computed(() => {
-  const query = String(notepadPaperAutocomplete.value?.query || "")
-    .trim()
-    .toLocaleLowerCase();
-  return availablePaperLinkDocuments.value
-    .filter((paper) => !query || paper.title.toLocaleLowerCase().includes(query))
-    .slice(0, 7);
-});
-
-const updateNotepadPaperAutocomplete = (lineIndex, value, cursor) => {
-  const match = findPaperTitleAutocomplete(value, cursor);
-  notepadPaperAutocomplete.value = match
-    ? {
-        ...match,
-        lineIndex,
-        start: getNotepadLineStart(lineIndex) + match.start,
-        end: getNotepadLineStart(lineIndex) + match.end,
-      }
-    : null;
-  notepadPaperSuggestionIndex.value = 0;
-};
-
 const openNotepadPaperPicker = (initialTitle = "", replacement = null) => {
   const textarea = notepadTextarea.value;
   let range = replacement;
@@ -999,17 +1045,12 @@ const openNotepadPaperPicker = (initialTitle = "", replacement = null) => {
   notepadPickerInitialTitle.value = initialTitle;
   notepadPickerReplacement.value = range;
   showNotepadPaperPicker.value = true;
-  notepadPaperAutocomplete.value = null;
 };
 
 const closeNotepadPaperPicker = () => {
   showNotepadPaperPicker.value = false;
   notepadPickerReplacement.value = null;
   nextTick(() => notepadTextarea.value?.focus({ preventScroll: true }));
-};
-
-const chooseNotepadPaperSuggestion = (paper) => {
-  openNotepadPaperPicker(paper.title, notepadPaperAutocomplete.value);
 };
 
 const insertNotepadPaperPageLink = ({ paper, page }) => {
@@ -1060,8 +1101,6 @@ const updateNotepadLine = (lineIndex, event) => {
     inputType: event.inputType,
     forceNewGroup: !isMergeableNotepadInputType(event.inputType),
   });
-  updateNotepadPaperAutocomplete(lineIndex, value, cursor);
-
   if (replacementLines.length > 1) {
     const beforeCursor = value.slice(0, cursor).split("\n");
     focusNotepadLine(
@@ -1358,37 +1397,6 @@ const handleNotepadTab = (lineIndex, event) => {
 
 const handleNotepadLineKeydown = (lineIndex, event) => {
   if (
-    notepadPaperAutocomplete.value?.lineIndex === lineIndex &&
-    !showNotepadPaperPicker.value
-  ) {
-    if (
-      (event.key === "ArrowDown" || event.key === "ArrowUp") &&
-      notepadPaperSuggestions.value.length
-    ) {
-      event.preventDefault();
-      const change = event.key === "ArrowDown" ? 1 : -1;
-      notepadPaperSuggestionIndex.value =
-        (notepadPaperSuggestionIndex.value +
-          change +
-          notepadPaperSuggestions.value.length) %
-        notepadPaperSuggestions.value.length;
-      return;
-    }
-    if (event.key === "Enter" && notepadPaperSuggestions.value.length) {
-      event.preventDefault();
-      chooseNotepadPaperSuggestion(
-        notepadPaperSuggestions.value[notepadPaperSuggestionIndex.value],
-      );
-      return;
-    }
-    if (event.key === "Escape") {
-      event.preventDefault();
-      notepadPaperAutocomplete.value = null;
-      return;
-    }
-  }
-
-  if (
     [
       "ArrowLeft",
       "ArrowRight",
@@ -1628,6 +1636,24 @@ defineExpose({
   canRedo: () => canRedoNotepad.value,
   resize: resizeNotepadEditor,
   focus: () => notepadTextarea.value?.focus({ preventScroll: true }),
+  applySyncedValue: (value) => {
+    const before = notepadData.value;
+    return commitNotepadEdit(value, {
+      before,
+      beforeSelection: {
+        start: before.length,
+        end: before.length,
+        direction: "forward",
+      },
+      afterSelection: {
+        start: value.length,
+        end: value.length,
+        direction: "forward",
+      },
+      inputType: "sync-markdown",
+      forceNewGroup: true,
+    });
+  },
   exportHistoryState: () => notepadHistory.exportState(notepadData.value),
   importHistoryState: (state, presentValue) => {
     const imported = notepadHistory.importState(state, presentValue);
@@ -1648,6 +1674,16 @@ defineExpose({
   border-radius: 4px;
   color: #94a3b8;
   transition: all 0.2s;
+}
+
+.notepad-editor-root {
+  container-type: inline-size;
+}
+
+@container (max-width: 430px) {
+  .notepad-upload-label {
+    display: none;
+  }
 }
 
 .toolbar-btn:hover {

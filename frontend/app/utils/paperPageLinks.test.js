@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  findPaperTitleAutocomplete,
   parsePaperPageHref,
   renderPaperPageLinks,
   validatePaperPageLink,
@@ -19,12 +18,4 @@ test("valid paper-page source renders as an internal Research Marker link", () =
 test("unknown papers and out-of-range pages produce validation errors", () => {
   assert.equal(validatePaperPageLink(papers, "Missing", 1).valid, false);
   assert.match(validatePaperPageLink(papers, papers[0].title, 16).error, /only has 15 pages/);
-});
-
-test("paper autocomplete detects an unfinished title at the cursor", () => {
-  assert.deepEqual(findPaperTitleAutocomplete("Compare [Att", 12), {
-    query: "Att",
-    start: 8,
-    end: 12,
-  });
 });

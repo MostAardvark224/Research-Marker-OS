@@ -12,6 +12,10 @@ if TYPE_CHECKING:
     from django.db.models.manager import RelatedManager
 
 
+def generate_note_sync_code() -> str:
+    return uuid.uuid4().hex[:10].upper()
+
+
 class Folder(models.Model):
     id: int
     parent_id: int | None
@@ -85,6 +89,12 @@ class Document(models.Model):
     document_hash = models.CharField(max_length=64, blank=True, db_index=True)
     file_name = models.CharField(max_length=255, blank=True, default="")
     absolute_local_path = models.TextField(blank=True, default="")
+    note_sync_code = models.CharField(
+        max_length=32,
+        unique=True,
+        default=generate_note_sync_code,
+        editable=False,
+    )
     page_count = models.PositiveIntegerField(default=0)
     context_status = models.CharField(max_length=32, default="not_started", db_index=True)
     context_error = models.TextField(blank=True, default="")
@@ -208,6 +218,7 @@ class Annotations(models.Model):
 
     content_hash = models.CharField(max_length=64, blank=True, default="")
 
+
     similar_papers: Any = models.JSONField(default=list, blank=True)
 
     token_count = models.IntegerField(default=0)  # for bm25 calcs
@@ -308,6 +319,35 @@ class Annotations(models.Model):
 
     def __str__(self):
         return f"Annotation for {self.document.title} at {self.created_at}"
+
+
+class NoteSyncBinding(models.Model):
+    document = models.OneToOneField(
+        Document,
+        related_name="note_sync_binding",
+        on_delete=models.CASCADE,
+    )
+    file_path = models.TextField()
+    last_file_hash = models.CharField(max_length=64, blank=True, default="")
+    last_app_hash = models.CharField(max_length=64, blank=True, default="")
+    last_synced_at = models.DateTimeField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class NoteSyncRevision(models.Model):
+    document = models.ForeignKey(
+        Document,
+        related_name="note_sync_revisions",
+        on_delete=models.CASCADE,
+    )
+    content = models.TextField(blank=True, default="")
+    reason = models.CharField(max_length=64, blank=True, default="")
+    source_file_path = models.TextField(blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
 
 
 class StandaloneNote(models.Model):

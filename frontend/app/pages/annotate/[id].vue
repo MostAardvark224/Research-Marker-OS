@@ -47,6 +47,8 @@ let factory = null;
 const savedHighlights = ref([]);
 const stickyNoteData = ref([]);
 const notepadData = ref("");
+const noteSyncState = ref(null);
+const noteSyncBusy = ref(false);
 const paperLinkDocuments = ref([]);
 const paperLinksLoaded = ref(false);
 
@@ -1356,7 +1358,7 @@ async function fetchAnnotations() {
     });
     if (data) {
       if (data.highlight_data) savedHighlights.value = data.highlight_data;
-      if (data.notepad) notepadData.value = data.notepad;
+      if (typeof data.notepad === "string") notepadData.value = data.notepad;
       if (data.sticky_note_data) stickyNoteData.value = data.sticky_note_data;
     }
   } catch (e) {
@@ -1365,6 +1367,125 @@ async function fetchAnnotations() {
     isHydratingAnnotations = false;
   }
 }
+
+async function fetchNoteSyncState() {
+  try {
+    noteSyncState.value = await $fetch(
+      `${apiBaseURL}/note-sync/documents/${id}/`,
+    );
+  } catch (error) {
+    noteSyncState.value = {
+      status: "error",
+      message:
+        error?.data?.message || error?.message || "Could not load note sync status.",
+    };
+  }
+}
+
+async function applyNoteSyncResult(result) {
+  noteSyncState.value = result;
+  if (typeof result?.notepad !== "string" || result.notepad === notepadData.value) {
+    return;
+  }
+  isHydratingAnnotations = true;
+  const applied = notepadEditorRef.value?.applySyncedValue(result.notepad);
+  if (!applied) notepadData.value = result.notepad;
+  advanceNotepadRevision();
+  await nextTick();
+  isHydratingAnnotations = false;
+  postSidebarState();
+}
+
+async function fetchSyncedNotepad() {
+  isHydratingAnnotations = true;
+  try {
+    const data = await $fetch(`${apiBaseURL}/annotations/${id}/`);
+    if (typeof data?.notepad === "string") {
+      const applied = notepadEditorRef.value?.applySyncedValue(data.notepad);
+      if (!applied) notepadData.value = data.notepad;
+      advanceNotepadRevision();
+    }
+  } finally {
+    isHydratingAnnotations = false;
+  }
+}
+
+async function copyNoteSyncCode() {
+  const marker = noteSyncState.value?.marker;
+  if (!marker) return;
+  try {
+    await navigator.clipboard.writeText(marker);
+    noteSyncState.value = {
+      ...noteSyncState.value,
+      message: `Copied ${marker}. Paste it on its own line in the Markdown file.`,
+    };
+  } catch {
+    noteSyncState.value = {
+      ...noteSyncState.value,
+      status: "error",
+      message: `Could not copy automatically. Use ${marker}.`,
+    };
+  }
+}
+
+async function refreshThisNote() {
+  if (noteSyncBusy.value) return;
+  noteSyncBusy.value = true;
+  try {
+    const saved = await flushNotepadSave();
+    if (!saved) throw new Error("Save the current notepad before refreshing Markdown.");
+    const result = await $fetch(`${apiBaseURL}/note-sync/documents/${id}/`, {
+      method: "POST",
+    });
+    await applyNoteSyncResult(result);
+  } catch (error) {
+    noteSyncState.value = {
+      ...noteSyncState.value,
+      status: "error",
+      message: error?.data?.message || error?.message || "Could not refresh this note.",
+    };
+  } finally {
+    noteSyncBusy.value = false;
+  }
+}
+
+async function resolveNoteSync(action) {
+  if (noteSyncBusy.value) return;
+  noteSyncBusy.value = true;
+  try {
+    const saved = await flushNotepadSave();
+    if (!saved) throw new Error("Save the current notepad before resolving this conflict.");
+    const result = await $fetch(
+      `${apiBaseURL}/note-sync/documents/${id}/resolve/`,
+      { method: "POST", body: { action } },
+    );
+    await applyNoteSyncResult(result);
+  } catch (error) {
+    noteSyncState.value = {
+      ...noteSyncState.value,
+      status: "error",
+      message: error?.data?.message || error?.message || "Could not resolve this conflict.",
+    };
+  } finally {
+    noteSyncBusy.value = false;
+  }
+}
+
+const handleGlobalNotesRefreshed = async (event) => {
+  const result = event.detail?.results?.find(
+    (item) => String(item.document_id ?? "") === String(id),
+  );
+  if (!result) return;
+  if (result.status === "imported" && typeof result.notepad !== "string") {
+    await fetchSyncedNotepad();
+  }
+  await applyNoteSyncResult(result);
+  postSidebarState();
+};
+
+const handleBeforeGlobalNotesRefresh = (event) => {
+  event.detail?.waitUntil?.(flushNotepadSave());
+};
 
 async function fetchPaperLinkDocuments() {
   try {
@@ -1727,6 +1848,7 @@ const postSidebarState = () => {
     highlights: cloneForSidebarSync(savedHighlights.value),
     stickyNotes: cloneForSidebarSync(stickyNoteData.value),
     notepad: notepadData.value,
+    noteSyncState: cloneForSidebarSync(noteSyncState.value),
     notepadRevision: { ...notepadRevision },
     notepadHistory: notepadEditorRef.value?.exportHistoryState(),
     currentPage: currentPage.value,
@@ -1763,6 +1885,9 @@ const applySidebarState = async (message) => {
     }
     if (Array.isArray(message.stickyNotes)) {
       stickyNoteData.value = message.stickyNotes;
+    }
+    if (message.noteSyncState && typeof message.noteSyncState === "object") {
+      noteSyncState.value = message.noteSyncState;
     }
 
     const incomingNotepadRevision = normalizeNotepadRevision(
@@ -3192,6 +3317,14 @@ onMounted(async () => {
   try {
     document.addEventListener("keydown", handleSidebarSplitNavigation);
     document.addEventListener("keydown", handleKeyboardShortcuts);
+    window.addEventListener(
+      "research-marker:notes-refreshed",
+      handleGlobalNotesRefreshed,
+    );
+    window.addEventListener(
+      "research-marker:before-notes-refresh",
+      handleBeforeGlobalNotesRefresh,
+    );
 
     if (!isSidebarPopout) setupSidebarSync();
 
@@ -3228,6 +3361,7 @@ onMounted(async () => {
         fetchAnnotations(),
         fetchPaperTitle(),
         fetchPaperLinkDocuments(),
+        fetchNoteSyncState(),
       ]);
       // Fetch first so a late backend response cannot overwrite the newer
       // viewer state (and its undo history) received over BroadcastChannel.
@@ -3249,7 +3383,11 @@ onMounted(async () => {
       console.warn("Could not load TextLayer.", e);
     }
 
-    await Promise.all([fetchAnnotations(), fetchPaperLinkDocuments()]);
+    await Promise.all([
+      fetchAnnotations(),
+      fetchPaperLinkDocuments(),
+      fetchNoteSyncState(),
+    ]);
     await fetchPaper();
 
     mainScrollContainer.value?.addEventListener("scroll", handleMainScroll, {
@@ -3282,6 +3420,14 @@ onUnmounted(() => {
   document.removeEventListener("keydown", handleSidebarSplitNavigation);
   document.removeEventListener("keydown", handleKeyboardShortcuts);
   document.removeEventListener("click", restoreReaderFocusAfterInteraction);
+  window.removeEventListener(
+    "research-marker:notes-refreshed",
+    handleGlobalNotesRefreshed,
+  );
+  window.removeEventListener(
+    "research-marker:before-notes-refresh",
+    handleBeforeGlobalNotesRefresh,
+  );
   mainScrollContainer.value?.removeEventListener("scroll", handleMainScroll);
   if (scrollEndDebounce) clearTimeout(scrollEndDebounce);
   if (scrollRenderFrame !== null) cancelAnimationFrame(scrollRenderFrame);
@@ -4211,10 +4357,16 @@ watch(zoomLevel, schedulePageUpdate);
           :exclude-paper-id="id"
           :papers-ready="paperLinksLoaded"
           :download-title="`${paperTitle || 'Untitled Paper'} notes`"
+          :sync-code="noteSyncState?.code || ''"
+          :sync-state="noteSyncState"
+          :sync-busy="noteSyncBusy"
           allow-markdown-import
           @pointerdown.capture="activateSidebarPaneForTab('notepad')"
           @focusin="activateSidebarPaneForTab('notepad')"
           @save="flushNotepadSave"
+          @copy-sync-code="copyNoteSyncCode"
+          @refresh-sync="refreshThisNote"
+          @resolve-sync="resolveNoteSync"
         />
 
         <!-- Shell Scripts Tab -->

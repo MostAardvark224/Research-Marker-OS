@@ -27,6 +27,13 @@ from api.note_import import (
     prepare_note_imports,
     request_list,
 )
+from api.note_sync import (
+    get_document_sync_state,
+    refresh_all_notes,
+    refresh_document_note,
+    resolve_document_conflict,
+    sanitize_note_sync_directories,
+)
 from api.arxiv import fetch_arxiv_metadata, parse_arxiv_id
 from api.OCR import OCRError, get_ocr_providers, normalize_ocr_provider
 from api.ai import (
@@ -671,6 +678,30 @@ class UserPreferencesView(APIView):
                 general['startup_scripts'] = cleaned
                 user_prefs['general'] = general
                 preferences['user_preferences'] = user_prefs
+            if isinstance(general, dict) and 'note_sync_directories' in general:
+                directories, errors = sanitize_note_sync_directories(
+                    general.get('note_sync_directories')
+                )
+                if errors:
+                    return Response(
+                        {
+                            'message': 'One or more note sync directories are invalid.',
+                            'errors': errors,
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                general['note_sync_directories'] = directories
+                user_prefs['general'] = general
+                preferences['user_preferences'] = user_prefs
+            if (
+                isinstance(general, dict)
+                and 'note_sync_on_startup' in general
+                and not isinstance(general.get('note_sync_on_startup'), bool)
+            ):
+                return Response(
+                    {'message': 'note_sync_on_startup must be true or false.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         write_user_preferences(preferences)
         return Response({'message': 'Preferences updated successfully.'}, status=status.HTTP_200_OK)
@@ -713,6 +744,37 @@ class ShellScriptsView(APIView):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
         return Response(queued, status=status.HTTP_202_ACCEPTED)
+
+
+class NoteSyncRefreshAllView(APIView):
+    def post(self, request):
+        return Response(refresh_all_notes(), status=status.HTTP_200_OK)
+
+
+class DocumentNoteSyncView(APIView):
+    def get(self, request, pk):
+        document = models.Document.objects.filter(pk=pk).first()
+        if document is None:
+            return Response({'message': 'Paper not found.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(get_document_sync_state(document), status=status.HTTP_200_OK)
+
+    def post(self, request, pk):
+        document = models.Document.objects.filter(pk=pk).first()
+        if document is None:
+            return Response({'message': 'Paper not found.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(refresh_document_note(document), status=status.HTTP_200_OK)
+
+
+class DocumentNoteSyncResolveView(APIView):
+    def post(self, request, pk):
+        document = models.Document.objects.filter(pk=pk).first()
+        if document is None:
+            return Response({'message': 'Paper not found.'}, status=status.HTTP_404_NOT_FOUND)
+        try:
+            result = resolve_document_conflict(document, request.data.get('action', ''))
+        except ValueError as exc:
+            return Response({'message': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(result, status=status.HTTP_200_OK)
     
 # get/set env vars
 class EnvironmentVariablesView(APIView): 

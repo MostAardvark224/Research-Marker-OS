@@ -9,6 +9,8 @@ def intitial_user_prefs():
         "user_preferences": {
             "general": {
                 "shell_scripts": [],
+                "note_sync_directories": [],
+                "note_sync_on_startup": False,
             },
             "scholar_inbox": {
             "auto_import": False,
