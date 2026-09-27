@@ -4,5 +4,6 @@
   <NuxtLayout>
     <NuxtPage />
     <AppNotifications />
+    <UpdateReadyPrompt />
   </NuxtLayout>
 </template>
