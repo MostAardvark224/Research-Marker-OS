@@ -1,6 +1,8 @@
 import re
 import urllib.parse
 import urllib.request
+from functools import lru_cache
+from html.parser import HTMLParser
 
 import feedparser
 
@@ -49,7 +51,40 @@ def _entry_pdf_url(entry) -> str:
     return entry_id.replace("/abs/", "/pdf/")
 
 
-def fetch_arxiv_metadata(arxiv_id: str) -> dict | None:
+class _ArxivPageMetadataParser(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.metadata: dict[str, str] = {}
+
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() != "meta":
+            return
+
+        attributes = {str(key).lower(): value for key, value in attrs}
+        name = str(attributes.get("name") or "").lower()
+        content = str(attributes.get("content") or "").strip()
+        if name in {"citation_title", "citation_pdf_url"} and content:
+            self.metadata[name] = content
+
+
+def _metadata_from_abs_page(arxiv_id: str, page_data: bytes) -> dict | None:
+    parser = _ArxivPageMetadataParser()
+    parser.feed(page_data.decode("utf-8", errors="replace"))
+
+    title = re.sub(r"\s+", " ", parser.metadata.get("citation_title", "")).strip()
+    if not title:
+        return None
+
+    return {
+        "arxiv_id": arxiv_id,
+        "title": title,
+        # arXiv's citation tag can omit an explicitly requested version. Build
+        # the URL from the parsed input so /pdf/...v1 imports that exact version.
+        "pdf_url": f"https://arxiv.org/pdf/{arxiv_id}",
+    }
+
+
+def _fetch_arxiv_api_metadata(arxiv_id: str) -> dict | None:
     encoded_id = urllib.parse.quote(arxiv_id)
     query_url = (
         f"https://export.arxiv.org/api/query?id_list={encoded_id}&max_results=1"
@@ -76,3 +111,36 @@ def fetch_arxiv_metadata(arxiv_id: str) -> dict | None:
         "title": title,
         "pdf_url": _entry_pdf_url(entry),
     }
+
+
+def _fetch_arxiv_abs_metadata(arxiv_id: str) -> dict | None:
+    request = urllib.request.Request(
+        f"https://arxiv.org/abs/{urllib.parse.quote(arxiv_id)}",
+        headers={"User-Agent": ARXIV_USER_AGENT},
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        return _metadata_from_abs_page(arxiv_id, response.read())
+
+
+@lru_cache(maxsize=256)
+def _fetch_arxiv_metadata_cached(arxiv_id: str) -> dict | None:
+    """Resolve metadata through the API, falling back to the public abstract page."""
+    api_error: Exception | None = None
+    try:
+        metadata = _fetch_arxiv_api_metadata(arxiv_id)
+        if metadata:
+            return metadata
+    except Exception as exc:
+        api_error = exc
+
+    try:
+        return _fetch_arxiv_abs_metadata(arxiv_id)
+    except Exception:
+        if api_error is not None:
+            raise api_error
+        raise
+
+
+def fetch_arxiv_metadata(arxiv_id: str) -> dict | None:
+    metadata = _fetch_arxiv_metadata_cached(_normalize_arxiv_id(arxiv_id))
+    return dict(metadata) if metadata else None
