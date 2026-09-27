@@ -15,15 +15,22 @@ test("saved reasoning survives settings changes before the catalog is loaded", (
 });
 
 test("reasoning choices follow the selected model and safely fall back to its default", async () => {
-  globalThis.$fetch = async () => ({ providers: [{
-    id: "codex", models: ["astra", "luna"], default_chat_model: "astra",
-    model_details: [
-      { id: "astra", default_reasoning_effort: "low", supported_reasoning_efforts: [{ effort: "low" }, { effort: "ultra" }] },
-      { id: "luna", default_reasoning_effort: "medium", supported_reasoning_efforts: [{ effort: "medium" }] },
-    ],
-  }] });
+  let fetchOptions;
+  globalThis.$fetch = async (_url, options) => {
+    fetchOptions = options;
+    return {
+      providers: [{
+        id: "codex", models: ["astra", "luna"], default_chat_model: "astra",
+        model_details: [
+          { id: "astra", default_reasoning_effort: "low", supported_reasoning_efforts: [{ effort: "low" }, { effort: "ultra" }] },
+          { id: "luna", default_reasoning_effort: "medium", supported_reasoning_efforts: [{ effort: "medium" }] },
+        ],
+      }],
+    };
+  };
   const state = useAiModels();
   await state.fetchAiModels();
+  assert.equal(fetchOptions.timeout, 20_000);
   state.applySavedPreferences({ default_provider: "codex", codex_reasoning_effort: "ultra" });
   assert.equal(state.codexReasoningEffort.value, "ultra");
   state.selectedAiModel.value = "luna";

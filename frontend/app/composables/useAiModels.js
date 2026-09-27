@@ -1,3 +1,5 @@
+import { AI_STARTUP_TIMEOUT_MS } from "../utils/aiStartup.js";
+
 export function useAiModels() {
   const {
     public: { apiBaseURL },
@@ -137,6 +139,7 @@ export function useAiModels() {
     try {
       const res = await $fetch(`${apiBaseURL}/ai-models/`, {
         query: refresh ? { refresh: "true" } : undefined,
+        timeout: AI_STARTUP_TIMEOUT_MS,
       });
       applyProviderCatalog(res.providers || []);
       embeddingProviders.value = res.embedding_providers || [];

@@ -1,5 +1,6 @@
 // Start a fresh Codex runtime on app launch when Codex powers chat by default.
 import { useAppReady } from "~/composables/useAppReady";
+import { AI_STARTUP_TIMEOUT_MS } from "../utils/aiStartup.js";
 
 export default defineNuxtPlugin(async () => {
   const {
@@ -17,6 +18,7 @@ export default defineNuxtPlugin(async () => {
     await $fetch(`${apiBaseURL}/codex/status/`, {
       method: "POST",
       body: { action: "restart" },
+      timeout: AI_STARTUP_TIMEOUT_MS,
     });
   } catch (error) {
     // Codex status and recovery remain available in Settings; a provider
