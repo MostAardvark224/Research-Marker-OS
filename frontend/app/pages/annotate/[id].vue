@@ -1414,7 +1414,12 @@ async function copyNoteSyncCode() {
   const marker = noteSyncState.value?.marker;
   if (!marker) return;
   try {
-    await navigator.clipboard.writeText(marker);
+    if (window.electronAPI?.writeClipboardText) {
+      const result = await window.electronAPI.writeClipboardText(marker);
+      if (!result?.ok) throw new Error("Desktop clipboard write failed.");
+    } else {
+      await navigator.clipboard.writeText(marker);
+    }
     noteSyncState.value = {
       ...noteSyncState.value,
       message: `Copied ${marker}. Paste it on its own line in the Markdown file.`,

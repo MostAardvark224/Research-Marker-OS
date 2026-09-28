@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, clipboard, dialog, ipcMain, shell } = require("electron");
 const path = require("path");
 const { pathToFileURL } = require("url");
 const fs = require("fs");
@@ -968,6 +968,16 @@ ipcMain.handle("get-api-port", (event) => {
   const sender = event.sender.id;
   log.info(`[Startup] Renderer ${sender} requested API port; returning ${apiPort}`);
   return apiPort;
+});
+
+ipcMain.handle("clipboard:write-text", (event, text) => {
+  const senderWindow = BrowserWindow.fromWebContents(event.sender);
+  if (!senderWindow || senderWindow.isDestroyed() || typeof text !== "string") {
+    return { ok: false };
+  }
+
+  clipboard.writeText(text);
+  return { ok: true };
 });
 
 ipcMain.handle("sidebar:pop-out", (event, payload = {}) => {
