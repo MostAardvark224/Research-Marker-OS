@@ -144,3 +144,61 @@ def _fetch_arxiv_metadata_cached(arxiv_id: str) -> dict | None:
 def fetch_arxiv_metadata(arxiv_id: str) -> dict | None:
     metadata = _fetch_arxiv_metadata_cached(_normalize_arxiv_id(arxiv_id))
     return dict(metadata) if metadata else None
+
+
+def _entry_authors(entry) -> str:
+    names: list[str] = []
+    for author in entry.get("authors") or []:
+        name = str(author.get("name") or "").strip()
+        if name:
+            names.append(name)
+    if not names:
+        fallback = str(entry.get("author") or "").strip()
+        if fallback:
+            names.append(fallback)
+    return ", ".join(names[:8])
+
+
+def search_arxiv(query: str, max_results: int = 5) -> list[dict]:
+    """Search arXiv by relevance and return compact paper records."""
+    cleaned = re.sub(r"\s+", " ", str(query or "")).strip()
+    if not cleaned:
+        return []
+    limit = max(1, min(int(max_results), 10))
+    query_url = (
+        "https://export.arxiv.org/api/query?"
+        + urllib.parse.urlencode(
+            {
+                "search_query": f"all:{cleaned}",
+                "start": 0,
+                "max_results": limit,
+                "sortBy": "relevance",
+                "sortOrder": "descending",
+            }
+        )
+    )
+    request = urllib.request.Request(
+        query_url,
+        headers={"User-Agent": ARXIV_USER_AGENT},
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        feed = feedparser.parse(response.read())
+
+    results: list[dict] = []
+    for entry in feed.entries or []:
+        entry_id = str(entry.get("id", ""))
+        arxiv_id = _normalize_arxiv_id(entry_id.split("/abs/")[-1])
+        title = re.sub(r"\s+", " ", str(entry.get("title", ""))).strip()
+        abstract = re.sub(r"\s+", " ", str(entry.get("summary", ""))).strip()
+        if not title or not arxiv_id:
+            continue
+        results.append(
+            {
+                "arxiv_id": arxiv_id,
+                "title": title,
+                "abstract": abstract[:1200],
+                "authors": _entry_authors(entry),
+                "pdf_url": _entry_pdf_url(entry) or f"https://arxiv.org/pdf/{arxiv_id}",
+            }
+        )
+    return results

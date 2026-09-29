@@ -183,7 +183,10 @@ class SmartCollectionAPITests(TestCase):
         response = self.client.get(reverse("smart-collection"))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["data"], [])
+        self.assertEqual(response.data["papers"], [])
         self.assertEqual(response.data["colors"], {})
+        self.assertEqual(response.data["topics"], [])
+        self.assertEqual(response.data["ghosts"], [])
 
     def test_get_serializes_ready_collection(self):
         annotation = self._annotation()
@@ -191,18 +194,109 @@ class SmartCollectionAPITests(TestCase):
         annotation.sub_topic = "Testing"
         annotation.x_coordinate = 1.5
         annotation.y_coordinate = 2.5
-        annotation.similar_papers = [{"id": 2}]
+        annotation.similar_papers = [2]
+        annotation.centrality = 0.9
+        annotation.influence = 0.8
+        annotation.node_role = "pillar"
         annotation.save()
         models.SmartCollections.objects.create(
             annotation_ids=[annotation.id],
             is_ready=True,
             colors={"Methods": "#fff"},
-            reading_recommendations={"next": annotation.id},
+            reading_recommendations={"items": []},
+            topics=[{"name": "Methods", "count": 1}],
+            ghost_nodes=[],
+            heatmap={"values": []},
+            stats={"paper_count": 1},
         )
         response = self.client.get(reverse("smart-collection"))
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data["data"][0]["major_topic"], "Methods")
+        paper = response.data["data"][0]
+        self.assertEqual(paper["major_topic"], "Methods")
+        self.assertEqual(paper["document_id"], annotation.document_id)
+        self.assertEqual(paper["role"], "pillar")
         self.assertEqual(response.data["colors"], {"Methods": "#fff"})
+        self.assertEqual(response.data["topics"][0]["name"], "Methods")
+
+    def test_unknown_action_is_rejected(self):
+        response = self.client.patch(
+            reverse("smart-collection"),
+            {"action": "explode"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["error"], "invalid_smart_collection_action")
+
+    def test_rename_topic_and_save_folder(self):
+        first = self._annotation()
+        first.major_topic = "Methods"
+        first.x_coordinate = 0
+        first.y_coordinate = 0
+        first.node_role = "pillar"
+        first.save()
+        second_doc = models.Document.objects.create(
+            title="Paper 2", file="documents/paper-2.pdf"
+        )
+        second = models.Annotations.objects.create(
+            document=second_doc, notepad="Another note", major_topic="Methods"
+        )
+        models.SmartCollections.objects.create(
+            annotation_ids=[first.id, second.id],
+            is_ready=True,
+            colors={"Methods": {"major": "#fff", "sub": "#eee", "paper": "#ddd"}},
+            topics=[{"name": "Methods", "count": 2, "paper_ids": [first.id, second.id]}],
+        )
+        renamed = self.client.patch(
+            reverse("smart-collection"),
+            {"action": "rename_topic", "from": "Methods", "to": "Causal Methods"},
+            format="json",
+        )
+        self.assertEqual(renamed.status_code, 200)
+        first.refresh_from_db()
+        self.assertEqual(first.major_topic, "Causal Methods")
+        saved = self.client.patch(
+            reverse("smart-collection"),
+            {"action": "save_folder", "topic": "Causal Methods"},
+            format="json",
+        )
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(saved.data["folder"]["name"], "Causal Methods")
+        self.assertEqual(saved.data["folder"]["count"], 2)
+        first.document.refresh_from_db()
+        self.assertEqual(first.document.folder.name, "Causal Methods")
+
+    def test_move_papers_pins_membership(self):
+        first = self._annotation()
+        first.major_topic = "Methods"
+        first.save()
+        other_doc = models.Document.objects.create(
+            title="Other", file="documents/other.pdf"
+        )
+        other = models.Annotations.objects.create(
+            document=other_doc, notepad="Note", major_topic="Theory"
+        )
+        models.SmartCollections.objects.create(
+            annotation_ids=[first.id, other.id],
+            is_ready=True,
+            topics=[
+                {"name": "Methods", "count": 1, "paper_ids": [first.id]},
+                {"name": "Theory", "count": 1, "paper_ids": [other.id]},
+            ],
+        )
+        response = self.client.patch(
+            reverse("smart-collection"),
+            {
+                "action": "move_papers",
+                "annotation_ids": [first.id],
+                "topic": "Theory",
+                "pin": True,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        first.refresh_from_db()
+        self.assertEqual(first.major_topic, "Theory")
+        self.assertEqual(first.pinned_topic, "Theory")
 
     @patch("api.views.reconcile_stale_job", side_effect=lambda job: job)
     def test_poll_supports_task_id_and_missing_job(self, _reconcile):

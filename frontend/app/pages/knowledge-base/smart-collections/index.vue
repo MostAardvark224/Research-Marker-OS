@@ -1,18 +1,11 @@
 <template>
-  <div
-    class="min-h-screen bg-[#020204] text-white font-sans overflow-hidden flex flex-col"
-  >
+  <div class="h-screen bg-[#020204] text-white font-sans overflow-hidden flex flex-col">
     <nav class="border-b border-white/5 bg-[#020204]/80 backdrop-blur-md z-50">
-      <div
-        class="relative max-w-[1920px] mx-auto px-6 py-4 flex items-center justify-center"
-      >
+      <div class="relative max-w-[1920px] mx-auto px-6 py-4 flex items-center justify-center">
         <div class="absolute left-6 flex items-center gap-2">
-          <div
-            class="w-5 h-5 bg-gradient-to-tr from-white to-slate-500 transform rotate-45 rounded-sm"
-          ></div>
+          <div class="w-5 h-5 bg-gradient-to-tr from-white to-slate-500 transform rotate-45 rounded-sm"></div>
           <span class="font-bold tracking-tight">Research Marker</span>
         </div>
-
         <NuxtLink
           to="/"
           class="inline-flex items-center gap-2.5 rounded-xl border border-indigo-400/30 bg-indigo-500 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-indigo-500/30 transition-all hover:bg-indigo-400 hover:shadow-indigo-400/40 active:scale-[0.98]"
@@ -23,17 +16,11 @@
       </div>
     </nav>
 
-    <div class="flex flex-1 overflow-hidden relative">
-      <div
-        class="absolute top-0 right-0 w-[600px] h-[600px] bg-purple-600/10 blur-[120px] rounded-full opacity-30 pointer-events-none"
-      ></div>
-      <div
-        class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-600/5 blur-[100px] rounded-full opacity-20 pointer-events-none"
-      ></div>
+    <div class="flex min-h-0 flex-1 overflow-hidden relative">
+      <div class="absolute top-0 right-0 w-[600px] h-[600px] bg-purple-600/10 blur-[120px] rounded-full opacity-30 pointer-events-none"></div>
+      <div class="absolute bottom-0 left-0 w-[500px] h-[500px] bg-blue-600/5 blur-[100px] rounded-full opacity-20 pointer-events-none"></div>
 
-      <main
-        class="flex-1 p-8 lg:p-12 overflow-y-auto relative custom-scrollbar flex flex-col"
-      >
+      <main class="relative flex min-h-0 flex-1 flex-col overflow-hidden custom-scrollbar">
         <div
           v-if="isInitializing || requestError || stallWarning || jobStatus?.warnings?.length"
           class="fixed right-6 top-20 z-[80] w-[min(440px,calc(100vw-3rem))] rounded-xl border border-white/10 bg-[#08080c]/95 p-4 shadow-2xl backdrop-blur-md"
@@ -47,17 +34,10 @@
                   · {{ jobStatus?.processed_items || 0 }} /
                   {{ jobStatus?.total_items || 0 }}
                 </p>
-                <p
-                  v-if="jobStatus?.embedding_provider"
-                  class="mt-1 text-[11px] text-slate-500"
-                >
-                  {{ jobStatus.embedding_provider }}/{{ jobStatus.embedding_model }}
-                  · labels via {{ jobStatus.generation_provider }}/{{ jobStatus.generation_model }}
-                </p>
               </div>
               <button
-                @click="cancelSmartCollection"
                 class="rounded-lg border border-white/10 px-2.5 py-1 text-[11px] text-slate-400 hover:border-red-400/30 hover:text-red-300"
+                @click="cancelSmartCollection"
               >
                 Cancel
               </button>
@@ -68,28 +48,16 @@
                 :style="{ width: `${jobStatus?.progress || 0}%` }"
               ></div>
             </div>
-            <p
-              v-if="stallWarning"
-              class="mt-3 text-xs leading-relaxed text-amber-300/90"
-            >
+            <p v-if="stallWarning" class="mt-3 text-xs leading-relaxed text-amber-300/90">
               {{ stallWarning }}
             </p>
           </template>
-            <template v-else-if="requestError">
+          <template v-else-if="requestError">
             <p class="text-sm font-medium text-red-300">Smart Collection failed</p>
-            <p
-              v-if="requestErrorCode"
-              class="mt-1 font-mono text-[10px] uppercase tracking-wide text-red-400/70"
-            >
-              {{ requestErrorCode }}
-              <span v-if="jobStatus?.error?.stage_label" class="normal-case tracking-normal text-slate-500">
-                · stalled during {{ jobStatus.error.stage_label }}
-              </span>
-            </p>
             <p class="mt-1 text-xs leading-relaxed text-slate-400">{{ requestError }}</p>
             <button
-              @click="RunSmartCollection"
               class="mt-3 rounded-lg border border-red-400/20 bg-red-400/10 px-3 py-1.5 text-xs text-red-200 hover:bg-red-400/15"
+              @click="RunSmartCollection"
             >
               Retry
             </button>
@@ -106,510 +74,377 @@
           </template>
         </div>
 
-        <div
-          v-if="hasData"
-          class="fixed inset-0 z-50 flex bg-[#020204] animate-fade-in"
-        >
+        <div v-if="hasData" class="flex h-full min-h-0 bg-[#020204] animate-fade-in">
           <aside
-            class="relative z-20 flex h-screen shrink-0 flex-col border-r border-white/10 bg-[#050508] transition-all duration-300 ease-in-out group/sidebar"
-            :class="[isSidebarOpen ? 'w-[30%]' : 'w-0 border-r-0']"
+            class="relative z-20 flex h-full shrink-0 flex-col border-r border-white/10 bg-[#050508] transition-[width] duration-300"
+            :class="isSidebarOpen ? 'w-[380px]' : 'w-0 border-r-0'"
           >
             <button
-              @click="toggleSidebar"
-              class="absolute -right-3 top-16 z-50 flex h-6 w-6 cursor-pointer items-center justify-center rounded-full border border-white/10 bg-[#050508] text-white/40 shadow-xl backdrop-blur-sm transition-all hover:scale-110 hover:border-purple-500 hover:text-white"
+              class="absolute -right-3 top-16 z-50 flex h-6 w-6 items-center justify-center rounded-full border border-white/10 bg-[#050508] text-white/40 hover:border-purple-500 hover:text-white"
               :class="{ 'opacity-0 pointer-events-none': !isSidebarOpen }"
-              title="Collapse Sidebar"
+              title="Collapse sidebar"
+              @click="toggleSidebar"
             >
               <Icon name="uil:angle-left" class="text-sm" />
             </button>
-
             <button
               v-if="!isSidebarOpen"
+              class="absolute -right-8 top-16 z-50 flex h-8 w-8 items-center justify-center rounded-r-lg border-y border-r border-white/10 bg-[#050508] text-white/40 hover:text-purple-400"
+              title="Expand sidebar"
               @click="toggleSidebar"
-              class="absolute -right-8 top-16 z-50 flex h-8 w-8 cursor-pointer items-center justify-center rounded-r-lg border-y border-r border-white/10 bg-[#050508] text-white/40 shadow-xl transition-all hover:w-10 hover:text-purple-400"
-              title="Expand Sidebar"
             >
               <Icon name="uil:angle-right" class="text-lg" />
             </button>
 
-            <div
-              v-show="isSidebarOpen"
-              class="flex h-full w-full flex-col overflow-hidden"
-            >
-              <div class="flex flex-col border-b border-white/5 bg-[#050508]">
-                <div class="flex items-center gap-3 px-6 py-6">
-                  <div
-                    class="h-8 w-8 shrink-0 rounded-md bg-gradient-to-tr from-purple-500 to-blue-500 shadow-lg shadow-purple-500/20"
-                  ></div>
-                  <div class="flex flex-col animate-fade-in">
-                    <span class="text-sm font-bold tracking-wide"
-                      >Research Marker</span
-                    >
-                    <span
-                      class="text-[10px] uppercase tracking-wider text-slate-500"
-                    >
-                      By Amay Babel
-                    </span>
-                  </div>
-                </div>
-
-                <div class="flex items-center px-4 gap-1">
-                  <button
-                    v-for="tab in tabs"
-                    :key="tab.id"
-                    @click="setActiveTab(tab.id)"
-                    class="relative flex flex-1 items-center justify-center gap-2 rounded-md py-2.5 text-xs font-medium transition-all"
-                    :class="[
-                      activeTab === tab.id
-                        ? 'bg-white/5 text-white shadow-sm'
-                        : 'text-slate-500 hover:bg-white/5 hover:text-slate-300',
-                    ]"
-                  >
-                    <Icon :name="tab.icon" class="text-base" />
-                    <!-- {{ tab.label }} -->
-
-                    <div
-                      v-if="activeTab === tab.id"
-                      class="absolute -bottom-[1px] left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-purple-500 to-transparent opacity-50"
-                    ></div>
-                  </button>
-                </div>
+            <div v-show="isSidebarOpen" class="flex h-full w-full flex-col overflow-hidden">
+              <div class="border-b border-white/5 px-5 pt-5 pb-3">
+                <p class="text-[10px] uppercase tracking-[0.2em] text-slate-500">Workspace</p>
+                <h1 class="mt-1 text-lg font-semibold">Smart Collection</h1>
+                <p class="mt-1 text-[11px] text-slate-500">
+                  {{ stats.paper_count || papers.length }} papers ·
+                  {{ stats.topic_count || topics.length }} topics
+                  <span v-if="stats.auto_imported"> · {{ stats.auto_imported }} auto-imported</span>
+                </p>
+                <input
+                  v-model="searchQuery"
+                  class="mt-3 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white placeholder:text-slate-600 focus:border-purple-500/40 focus:outline-none"
+                  placeholder="Search papers and topics"
+                />
               </div>
 
-              <div
-                class="flex-1 overflow-y-auto overflow-x-hidden px-6 py-6 relative"
-              >
-                <div
-                  v-if="activeTab === 'graph'"
-                  class="animate-fade-in h-full flex flex-col"
+              <div class="flex items-center gap-1 px-3 pt-3">
+                <button
+                  v-for="tab in tabs"
+                  :key="tab.id"
+                  class="flex flex-1 items-center justify-center gap-1.5 rounded-md py-2 text-[11px] font-medium"
+                  :class="
+                    activeTab === tab.id
+                      ? 'bg-white/10 text-white'
+                      : 'text-slate-500 hover:bg-white/5 hover:text-slate-300'
+                  "
+                  @click="activeTab = tab.id"
                 >
-                  <h2
-                    class="text-lg font-medium text-purple-400 mb-4 flex items-center gap-2 shrink-0"
-                  >
-                    <Icon name="uil:sitemap" /> Graph Explorer
-                  </h2>
+                  <Icon :name="tab.icon" class="text-sm" />
+                  {{ tab.label }}
+                </button>
+              </div>
 
+              <div class="min-h-0 flex-1 overflow-y-auto px-4 py-4 custom-scrollbar">
+                <div v-if="activeTab === 'topics'" class="space-y-3">
                   <div
-                    class="flex-1 overflow-y-auto custom-scrollbar -mr-2 pr-2"
+                    v-for="topic in filteredTopics"
+                    :key="topic.name"
+                    class="rounded-xl border border-white/10 bg-white/[0.03] p-3"
+                    :class="{ 'border-purple-500/40 bg-purple-500/5': selectedTopic === topic.name }"
                   >
-                    <div
-                      v-for="(subTopics, majorName) in graphExplorerData"
-                      :key="majorName"
-                      class="mb-4"
-                    >
-                      <button
-                        @click="toggleNode(majorName)"
-                        class="w-full flex items-center gap-2 text-sm font-semibold text-slate-200 hover:text-purple-300 transition-colors text-left group"
-                      >
-                        <Icon
-                          name="uil:angle-right"
-                          class="transition-transform duration-200 text-slate-500 group-hover:text-purple-400"
-                          :class="{ 'rotate-90': expandedNodes[majorName] }"
-                        />
-                        <Icon name="uil:folder" class="text-purple-500/50" />
-                        {{ majorName }}
-                        <span
-                          class="ml-auto text-[10px] text-slate-600 font-mono"
-                        >
-                          {{ Object.keys(subTopics).length }}
-                        </span>
-                      </button>
-
-                      <div
-                        v-show="expandedNodes[majorName]"
-                        class="mt-1 ml-2 pl-3 border-l border-white/5 space-y-1"
-                      >
-                        <div
-                          v-for="(papers, subName) in subTopics"
-                          :key="majorName + subName"
-                        >
-                          <template v-if="subName !== '__direct__'">
-                            <button
-                              @click="toggleNode(majorName + subName)"
-                              class="w-full flex items-center gap-2 py-1 text-xs font-medium text-slate-400 hover:text-white transition-colors text-left group/sub"
-                            >
-                              <Icon
-                                name="uil:angle-right"
-                                class="transition-transform duration-200 text-slate-600 group-hover/sub:text-white"
-                                :class="{
-                                  'rotate-90':
-                                    expandedNodes[majorName + subName],
-                                }"
-                              />
-                              {{ subName }}
-                            </button>
-
-                            <div
-                              v-show="expandedNodes[majorName + subName]"
-                              class="mt-1 ml-2 pl-3 border-l border-white/5 space-y-0.5"
-                            >
-                              <div
-                                v-for="paper in papers"
-                                :key="paper.id"
-                                @click="focusOnPaper(paper.id)"
-                                class="group/paper flex items-start gap-2 py-1 cursor-pointer"
-                              >
-                                <div
-                                  class="mt-1.5 w-1 h-1 rounded-full bg-slate-700 group-hover/paper:bg-blue-400 transition-colors shrink-0"
-                                ></div>
-                                <span
-                                  class="text-[11px] text-slate-500 leading-snug group-hover/paper:text-slate-300 transition-colors line-clamp-2"
-                                >
-                                  {{ paper.title }}
-                                </span>
-                              </div>
-                            </div>
-                          </template>
-
-                          <template v-else>
-                            <div
-                              class="mt-1 ml-2 pl-3 border-l border-white/5 space-y-0.5 mb-2"
-                            >
-                              <div
-                                v-for="paper in papers"
-                                :key="paper.id"
-                                @click="focusOnPaper(paper.id)"
-                                class="group/paper flex items-start gap-2 py-1 cursor-pointer"
-                              >
-                                <div
-                                  class="mt-1.5 w-1 h-1 rounded-full bg-purple-500/50 group-hover/paper:bg-purple-400 transition-colors shrink-0"
-                                ></div>
-                                <span
-                                  class="text-[11px] text-slate-400 leading-snug group-hover/paper:text-white transition-colors line-clamp-2"
-                                >
-                                  {{ paper.title }}
-                                </span>
-                              </div>
-                            </div>
-                          </template>
+                    <button class="flex w-full items-start gap-2 text-left" @click="selectTopic(topic.name)">
+                      <span
+                        class="mt-1 h-2.5 w-2.5 shrink-0 rounded-full"
+                        :style="{ background: topicColor(topic.name) }"
+                      ></span>
+                      <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-2">
+                          <span class="truncate text-sm font-semibold">{{ topic.name }}</span>
+                          <span class="ml-auto font-mono text-[10px] text-slate-500">{{ topic.count }}</span>
                         </div>
+                        <div class="mt-1 h-1 overflow-hidden rounded-full bg-white/10">
+                          <div
+                            class="h-full rounded-full bg-purple-400"
+                            :style="{ width: `${Math.round((topic.cohesion || 0) * 100)}%` }"
+                          ></div>
+                        </div>
+                        <p class="mt-1 text-[10px] text-slate-500">
+                          Cohesion {{ Math.round((topic.cohesion || 0) * 100) }}%
+                          <span v-if="topic.thin_notes" class="text-amber-400"> · thin notes</span>
+                        </p>
                       </div>
-                    </div>
+                    </button>
 
-                    <div
-                      v-if="Object.keys(graphExplorerData).length === 0"
-                      class="text-center mt-10 text-slate-600 text-xs italic"
-                    >
-                      No graph data available.
-                      <br />Initialize collection to view structure.
+                    <div v-if="selectedTopic === topic.name" class="mt-3 space-y-2 border-t border-white/5 pt-3">
+                      <div class="flex flex-wrap gap-1.5">
+                        <button class="action-chip" @click="startRename(topic.name)">Rename</button>
+                        <button class="action-chip" @click="saveTopicFolder(topic.name)">Save folder</button>
+                        <button
+                          v-if="selectedIds.length"
+                          class="action-chip"
+                          @click="moveSelected(topic.name)"
+                        >
+                          Move here
+                        </button>
+                      </div>
+                      <div v-if="renamingTopic === topic.name" class="flex gap-2">
+                        <input
+                          v-model="renameValue"
+                          class="flex-1 rounded-md border border-white/10 bg-black/40 px-2 py-1 text-xs"
+                          @keyup.enter="commitRename"
+                        />
+                        <button class="action-chip" @click="commitRename">Save</button>
+                      </div>
+                      <div v-if="otherTopics(topic.name).length" class="flex gap-2">
+                        <select
+                          v-model="mergeTarget"
+                          class="flex-1 rounded-md border border-white/10 bg-black/40 px-2 py-1 text-xs"
+                        >
+                          <option value="">Merge into…</option>
+                          <option v-for="name in otherTopics(topic.name)" :key="name" :value="name">
+                            {{ name }}
+                          </option>
+                        </select>
+                        <button class="action-chip" :disabled="!mergeTarget" @click="mergeSelectedTopic(topic.name)">
+                          Merge
+                        </button>
+                      </div>
+                      <label
+                        v-for="paper in papersForTopic(topic.name)"
+                        :key="paper.id"
+                        class="flex cursor-pointer items-start gap-2 rounded-lg px-1 py-1 hover:bg-white/5"
+                      >
+                        <input v-model="selectedIds" type="checkbox" :value="paper.id" class="mt-1" />
+                        <button class="min-w-0 flex-1 text-left" @click.prevent="selectPaper(paper)">
+                          <span class="line-clamp-2 text-[11px] text-slate-300">{{ paper.doc_title }}</span>
+                          <span class="mt-0.5 inline-flex items-center gap-1 text-[10px] uppercase tracking-wide" :class="roleClass(paper.role)">
+                            {{ paper.role || "core" }}
+                            <span class="text-slate-600">· {{ Math.round((paper.centrality || 0) * 100) }}%</span>
+                          </span>
+                        </button>
+                        <button class="text-slate-500 hover:text-white" title="Open paper" @click.prevent="openPaper(paper)">
+                          <Icon name="uil:external-link-alt" />
+                        </button>
+                      </label>
                     </div>
                   </div>
                 </div>
-                <div
-                  v-else-if="activeTab === 'chat'"
-                  class="animate-fade-in h-full"
-                >
-                  <h2
-                    class="text-lg font-medium text-purple-400 mb-4 flex items-center gap-2"
+
+                <div v-else-if="activeTab === 'gaps'" class="space-y-3">
+                  <p class="text-[11px] text-slate-500">
+                    Ghost nodes are papers your library is missing. Import one to fill the hole.
+                  </p>
+                  <div
+                    v-for="ghost in ghosts"
+                    :key="ghost.id"
+                    class="rounded-xl border border-amber-500/20 bg-amber-500/5 p-3"
+                    :class="{ 'border-amber-300/50': selectedGhost?.id === ghost.id }"
                   >
-                    <Icon name="uil:comment-alt-lines" /> Research Chat
-                  </h2>
+                    <button class="w-full text-left" @click="selectGhost(ghost)">
+                      <p class="text-sm font-medium text-amber-100">{{ ghost.title }}</p>
+                      <p class="mt-1 text-[11px] text-slate-400">{{ ghost.overview || ghost.cluster }}</p>
+                    </button>
+                    <div class="mt-3 flex gap-2">
+                      <button class="action-chip" @click="focusGhost(ghost)">Show on graph</button>
+                      <button
+                        v-if="ghost.document_id"
+                        class="action-chip"
+                        @click="navigateTo(`/annotate/${ghost.document_id}`)"
+                      >
+                        Open
+                      </button>
+                      <button
+                        v-else
+                        class="action-chip bg-amber-500/20 text-amber-100"
+                        :disabled="importingId === ghost.arxiv_id"
+                        @click="importCandidate(ghost)"
+                      >
+                        {{ importingId === ghost.arxiv_id ? "Importing…" : "Import" }}
+                      </button>
+                    </div>
+                  </div>
+                  <p v-if="!ghosts.length" class="pt-8 text-center text-xs text-slate-600">
+                    No knowledge-gap ghosts yet. Update the collection to generate them.
+                  </p>
                 </div>
 
-                <div
-                  v-else-if="activeTab === 'recs'"
-                  class="animate-fade-in h-full flex flex-col"
-                >
-                  <div class="flex items-center justify-between mb-4 shrink-0">
-                    <h2
-                      class="text-lg font-medium text-purple-400 flex items-center gap-2"
-                    >
-                      <Icon name="uil:lightbulb-alt" /> Recommendations
-                    </h2>
-
-                    <button
-                      @click="regenerateRecommendations"
-                      :disabled="isRegenerating"
-                      class="p-1.5 rounded-md hover:bg-white/10 text-slate-400 hover:text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed group relative"
-                      title="Regenerate Recommendations"
-                    >
-                      <Icon
-                        name="uil:refresh"
-                        class="text-lg transition-transform duration-700"
-                        :class="{ 'animate-spin': isRegenerating }"
-                      />
+                <div v-else class="space-y-4">
+                  <div class="flex items-center justify-between">
+                    <p class="text-[11px] text-slate-500">Adjacent reading with one-click import.</p>
+                    <button class="action-chip" :disabled="isRegenerating" @click="regenerateRecommendations">
+                      <Icon name="uil:refresh" :class="{ 'animate-spin': isRegenerating }" />
+                      Refresh
                     </button>
                   </div>
-
                   <div
-                    class="flex-1 overflow-y-auto custom-scrollbar -mr-2 pr-2"
+                    v-for="item in readingRecs"
+                    :key="item.id || item.topic"
+                    class="rounded-xl border border-white/10 bg-white/[0.03] p-3"
                   >
-                    <div
-                      v-if="isRegenerating"
-                      class="h-40 flex flex-col items-center justify-center text-slate-500 gap-3"
-                    >
-                      <Icon name="svg-spinners:3-dots-fade" class="text-2xl" />
-                      <span class="text-xs">Analyzing knowledge graph...</span>
-                    </div>
-
-                    <div
-                      v-else-if="!hasRecs"
-                      class="text-center mt-10 text-slate-600 text-xs italic"
-                    >
-                      No recommendations yet.
-                      <br />Click the refresh button to generate insights.
-                    </div>
-
-                    <div v-else class="space-y-6 pb-6">
+                    <h3 class="text-sm font-semibold text-slate-100">{{ item.topic }}</h3>
+                    <p class="mt-1 text-xs leading-relaxed text-slate-400">{{ item.overview }}</p>
+                    <p v-if="item.query" class="mt-1 text-[10px] text-slate-600">arXiv · {{ item.query }}</p>
+                    <p v-if="!(item.candidates || []).length" class="mt-2 text-[11px] text-slate-500">
+                      No matching papers were found for this gap.
+                    </p>
+                    <div class="mt-3 space-y-2">
                       <div
-                        v-for="(details, topicName) in readingRecs"
-                        :key="topicName"
-                        class="group relative pl-4 border-l-2 border-white/10 hover:border-purple-500/50 transition-colors"
+                        v-for="candidate in item.candidates || []"
+                        :key="candidate.arxiv_id || candidate.title"
+                        class="rounded-lg bg-white/5 p-2"
                       >
-                        <h3
-                          class="text-sm font-semibold text-slate-200 mb-1 group-hover:text-purple-300 transition-colors"
-                        >
-                          {{ topicName }}
-                        </h3>
-
-                        <p class="text-xs text-slate-400 mb-3 leading-relaxed">
-                          {{ details.overview }}
-                        </p>
-
-                        <div class="space-y-2">
-                          <div
-                            class="flex items-start gap-2 bg-white/5 rounded-md p-2 hover:bg-white/10 transition-colors cursor-default"
+                        <p class="text-[11px] font-medium text-slate-200">{{ candidate.title }}</p>
+                        <p v-if="candidate.authors" class="mt-0.5 text-[10px] text-slate-500">{{ candidate.authors }}</p>
+                        <div class="mt-2 flex flex-wrap gap-1.5">
+                          <span v-if="candidate.imported" class="badge-imported">Imported</span>
+                          <span v-else-if="candidate.already_in_library" class="badge-imported">In library</span>
+                          <button
+                            v-if="candidate.document_id"
+                            class="action-chip"
+                            @click="navigateTo(`/annotate/${candidate.document_id}`)"
                           >
-                            <Icon
-                              name="uil:file-alt"
-                              class="text-blue-400 mt-0.5 shrink-0 text-xs"
-                            />
-                            <span
-                              class="text-[11px] text-slate-300 font-medium leading-tight"
-                            >
-                              {{ details.paper1 }}
-                            </span>
-                          </div>
-
-                          <div
-                            class="flex items-start gap-2 bg-white/5 rounded-md p-2 hover:bg-white/10 transition-colors cursor-default"
+                            Open
+                          </button>
+                          <button
+                            v-else-if="candidate.arxiv_id"
+                            class="action-chip"
+                            :disabled="importingId === candidate.arxiv_id"
+                            @click="importCandidate(candidate)"
                           >
-                            <Icon
-                              name="uil:file-alt"
-                              class="text-blue-400 mt-0.5 shrink-0 text-xs"
-                            />
-                            <span
-                              class="text-[11px] text-slate-300 font-medium leading-tight"
-                            >
-                              {{ details.paper2 }}
-                            </span>
-                          </div>
+                            {{ importingId === candidate.arxiv_id ? "Importing…" : "Import" }}
+                          </button>
                         </div>
                       </div>
                     </div>
                   </div>
+                  <p v-if="!readingRecs.length" class="pt-8 text-center text-xs text-slate-600">
+                    No recommendations yet.
+                  </p>
                 </div>
-              </div>
-
-              <div
-                class="mt-auto flex w-full flex-col gap-4 p-6 shrink-0 border-t border-white/5"
-              >
-                <NuxtLink
-                  to="/"
-                  class="flex w-full items-center justify-center gap-2.5 rounded-xl border border-indigo-400/30 bg-indigo-500 px-4 py-3 text-sm font-bold text-white shadow-lg shadow-indigo-500/30 transition-all hover:bg-indigo-400 hover:shadow-indigo-400/40 active:scale-[0.98]"
-                >
-                  <Icon name="uil:arrow-left" class="text-lg shrink-0" />
-                  Back to Index
-                </NuxtLink>
               </div>
             </div>
           </aside>
-          <div
-            class="flex-1 flex flex-col relative overflow-hidden bg-[#020204]"
-          >
-            <header
-              class="h-14 border-b border-white/5 flex items-center justify-between px-6 bg-[#020204]/90 backdrop-blur-sm z-10 absolute top-0 left-0 right-0 pointer-events-none"
-            >
-              <div class="flex items-center gap-3 pointer-events-auto">
-                <h2 class="font-semibold text-sm tracking-wide text-white">
-                  Knowledge Graph
-                </h2>
-                <span
-                  class="px-2 py-0.5 mt-1 rounded-full bg-purple-500/10 text-purple-400 text-[10px] font-medium border border-purple-500/20"
-                  >Beta</span
-                >
+
+          <div class="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            <header class="pointer-events-none absolute inset-x-0 top-0 z-10 flex h-14 items-center justify-between px-5">
+              <div class="pointer-events-auto flex items-center gap-3">
+                <h2 class="text-sm font-semibold tracking-wide">Knowledge Graph</h2>
+                <span class="rounded-full border border-purple-500/20 bg-purple-500/10 px-2 py-0.5 text-[10px] font-medium text-purple-300">
+                  {{ isolatedTopic || "All topics" }}
+                </span>
               </div>
-              <button
-                @click="updateSmartCollection()"
-                :disabled="isInitializing"
-                class="pointer-events-auto flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-medium text-slate-300 hover:text-white hover:border-white/20 transition-all group"
-              >
-                <Icon
-                  name="uil:sync"
-                  class="text-sm text-slate-400 group-hover:text-white transition-colors"
-                  :class="{ 'animate-spin': isInitializing }"
-                />
-                Update Collection
-              </button>
+              <div class="pointer-events-auto flex items-center gap-2">
+                <button class="toolbar-btn" :class="{ 'border-purple-400/40 text-white': showHeatmap }" @click="showHeatmap = !showHeatmap">
+                  Heatmap
+                </button>
+                <button class="toolbar-btn" :class="{ 'border-amber-400/40 text-amber-100': showGhosts }" @click="showGhosts = !showGhosts">
+                  Ghosts
+                </button>
+                <button class="toolbar-btn" :disabled="isInitializing" @click="updateSmartCollection">
+                  <Icon name="uil:sync" :class="{ 'animate-spin': isInitializing }" />
+                  Update
+                </button>
+              </div>
             </header>
 
-            <div
-              ref="graphContainer"
-              class="w-full h-full cursor-grab active:cursor-grabbing"
-            ></div>
+            <SmartCollectionGraph
+              ref="graphRef"
+              v-model:zoom-scale="zoomScale"
+              class="min-h-0 w-full flex-1"
+              :papers="papers"
+              :ghosts="ghosts"
+              :heatmap="heatmap"
+              :colors="graphColors"
+              :selected-id="selectedPaper?.id"
+              :selected-ghost-id="selectedGhost?.id || ''"
+              :isolated-topic="isolatedTopic"
+              :show-heatmap="showHeatmap"
+              :show-ghosts="showGhosts"
+              :focus-request="focusRequest"
+              @select-paper="selectPaper"
+              @open-paper="openPaper"
+              @select-ghost="selectGhost"
+              @background="clearSelection"
+            />
 
-            <div
-              class="absolute right-4 top-1/2 z-20 flex -translate-y-1/2 flex-col items-center gap-3 rounded-2xl border border-white/10 bg-[#050508]/90 px-2.5 py-4 shadow-2xl shadow-black/40 backdrop-blur-md"
-            >
-              <button
-                @click="zoomIn"
-                class="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white/70 transition-colors hover:border-purple-500/40 hover:bg-purple-500/10 hover:text-white"
-                title="Zoom In"
-              >
-                <Icon name="uil:plus" class="text-base" />
+            <div class="absolute right-4 top-1/2 z-20 flex -translate-y-1/2 flex-col items-center gap-3 rounded-2xl border border-white/10 bg-[#050508]/90 px-2.5 py-4">
+              <button class="zoom-btn" title="Zoom in" @click="graphRef?.setZoomLevel(zoomScale + 0.5)">
+                <Icon name="uil:plus" />
               </button>
-
-              <div class="flex h-48 flex-col items-center gap-2">
-                <span class="text-[10px] font-mono text-slate-500">
-                  {{ Math.round(zoomScale * 100) }}%
-                </span>
-                <input
-                  :value="zoomScale"
-                  @input="setZoomLevel(Number($event.target.value))"
-                  type="range"
-                  :min="ZOOM_MIN"
-                  :max="ZOOM_MAX"
-                  :step="0.1"
-                  class="zoom-range h-36 w-2 cursor-pointer accent-purple-500"
-                  aria-label="Graph zoom level"
-                />
-              </div>
-
-              <button
-                @click="zoomOut"
-                class="flex h-8 w-8 items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white/70 transition-colors hover:border-purple-500/40 hover:bg-purple-500/10 hover:text-white"
-                title="Zoom Out"
-              >
-                <Icon name="uil:minus" class="text-base" />
+              <span class="text-[10px] font-mono text-slate-500">{{ Math.round(zoomScale * 100) }}%</span>
+              <button class="zoom-btn" title="Zoom out" @click="graphRef?.setZoomLevel(zoomScale - 0.5)">
+                <Icon name="uil:minus" />
+              </button>
+              <button class="zoom-btn" title="Reset view" @click="graphRef?.resetZoom()">
+                <Icon name="uil:focus-target" />
               </button>
             </div>
 
-            <div class="absolute bottom-6 right-6 flex flex-col gap-2 z-10">
-              <button
-                @click="resetZoom"
-                class="w-10 h-10 rounded-lg bg-[#1e1e24] hover:bg-[#2a2a35] text-white flex items-center justify-center border border-white/10 transition-colors shadow-xl"
-                title="Reset View"
-              >
-                <Icon name="uil:focus-target" class="text-lg" />
-              </button>
+            <div class="absolute bottom-5 left-5 z-20 max-h-[45%] max-w-md overflow-y-auto rounded-2xl border border-white/10 bg-[#050508]/95 p-4 shadow-2xl custom-scrollbar">
+              <div class="mb-3 flex flex-wrap gap-3 text-[10px] uppercase tracking-wide text-slate-500">
+                <span class="inline-flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded-full bg-indigo-300 ring-2 ring-indigo-400/70"></span>Pillar</span>
+                <span class="inline-flex items-center gap-1.5"><span class="h-2 w-2 rounded-full bg-slate-300"></span>Core</span>
+                <span class="inline-flex items-center gap-1.5"><span class="h-1.5 w-1.5 rounded-full border border-dashed border-slate-400"></span>Niche</span>
+                <span class="inline-flex items-center gap-1.5 text-amber-400">◇ Ghost gap</span>
+              </div>
+              <div v-if="selectedPaper">
+                <p class="text-sm font-semibold">{{ selectedPaper.doc_title }}</p>
+                <p class="mt-1 text-[11px] text-slate-400">
+                  {{ selectedPaper.major_topic }} ·
+                  <span :class="roleClass(selectedPaper.role)">{{ selectedPaper.role }}</span>
+                  · centrality {{ Math.round((selectedPaper.centrality || 0) * 100) }}%
+                </p>
+                <p v-if="selectedPaper.excerpt" class="mt-2 line-clamp-3 text-[11px] text-slate-500">
+                  {{ selectedPaper.excerpt }}
+                </p>
+                <div class="mt-3 flex flex-wrap gap-2">
+                  <button class="action-chip" @click="openPaper(selectedPaper)">Open paper</button>
+                  <select
+                    class="rounded-md border border-white/10 bg-black/40 px-2 py-1 text-xs"
+                    @change="movePaperTo($event.target.value, selectedPaper)"
+                  >
+                    <option value="">Move to topic…</option>
+                    <option v-for="topic in topics" :key="topic.name" :value="topic.name">
+                      {{ topic.name }}
+                    </option>
+                  </select>
+                </div>
+              </div>
+              <div v-else-if="selectedGhost">
+                <p class="text-sm font-semibold text-amber-100">{{ selectedGhost.title }}</p>
+                <p class="mt-1 text-[11px] text-slate-400">{{ selectedGhost.overview }}</p>
+                <button
+                  class="action-chip mt-3"
+                  :disabled="importingId === selectedGhost.arxiv_id"
+                  @click="importCandidate(selectedGhost)"
+                >
+                  Import this paper
+                </button>
+              </div>
+              <p v-else class="text-[11px] text-slate-500">
+                Click a paper to inspect it. Pillars sit at the center of a topic; niches sit on the fringe. The heatmap shows influence.
+              </p>
             </div>
           </div>
         </div>
 
         <div
           v-else
-          class="flex-1 flex flex-col items-center justify-center text-center relative z-10 max-w-2xl mx-auto"
+          class="flex flex-1 flex-col items-center justify-center px-8 text-center relative z-10 max-w-2xl mx-auto"
         >
           <div class="relative mb-8 group">
-            <div
-              class="absolute inset-0 bg-purple-500/20 blur-xl rounded-full group-hover:bg-purple-500/30 transition-all duration-700"
-            ></div>
-            <div
-              class="relative w-24 h-24 rounded-2xl bg-gradient-to-b from-white/10 to-transparent border border-white/10 flex items-center justify-center backdrop-blur-sm"
-            >
-              <Icon
-                name="carbon:network-4"
-                class="text-5xl text-purple-300 opacity-80"
-              />
+            <div class="absolute inset-0 bg-purple-500/20 blur-xl rounded-full group-hover:bg-purple-500/30 transition-all duration-700"></div>
+            <div class="relative w-24 h-24 rounded-2xl bg-gradient-to-b from-white/10 to-transparent border border-white/10 flex items-center justify-center backdrop-blur-sm">
+              <Icon name="carbon:network-4" class="text-5xl text-purple-300 opacity-80" />
             </div>
-
-            <div
-              class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-32 h-32 border border-white/5 rounded-full animate-[spin_10s_linear_infinite]"
-            ></div>
-            <div
-              class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-40 h-40 border border-dashed border-white/5 rounded-full animate-[spin_15s_linear_infinite_reverse]"
-            ></div>
           </div>
-
           <h1 class="text-4xl md:text-5xl font-bold tracking-tight mb-6">
             Initialize your
-            <span
-              class="block mt-2 text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-400 to-purple-400 animate-gradient"
-            >
+            <span class="block mt-2 text-transparent bg-clip-text bg-gradient-to-r from-purple-400 via-pink-400 to-purple-400 animate-gradient">
               Smart Collection
             </span>
           </h1>
-
-          <div class="flex flex-col items-center w-full max-w-md">
-            <button
-              @click="RunSmartCollection()"
-              :disabled="isInitializing"
-              class="group relative w-full overflow-hidden rounded-xl bg-white text-black font-semibold py-4 px-8 transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-70 disabled:pointer-events-none mb-6"
-            >
-              <div
-                class="absolute inset-0 bg-gradient-to-r from-purple-200 via-white to-purple-200 opacity-0 group-hover:opacity-100 transition-opacity duration-500"
-              ></div>
-              <span class="relative flex items-center justify-center gap-2">
-                <Icon
-                  v-if="isInitializing"
-                  name="line-md:loading-twotone-loop"
-                  class="text-xl"
-                />
-                <Icon v-else name="uil:processor" class="text-xl" />
-                {{
-                  isInitializing
-                    ? jobStatus?.stage_label || "Constructing Graph..."
-                    : "Initialize Smart Collection"
-                }}
-              </span>
-            </button>
-
-            <div class="w-full space-y-3">
-              <div
-                class="flex items-start gap-3 p-4 rounded-lg bg-blue-500/5 border border-blue-500/10 text-left"
-              >
-                <Icon
-                  name="uil:info-circle"
-                  class="text-blue-400 text-xl shrink-0 mt-0.5"
-                />
-                <div class="text-xs text-slate-400">
-                  <strong class="text-slate-300 block mb-0.5"
-                    >Minimum Data Recommended</strong
-                  >
-                  For the most effective graph generation and clustering, we
-                  recommend having at least
-                  <span class="text-blue-300 font-medium"
-                    >20-25+ annotations</span
-                  >
-                  in your index before initializing.
-                </div>
-              </div>
-
-              <div
-                class="flex items-start gap-3 p-4 rounded-lg bg-yellow-500/5 border border-yellow-500/10 text-left"
-              >
-                <Icon
-                  name="uil:clock"
-                  class="text-yellow-500/60 text-xl shrink-0 mt-0.5"
-                />
-                <div class="text-xs text-slate-400">
-                  <strong class="text-slate-300 block mb-0.5"
-                    >Time intensive process</strong
-                  >
-                  Initialization involves deep-layer semantic embedding.
-                  Depending on your dataset size, this may take
-                  <span class="text-yellow-500/80">3-5 minutes</span> to
-                  complete.
-                </div>
-              </div>
-
-              <div
-                class="flex items-start gap-3 p-4 rounded-lg bg-green-500/5 border border-green-500/10 text-left"
-              >
-                <Icon
-                  name="mdi:cog-play"
-                  class="text-green-500/60 text-xl shrink-0 mt-0.5"
-                />
-                <div class="text-xs text-slate-400">
-                  <strong class="text-slate-300 block mb-0.5"
-                    >Runs In The Background</strong
-                  >
-                  The creation process will
-                  <span class="text-green-500/80">run in the background</span>,
-                  so feel free to navigate away from this page. However, don't
-                  close the application.
-                </div>
-              </div>
+          <button
+            class="group relative w-full max-w-md overflow-hidden rounded-xl bg-white text-black font-semibold py-4 px-8 transition-all hover:scale-[1.01] disabled:opacity-70 mb-6"
+            :disabled="isInitializing"
+            @click="RunSmartCollection()"
+          >
+            <span class="relative flex items-center justify-center gap-2">
+              <Icon :name="isInitializing ? 'line-md:loading-twotone-loop' : 'uil:processor'" class="text-xl" />
+              {{ isInitializing ? jobStatus?.stage_label || "Constructing Graph..." : "Initialize Smart Collection" }}
+            </span>
+          </button>
+          <div class="w-full max-w-md space-y-3 text-left">
+            <div class="rounded-lg border border-blue-500/10 bg-blue-500/5 p-4 text-xs text-slate-400">
+              Clusters now use UMAP + HDBSCAN, so related papers form usable topics instead of a pretty but empty graph.
+            </div>
+            <div class="rounded-lg border border-yellow-500/10 bg-yellow-500/5 p-4 text-xs text-slate-400">
+              Initialization embeds notes, labels topics, and searches arXiv for knowledge-gap ghosts. It runs in the background.
             </div>
           </div>
         </div>
@@ -619,7 +454,6 @@
 </template>
 
 <script setup>
-import * as d3 from "d3";
 import { storeToRefs } from "pinia";
 import { useSmartCollectionsStore } from "~~/stores/useSmartCollectionsStore";
 import { useNotificationStore } from "~~/stores/useNotificationStore";
@@ -632,28 +466,260 @@ const store = useSmartCollectionsStore();
 const notifications = useNotificationStore();
 const { isInitializing, activeJobId, jobStatus } = storeToRefs(store);
 
-const data = ref(null);
-const graphColors = ref(null);
+const papers = ref([]);
+const graphColors = ref({});
+const topics = ref([]);
+const ghosts = ref([]);
+const heatmap = ref({});
+const stats = ref({});
+const readingRecs = ref([]);
 const requestError = ref("");
 const requestErrorCode = ref("");
 const stallWarning = ref("");
-
-// Computed property to check if the collection exists
-// once this is true run rendering log
-const hasData = computed(() => {
-  return data.value && Object.keys(data.value).length > 0;
-});
-
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const isSidebarOpen = ref(true);
+const activeTab = ref("topics");
+const searchQuery = ref("");
+const selectedTopic = ref("");
+const isolatedTopic = ref("");
+const selectedPaper = ref(null);
+const selectedGhost = ref(null);
+const selectedIds = ref([]);
+const renamingTopic = ref("");
+const renameValue = ref("");
+const mergeTarget = ref("");
+const showHeatmap = ref(true);
+const showGhosts = ref(true);
+const zoomScale = ref(1);
+const graphRef = ref(null);
+const focusRequest = ref(null);
+const isRegenerating = ref(false);
+const importingId = ref("");
 let pollingActive = true;
 let stallNoticeShown = false;
+
+const tabs = [
+  { id: "topics", label: "Topics", icon: "uil:sitemap" },
+  { id: "gaps", label: "Gaps", icon: "uil:question-circle" },
+  { id: "recs", label: "Reading", icon: "uil:lightbulb-alt" },
+];
+
+const hasData = computed(() => Array.isArray(papers.value) && papers.value.length > 0);
+
+const filteredTopics = computed(() => {
+  const query = searchQuery.value.trim().toLowerCase();
+  return (topics.value || []).filter((topic) => {
+    if (!query) return true;
+    if (topic.name.toLowerCase().includes(query)) return true;
+    return papersForTopic(topic.name).some((paper) =>
+      (paper.doc_title || "").toLowerCase().includes(query)
+    );
+  });
+});
+
 const QUEUED_STALL_MS = 45_000;
 const RUNNING_STALL_MS = 150_000;
-
-const errorMessage = (error, fallback) =>
-  error?.data?.message || error?.message || fallback;
-
+const errorMessage = (error, fallback) => error?.data?.message || error?.message || fallback;
 const errorCode = (error) => error?.data?.error || "";
+
+function normalizeRecommendations(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw.items)) return raw.items;
+  if (Array.isArray(raw)) return raw;
+  return Object.entries(raw).map(([topic, details]) => ({
+    id: topic,
+    topic,
+    overview: details?.overview || "",
+    candidates: [details?.paper1, details?.paper2]
+      .filter(Boolean)
+      .map((title) => ({ title, arxiv_id: "", imported: false })),
+  }));
+}
+
+function applyCollection(res) {
+  papers.value = res.data || res.papers || [];
+  graphColors.value = res.colors || {};
+  topics.value = res.topics || [];
+  ghosts.value = res.ghosts || [];
+  heatmap.value = res.heatmap || {};
+  stats.value = res.stats || {};
+  readingRecs.value = normalizeRecommendations(res.recommendations);
+  if (res.active_job) store.setJob(res.active_job);
+}
+
+function topicColor(name) {
+  return graphColors.value?.[name]?.major || "#a78bfa";
+}
+
+function roleClass(role) {
+  if (role === "pillar") return "text-indigo-300";
+  if (role === "niche") return "text-slate-400";
+  return "text-purple-200";
+}
+
+function papersForTopic(name) {
+  const query = searchQuery.value.trim().toLowerCase();
+  return papers.value.filter((paper) => {
+    if (paper.major_topic !== name) return false;
+    if (!query) return true;
+    return (paper.doc_title || "").toLowerCase().includes(query);
+  });
+}
+
+function otherTopics(name) {
+  return topics.value.map((topic) => topic.name).filter((item) => item !== name);
+}
+
+function toggleSidebar() {
+  isSidebarOpen.value = !isSidebarOpen.value;
+}
+
+function selectTopic(name) {
+  selectedTopic.value = selectedTopic.value === name ? "" : name;
+  isolatedTopic.value = selectedTopic.value;
+  if (selectedTopic.value) activeTab.value = "topics";
+}
+
+function selectPaper(paper) {
+  selectedPaper.value = paper;
+  selectedGhost.value = null;
+  isolatedTopic.value = paper.major_topic || isolatedTopic.value;
+  focusRequest.value = {
+    x: paper.x_coordinate,
+    y: paper.y_coordinate,
+    scale: 5,
+    nonce: Date.now(),
+  };
+}
+
+function openPaper(paper) {
+  if (!paper?.document_id) return;
+  navigateTo(`/annotate/${paper.document_id}`);
+}
+
+function selectGhost(ghost) {
+  selectedGhost.value = ghost;
+  selectedPaper.value = null;
+  activeTab.value = "gaps";
+  focusGhost(ghost);
+}
+
+function focusGhost(ghost) {
+  focusRequest.value = { x: ghost.x, y: ghost.y, scale: 4, nonce: Date.now() };
+}
+
+function clearSelection() {
+  selectedPaper.value = null;
+  selectedGhost.value = null;
+}
+
+function startRename(name) {
+  renamingTopic.value = name;
+  renameValue.value = name;
+}
+
+async function patchCollection(body) {
+  const res = await $fetch(`${apiBaseURL}/smart-collection/`, {
+    method: "PATCH",
+    body,
+  });
+  applyCollection(res);
+  return res;
+}
+
+async function commitRename() {
+  if (!renamingTopic.value || !renameValue.value.trim()) return;
+  try {
+    await patchCollection({
+      action: "rename_topic",
+      from: renamingTopic.value,
+      to: renameValue.value.trim(),
+    });
+    selectedTopic.value = renameValue.value.trim();
+    isolatedTopic.value = selectedTopic.value;
+    renamingTopic.value = "";
+    notifications.notify({ title: "Topic renamed", type: "success", durationMs: 4000 });
+  } catch (error) {
+    reportFailure(errorMessage(error, "Could not rename topic."), { code: errorCode(error) });
+  }
+}
+
+async function saveTopicFolder(name) {
+  try {
+    const res = await patchCollection({ action: "save_folder", topic: name });
+    notifications.notify({
+      title: "Folder created",
+      message: `${res.folder?.count || 0} papers saved to “${res.folder?.name || name}”.`,
+      type: "success",
+      durationMs: 6000,
+    });
+  } catch (error) {
+    reportFailure(errorMessage(error, "Could not save this topic as a folder."), {
+      code: errorCode(error),
+    });
+  }
+}
+
+async function mergeSelectedTopic(source) {
+  if (!mergeTarget.value) return;
+  try {
+    await patchCollection({
+      action: "merge_topics",
+      sources: [source],
+      target: mergeTarget.value,
+    });
+    selectedTopic.value = mergeTarget.value;
+    isolatedTopic.value = mergeTarget.value;
+    mergeTarget.value = "";
+    notifications.notify({ title: "Topics merged", type: "success", durationMs: 4000 });
+  } catch (error) {
+    reportFailure(errorMessage(error, "Could not merge topics."), { code: errorCode(error) });
+  }
+}
+
+async function moveSelected(topic) {
+  if (!selectedIds.value.length) return;
+  await moveIds(selectedIds.value, topic);
+}
+
+async function movePaperTo(topic, paper) {
+  if (!topic || !paper) return;
+  await moveIds([paper.id], topic);
+}
+
+async function moveIds(ids, topic) {
+  try {
+    await patchCollection({ action: "move_papers", annotation_ids: ids, topic, pin: true });
+    selectedIds.value = [];
+    notifications.notify({ title: "Papers moved", message: `Pinned to ${topic}.`, type: "success", durationMs: 4000 });
+  } catch (error) {
+    reportFailure(errorMessage(error, "Could not move papers."), { code: errorCode(error) });
+  }
+}
+
+async function importCandidate(candidate) {
+  if (!candidate?.arxiv_id || importingId.value) return;
+  importingId.value = candidate.arxiv_id;
+  try {
+    const res = await patchCollection({
+      action: "import_paper",
+      arxiv_id: candidate.arxiv_id,
+      title: candidate.title || "",
+    });
+    notifications.notify({
+      title: res.imported?.already_in_library ? "Already in library" : "Paper imported",
+      message: res.imported?.title || candidate.title,
+      type: "success",
+      durationMs: 5000,
+    });
+    if (res.imported?.document_id && !res.imported.already_in_library) {
+      // Stay on the page; the user can open from the card.
+    }
+  } catch (error) {
+    reportFailure(errorMessage(error, "Could not import that paper."), { code: errorCode(error) });
+  } finally {
+    importingId.value = "";
+  }
+}
 
 function clearFailureState() {
   requestError.value = "";
@@ -714,19 +780,18 @@ function updateStallWarning(job, unchangedMs) {
 async function pollBackend() {
   if (!activeJobId.value) return null;
   try {
-    const res = await $fetch(
-      `${apiBaseURL}/smart-collection/jobs/${activeJobId.value}/`,
-    );
+    const res = await $fetch(`${apiBaseURL}/smart-collection/jobs/${activeJobId.value}/`);
     store.setJob(res.job);
     return res.job;
   } catch (error) {
-    reportFailure(
-      errorMessage(error, "Could not check Smart Collection progress."),
-      { code: errorCode(error) },
-    );
+    reportFailure(errorMessage(error, "Could not check Smart Collection progress."), {
+      code: errorCode(error),
+    });
     return null;
   }
 }
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function continuouslyPollBackend() {
   let interval = 1500;
@@ -734,11 +799,9 @@ async function continuouslyPollBackend() {
   let unchangedSince = Date.now();
   stallNoticeShown = false;
   stallWarning.value = "";
-
   while (pollingActive && activeJobId.value) {
     const job = await pollBackend();
     if (!job) return;
-
     const fingerprint = `${job.status}:${job.stage}:${job.progress}:${job.processed_items}`;
     if (fingerprint !== lastFingerprint) {
       lastFingerprint = fingerprint;
@@ -748,13 +811,12 @@ async function continuouslyPollBackend() {
     } else {
       updateStallWarning(job, Date.now() - unchangedSince);
     }
-
     if (job.status === "completed") {
       stallWarning.value = "";
       await getData();
       notifications.notify({
         title: "Smart Collection ready",
-        message: "Your knowledge graph finished updating.",
+        message: "Topics, gaps, and influence are ready to use.",
         type: "success",
         durationMs: 6000,
       });
@@ -762,10 +824,9 @@ async function continuouslyPollBackend() {
       return;
     }
     if (job.status === "failed") {
-      reportFailure(
-        job.error?.message || "Smart Collection generation failed.",
-        { code: job.error?.code || "" },
-      );
+      reportFailure(job.error?.message || "Smart Collection generation failed.", {
+        code: job.error?.code || "",
+      });
       return;
     }
     if (job.status === "cancelled") {
@@ -786,25 +847,16 @@ async function continuouslyPollBackend() {
 async function RunSmartCollection() {
   clearFailureState();
   try {
-    const res = await $fetch(`${apiBaseURL}/smart-collection/`, {
-      method: "POST",
-    });
+    const res = await $fetch(`${apiBaseURL}/smart-collection/`, { method: "POST" });
     store.setJob(res.job);
-    if (res.already_running) {
-      notifications.notify({
-        title: "Smart Collection already running",
-        message: "Resuming progress for the job that is already in progress.",
-        type: "info",
-        durationMs: 6000,
-      });
-    } else {
-      notifications.notify({
-        title: "Smart Collection started",
-        message: "Building embeddings and clustering in the background.",
-        type: "info",
-        durationMs: 5000,
-      });
-    }
+    notifications.notify({
+      title: res.already_running ? "Smart Collection already running" : "Smart Collection started",
+      message: res.already_running
+        ? "Resuming progress for the job that is already in progress."
+        : "Building embeddings, topics, and knowledge-gap ghosts.",
+      type: "info",
+      durationMs: 5000,
+    });
   } catch (error) {
     if (error?.data?.job) store.setJob(error.data.job);
     reportFailure(errorMessage(error, "Failed to start Smart Collection."), {
@@ -818,34 +870,13 @@ async function RunSmartCollection() {
 async function getData() {
   try {
     const res = await $fetch(`${apiBaseURL}/smart-collection/`);
-    graphColors.value = res.colors || {};
-    data.value = res.data;
-    readingRecs.value = res.recommendations || {};
-    if (res.active_job) store.setJob(res.active_job);
+    applyCollection(res);
   } catch (error) {
-    reportFailure(
-      errorMessage(error, "Failed to fetch Smart Collection data."),
-      { code: errorCode(error) },
-    );
-    return;
-  }
-}
-
-async function initDataLogic() {
-  await getData();
-  if (jobStatus.value?.status === "failed" && jobStatus.value?.error?.message) {
-    reportFailure(jobStatus.value.error.message, {
-      code: jobStatus.value.error.code || "",
-      notify: false,
+    reportFailure(errorMessage(error, "Failed to fetch Smart Collection data."), {
+      code: errorCode(error),
     });
   }
-  if (activeJobId.value && isInitializing.value) await continuouslyPollBackend();
 }
-
-onMounted(async () => {
-  pollingActive = true;
-  initDataLogic();
-});
 
 async function updateSmartCollection() {
   if (isInitializing.value) return;
@@ -855,10 +886,9 @@ async function updateSmartCollection() {
 async function cancelSmartCollection() {
   if (!activeJobId.value) return;
   try {
-    const res = await $fetch(
-      `${apiBaseURL}/smart-collection/jobs/${activeJobId.value}/`,
-      { method: "DELETE" },
-    );
+    const res = await $fetch(`${apiBaseURL}/smart-collection/jobs/${activeJobId.value}/`, {
+      method: "DELETE",
+    });
     store.setJob(res.job);
   } catch (error) {
     reportFailure(errorMessage(error, "Could not cancel Smart Collection."), {
@@ -867,576 +897,112 @@ async function cancelSmartCollection() {
   }
 }
 
-onUnmounted(() => {
-  pollingActive = false;
-});
-
-// sidebar logic
-const isSidebarOpen = ref(true);
-
-const toggleSidebar = () => {
-  isSidebarOpen.value = !isSidebarOpen.value;
-};
-
-watch(isSidebarOpen, () => {
-  setTimeout(() => {
-    // Recalculate SVG scales for new width
-    initGraph();
-  }, 320);
-});
-
-const activeTab = ref("graph");
-
-const tabs = [
-  { id: "graph", label: "Graph Explorer", icon: "uil:sitemap" },
-  // { id: "chat", label: "Research Chat", icon: "uil:comment-alt-lines" },
-  { id: "recs", label: "Recommendations", icon: "uil:lightbulb-alt" },
-];
-
-const setActiveTab = (id) => {
-  if (!isSidebarOpen.value) {
-    isSidebarOpen.value = true;
-  }
-  activeTab.value = id;
-};
-
-/*
-graph explorer logic
-data object will look like this
-{
-  major : {
-    sub : {
-      paper titles
-    }
-  }
-}
-*/
-
-const expandedNodes = ref({});
-
-const toggleNode = (key) => {
-  expandedNodes.value[key] = !expandedNodes.value[key];
-};
-
-const graphExplorerData = computed(() => {
-  if (!data.value) {
-    console.log("no graph explorer data");
-    return {};
-  }
-
-  let hierarchy = {};
-
-  if (data.value) {
-    data.value.forEach((paper) => {
-      const subKey = paper.sub_topic ? paper.sub_topic : "__direct__";
-
-      if (paper.major_topic && paper.doc_title) {
-        if (!hierarchy[paper.major_topic]) {
-          hierarchy[paper.major_topic] = {};
-        }
-
-        if (!hierarchy[paper.major_topic][subKey]) {
-          hierarchy[paper.major_topic][subKey] = [];
-        }
-
-        hierarchy[paper.major_topic][subKey].push({
-          id: paper.id,
-          title: paper.doc_title,
-        });
-      }
-    });
-  }
-
-  return hierarchy;
-});
-
-// when a paper title is clicked in sidebar, this takes user to that point on the screen
-const focusOnPaper = (paperId) => {
-  // safety checks
-  if (!svg || !zoom || !data.value || !graphContainer.value) return;
-
-  const paper = data.value.find((p) => p.id === paperId);
-  if (!paper) return;
-
-  const { clientWidth: width, clientHeight: height } = graphContainer.value;
-
-  // clean data for domain calculation
-  const { papers } = processGraphData(data.value);
-
-  const xExtent = d3.extent(papers, (d) => d.x);
-  const yExtent = d3.extent(papers, (d) => d.y);
-
-  const xPadding = (xExtent[1] - xExtent[0]) * 0.1;
-  const yPadding = (yExtent[1] - yExtent[0]) * 0.1;
-
-  const xScale = d3
-    .scaleLinear()
-    .domain([xExtent[0] - xPadding, xExtent[1] + xPadding])
-    .range([0, width]);
-
-  const yScale = d3
-    .scaleLinear()
-    .domain([yExtent[0] - yPadding, yExtent[1] + yPadding])
-    .range([height, 0]);
-
-  // calculate target coordinates on screen
-  const targetX = xScale(paper.x_coordinate);
-  const targetY = yScale(paper.y_coordinate);
-  const targetScale = 6; // zoom scale
-
-  svg
-    .transition()
-    .duration(1500)
-    .call(
-      zoom.transform,
-      d3.zoomIdentity
-        .translate(width / 2, height / 2)
-        .scale(targetScale) // Zoom level
-        .translate(-targetX, -targetY)
-    );
-};
-
-// research chat
-
-/* recommendations
-This section gives the user recommendations on NEW topics that they should into based on current knowledge.
-
-note to self: need to format json obj to look nice to the user
-- also implement the regen button
-*/
-
-// getting recs
-const readingRecs = ref({});
-const isRegenerating = ref(false);
-const hasRecs = computed(() => {
-  return readingRecs.value && Object.keys(readingRecs.value).length > 0;
-});
-
-async function getRecommendations() {
-  try {
-    const res = await $fetch(`${apiBaseURL}/reading-recommendations/`);
-    readingRecs.value =
-      typeof res.recommendations === "string"
-        ? JSON.parse(res.recommendations)
-        : res.recommendations;
-  } catch (error) {
-    reportFailure(errorMessage(error, "Failed to fetch recommendations."), {
-      code: errorCode(error),
-    });
-  }
-}
-
-// regenerating recs
-async function newRecommendations() {
+async function regenerateRecommendations() {
   if (isRegenerating.value) return;
-
   isRegenerating.value = true;
   try {
-    const res = await $fetch(`${apiBaseURL}/reading-recommendations/`, {
-      method: "POST",
-    });
-    readingRecs.value = res.recommendations || {};
+    const res = await $fetch(`${apiBaseURL}/reading-recommendations/`, { method: "POST" });
+    readingRecs.value = normalizeRecommendations(res.recommendations);
+    if (res.ghosts) ghosts.value = res.ghosts;
     notifications.notify({
       title: "Recommendations updated",
-      message: "Fresh reading recommendations are ready.",
+      message: res.auto_imported
+        ? `Imported ${res.auto_imported} suggested paper${res.auto_imported === 1 ? "" : "s"}.`
+        : "Fresh reading recommendations are ready.",
       type: "success",
       durationMs: 5000,
     });
   } catch (error) {
-    reportFailure(
-      errorMessage(error, "Failed to generate recommendations."),
-      { code: errorCode(error) },
-    );
+    reportFailure(errorMessage(error, "Failed to generate recommendations."), {
+      code: errorCode(error),
+    });
   } finally {
     isRegenerating.value = false;
   }
 }
 
-async function regenerateRecommendations() {
-  await newRecommendations();
-}
-
-// GRAPH LOGIC
-
-const getTopicColor = (majorTopic, level) => {
-  // level options: major, sub, paper
-  if (graphColors.value && graphColors.value[majorTopic]) {
-    return graphColors.value[majorTopic][level];
-  }
-
-  // Fallback
-  if (level === "major") return "#e2e8f0";
-  if (level === "sub") return "#c084fc";
-  return "#60a5fa";
-};
-
-const graphContainer = ref(null);
-let svg, g, zoom; // D3 variables
-const ZOOM_MIN = 0.5;
-const ZOOM_MAX = 20;
-const zoomScale = ref(1);
-
-// calculating geometric centers of major and sub clusters
-const processGraphData = (rawData) => {
-  if (!rawData) return { papers: [], majorClusters: [], subClusters: [] };
-
-  const papers = rawData.map((d) => ({
-    id: d.id,
-    title: d.doc_title,
-    x: d.x_coordinate,
-    y: d.y_coordinate,
-    major: d.major_topic,
-    sub: d.sub_topic,
-    similar:
-      typeof d.similar_papers === "string"
-        ? JSON.parse(d.similar_papers || "[]")
-        : d.similar_papers || [],
-  }));
-
-  const paperMap = new Map(papers.map((p) => [p.id, p]));
-  const links = [];
-
-  papers.forEach((source) => {
-    if (source.similar && source.similar.length > 0) {
-      source.similar.forEach((targetId) => {
-        const target = paperMap.get(targetId);
-        // Only draw if target exists in current dataset
-        if (target) {
-          links.push({
-            source: source,
-            target: target,
-            id: `${source.id}-${target.id}`,
-          });
-        }
-      });
-    }
-  });
-
-  // calculating centers for major and sub
-  const majorMap = {};
-  papers.forEach((p) => {
-    if (!majorMap[p.major]) majorMap[p.major] = { xSum: 0, ySum: 0, count: 0 };
-    majorMap[p.major].xSum += p.x;
-    majorMap[p.major].ySum += p.y;
-    majorMap[p.major].count++;
-  });
-
-  const majorClusters = Object.keys(majorMap).map((key) => ({
-    label: key,
-    x: majorMap[key].xSum / majorMap[key].count,
-    y: majorMap[key].ySum / majorMap[key].count,
-  }));
-
-  const subMap = {};
-  papers.forEach((p) => {
-    if (!subMap[p.sub])
-      subMap[p.sub] = {
-        xSum: 0,
-        ySum: 0,
-        count: 0,
-        major: p.major,
-        label: p.sub,
-      };
-
-    subMap[p.sub].xSum += p.x;
-    subMap[p.sub].ySum += p.y;
-    subMap[p.sub].count++;
-  });
-
-  const subClusters = Object.keys(subMap).map((key) => ({
-    label: subMap[key].label,
-    major: subMap[key].major,
-    x: subMap[key].xSum / subMap[key].count,
-    y: subMap[key].ySum / subMap[key].count,
-  }));
-
-  return { papers, majorClusters, subClusters, links };
-};
-
-const initGraph = () => {
-  if (!graphContainer.value || !data.value) return;
-
-  d3.select(graphContainer.value).selectAll("*").remove();
-
-  const { clientWidth: width, clientHeight: height } = graphContainer.value;
-  const { papers, majorClusters, subClusters, links } = processGraphData(
-    data.value
-  );
-
-  svg = d3
-    .select(graphContainer.value)
-    .append("svg")
-    .attr("width", "100%")
-    .attr("height", "100%")
-    .attr("viewBox", [0, 0, width, height])
-    .style("background-color", "#020204");
-
-  const xExtent = d3.extent(papers, (d) => d.x);
-  const yExtent = d3.extent(papers, (d) => d.y);
-
-  const xPadding = (xExtent[1] - xExtent[0]) * 0.1;
-  const yPadding = (yExtent[1] - yExtent[0]) * 0.1;
-
-  const xScale = d3
-    .scaleLinear()
-    .domain([xExtent[0] - xPadding, xExtent[1] + xPadding])
-    .range([0, width]);
-
-  const yScale = d3
-    .scaleLinear()
-    .domain([yExtent[0] - yPadding, yExtent[1] + yPadding])
-    .range([height, 0]);
-
-  g = svg.append("g");
-
-  // lines between similar papers
-  const linkGroup = g
-    .append("g")
-    .attr("class", "layer-links")
-    .style("opacity", 1);
-
-  linkGroup
-    .selectAll("line")
-    .data(links)
-    .join("line")
-    .attr("x1", (d) => xScale(d.source.x))
-    .attr("y1", (d) => yScale(d.source.y))
-    .attr("x2", (d) => xScale(d.target.x))
-    .attr("y2", (d) => yScale(d.target.y))
-    .attr("stroke", "#ffffff")
-    .attr("stroke-width", 0.5)
-    .attr("stroke-opacity", 0.15);
-
-  // render layers
-
-  // Layer 1: Papers (Visible at High Zoom)
-  const paperGroup = g.append("g").attr("class", "layer-papers");
-
-  // Dots
-  paperGroup
-    .selectAll("circle")
-    .data(papers)
-    .join("circle")
-    .attr("cx", (d) => xScale(d.x))
-    .attr("cy", (d) => yScale(d.y))
-    .attr("r", 3)
-    .attr("opacity", 0.6)
-    .attr("fill", (d) => getTopicColor(d.major, "paper"))
-    .style(
-      "filter",
-      (d) => `drop-shadow(0 0 2px ${getTopicColor(d.major, "paper")})`
-    ); //glow
-
-  // Titles
-  paperGroup
-    .selectAll("text")
-    .data(papers)
-    .join("text")
-    .attr("x", (d) => xScale(d.x))
-    .attr("y", (d) => yScale(d.y) - 8)
-    .text((d) => d.title)
-    .attr("text-anchor", "middle")
-    .attr("font-size", "6px")
-    .attr("fill", "#94a3b8")
-    .style("opacity", 0);
-
-  // layer 2: sub topics (visible at medium zoom)
-  const subGroup = g.append("g").attr("class", "layer-sub").style("opacity", 0);
-
-  subGroup
-    .selectAll("text")
-    .data(subClusters)
-    .join("text")
-    .attr("x", (d) => xScale(d.x))
-    .attr("y", (d) => yScale(d.y))
-    .text((d) => d.label)
-    .attr("text-anchor", "middle")
-    .attr("font-size", "12px")
-    .attr("font-weight", "600")
-    .attr("fill", (d) => getTopicColor(d.major, "sub"))
-    .style("text-shadow", "0 2px 4px rgba(0,0,0,0.8)");
-
-  // layer 3: major topics (visible at low zoom/default)
-  const majorGroup = g
-    .append("g")
-    .attr("class", "layer-major")
-    .style("opacity", 1);
-
-  majorGroup
-    .selectAll("text")
-    .data(majorClusters)
-    .join("text")
-    .attr("x", (d) => xScale(d.x))
-    .attr("y", (d) => yScale(d.y))
-    .text((d) => d.label)
-    .attr("text-anchor", "middle")
-    .attr("font-size", "24px")
-    .attr("font-weight", "bold")
-    .attr("fill", (d) => getTopicColor(d.label, "major"))
-    .style("text-shadow", "0 4px 12px rgba(0,0,0,0.9)");
-
-  // zoom logic
-  zoom = d3
-    .zoom()
-    .scaleExtent([ZOOM_MIN, ZOOM_MAX]) // Max zoom out / Max zoom in
-    .on("zoom", (event) => {
-      const { transform } = event;
-      g.attr("transform", transform);
-      zoomScale.value = Number(transform.k.toFixed(2));
-      updateSemanticZoom(transform.k);
+onMounted(async () => {
+  pollingActive = true;
+  await getData();
+  if (jobStatus.value?.status === "failed" && jobStatus.value?.error?.message) {
+    reportFailure(jobStatus.value.error.message, {
+      code: jobStatus.value.error.code || "",
+      notify: false,
     });
-
-  svg.call(zoom).on("dblclick.zoom", null); // Disable double click zoom
-
-  // Initial Zoom to fit content
-  resetZoom();
-};
-
-// Controls visibility based on zoom level (k)
-const updateSemanticZoom = (k) => {
-  const subLayer = g.select(".layer-sub");
-  const majorLayer = g.select(".layer-major");
-
-  const paperText = g.selectAll(".layer-papers text");
-  const linkLayer = g.select(".layer-links");
-
-  // Smooth transitions using opacity
-  majorLayer
-    .transition()
-    .duration(200)
-    .style("opacity", k < 1.8 ? 1 : 0);
-  subLayer
-    .transition()
-    .duration(200)
-    .style("opacity", k >= 1.8 ? 1 : 0);
-  paperText
-    .transition()
-    .duration(200)
-    .style("opacity", k >= 1.8 ? 1 : 0);
-  linkLayer
-    .transition()
-    .duration(200)
-    .style("opacity", k >= 1.8 ? 1 : 0);
-};
-
-const resetZoom = () => {
-  if (!svg || !zoom || !graphContainer.value) return;
-  // Reset to identity (scale 1) centered
-  // might have calculate exact bounds to fit
-  const { clientWidth: width, clientHeight: height } = graphContainer.value;
-
-  svg
-    .transition()
-    .duration(750)
-    .call(
-      zoom.transform,
-      d3.zoomIdentity
-        .translate(width / 2, height / 2)
-        .scale(1)
-        .translate(-width / 2, -height / 2)
-    );
-
-  // Since domain is mapped to range, scale 1 fits the view exactly
-};
-
-const setZoomLevel = (scale) => {
-  if (!svg || !zoom || !graphContainer.value) return;
-
-  const clampedScale = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, scale));
-  const { clientWidth: width, clientHeight: height } = graphContainer.value;
-
-  svg
-    .transition()
-    .duration(150)
-    .call(zoom.scaleTo, clampedScale, [width / 2, height / 2]);
-};
-
-const zoomIn = () => {
-  setZoomLevel(zoomScale.value + 0.5);
-};
-
-const zoomOut = () => {
-  setZoomLevel(zoomScale.value - 0.5);
-};
-
-onMounted(() => {
-  if (hasData.value) {
-    nextTick(() => initGraph());
   }
+  if (activeJobId.value && isInitializing.value) await continuouslyPollBackend();
 });
 
-watch([data, graphColors], ([newData, newColors]) => {
-  if (
-    newData &&
-    Object.keys(newData).length > 0 &&
-    newColors &&
-    Object.keys(newColors).length > 0
-  ) {
-    nextTick(() => initGraph());
-  }
+onUnmounted(() => {
+  pollingActive = false;
 });
 </script>
 
 <style scoped>
 .custom-scrollbar::-webkit-scrollbar {
   width: 6px;
-  height: 6px;
-}
-.custom-scrollbar::-webkit-scrollbar-track {
-  background: transparent;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.1);
   border-radius: 10px;
 }
-.custom-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
+.action-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.3rem 0.55rem;
+  font-size: 10px;
+  color: #cbd5e1;
 }
-
+.action-chip:disabled {
+  opacity: 0.5;
+}
+.toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 0.6rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.35rem 0.7rem;
+  font-size: 11px;
+  color: #cbd5e1;
+}
+.zoom-btn {
+  display: flex;
+  height: 2rem;
+  width: 2rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.7);
+}
+.badge-imported {
+  border-radius: 999px;
+  border: 1px solid rgba(52, 211, 153, 0.3);
+  background: rgba(16, 185, 129, 0.12);
+  padding: 0.1rem 0.45rem;
+  font-size: 10px;
+  color: #6ee7b7;
+}
 .animate-fade-in {
-  animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: fadeIn 0.4s ease both;
 }
-
 @keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(5px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
 }
-
-@keyframes gradient {
-  0% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-  100% {
-    background-position: 0% 50%;
-  }
-}
-
 .animate-gradient {
   background-size: 200% auto;
   animation: gradient 8s ease infinite;
 }
-
-.zoom-range {
-  writing-mode: vertical-lr;
-  direction: rtl;
-}
-
-.zoom-range::-webkit-slider-runnable-track {
-  width: 0.35rem;
-  border-radius: 9999px;
-  background: rgba(255, 255, 255, 0.12);
-}
-
-.zoom-range::-webkit-slider-thumb {
-  margin-left: -0.25rem;
+@keyframes gradient {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
 }
 </style>

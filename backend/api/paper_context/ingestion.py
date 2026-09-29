@@ -550,6 +550,10 @@ def ingest_document(document_id: int, *, allow_ocr: bool = True, force: bool = F
                     chunks, batch_size=DATABASE_BATCH_SIZE
                 )
         _rebuild_fts(document.id)
+        # Smart Collection embeddings include the paper's opening text.
+        models.Annotations.objects.filter(document_id=document.id).update(
+            needs_embedding=True
+        )
         return "success"
     except (DocumentNotFound, OCRFailed):
         raise

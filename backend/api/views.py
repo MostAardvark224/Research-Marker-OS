@@ -121,6 +121,12 @@ def regenerate_recommendations(*args, **kwargs):
     return implementation(*args, **kwargs)
 
 
+def serialize_collection(*args, **kwargs):
+    from api.smart_collections.service import serialize_collection as implementation
+
+    return implementation(*args, **kwargs)
+
+
 def safe_failure(*args, **kwargs):
     from api.smart_collections.service import safe_failure as implementation
 
@@ -1815,28 +1821,6 @@ class SmartCollectionView(APIView):
         )
     
     
-    """
-    sending smart collection data for frontend rendering
-    format in simple way
-    frontend should have to do minimal work to render
-
-    # data will look like this
-    [
-        {
-            id: id, 
-            doc_title: doc_title, 
-            major_topic: major_topic, 
-            sub_topic: sub_topic, 
-            x_coordinate: x_coordinate,  
-            y_coordinate: y_coordinate, 
-        }
-    ] 
-    - where each dict in the list is the data from the annot obj
-    - won't send actual highlight/sticky/notepad data yet as cross-connection ideas hasn't been implemented yet, will def do this in future
-
-    Frontend will need to calculate geometric mean for each cluster, shouldn't be an intensive computation tho
-    
-    """
     def get(self, request):
         active = models.SmartCollectionJob.objects.filter(
             status__in=[
@@ -1846,51 +1830,64 @@ class SmartCollectionView(APIView):
         ).first()
         if active:
             active = reconcile_stale_job(active)
-        smart_collection = models.SmartCollections.objects.first()
-        if smart_collection and smart_collection.is_ready:
-            is_ready = smart_collection.is_ready
-            
-            if is_ready:
-                list_of_annot_objs = smart_collection.annotation_ids
-                annot_objs = models.Annotations.objects.filter(
-                    pk__in = list_of_annot_objs
-                ).select_related("document")
+        collection = models.SmartCollections.objects.first()
+        return Response(serialize_collection(collection, active), status=status.HTTP_200_OK)
 
-                data = []
+    def patch(self, request):
+        from api.smart_collections.actions import (
+            SmartCollectionActionError,
+            import_arxiv_candidate,
+            merge_topics,
+            move_papers,
+            rename_topic,
+            save_topic_as_folder,
+        )
 
-                for obj in annot_objs: 
-                    data_dict = dict(
-                        id = obj.pk, 
-                        doc_title = obj.document.title, 
-                        major_topic = obj.major_topic, 
-                        sub_topic = obj.sub_topic, 
-                        x_coordinate = obj.x_coordinate,
-                        y_coordinate = obj.y_coordinate,
-                        similar_papers = obj.similar_papers
-                    )
-
-                    data.append(data_dict)
-
-                colors = smart_collection.colors
-
+        action = str(request.data.get("action") or "").strip()
+        try:
+            if action == "rename_topic":
+                payload = rename_topic(
+                    str(request.data.get("from") or request.data.get("from_name") or ""),
+                    str(request.data.get("to") or request.data.get("to_name") or ""),
+                )
+            elif action == "move_papers":
+                payload = move_papers(
+                    request.data.get("annotation_ids") or [],
+                    str(request.data.get("topic") or ""),
+                    pin=to_bool(request.data.get("pin", True)),
+                )
+            elif action == "merge_topics":
+                payload = merge_topics(
+                    request.data.get("sources") or [],
+                    str(request.data.get("target") or ""),
+                )
+            elif action == "save_folder":
+                payload = save_topic_as_folder(str(request.data.get("topic") or ""))
+            elif action in {"import_paper", "import_recommendation"}:
+                payload = import_arxiv_candidate(
+                    str(request.data.get("arxiv_id") or ""),
+                    title=str(request.data.get("title") or ""),
+                )
+            else:
                 return Response(
                     {
-                        "data": data,
-                        "colors": colors or {},
-                        "recommendations": smart_collection.reading_recommendations or {},
-                        "active_job": serialize_job(active) if active else None,
+                        "error": "invalid_smart_collection_action",
+                        "message": "Unknown Smart Collection action.",
                     },
-                    status=status.HTTP_200_OK,
+                    status=status.HTTP_400_BAD_REQUEST,
                 )
-        return Response(
-            {
-                "data": [],
-                "colors": {},
-                "recommendations": {},
-                "active_job": serialize_job(active) if active else None,
-            },
-            status=status.HTTP_200_OK,
-        )
+        except SmartCollectionActionError as exc:
+            return Response(
+                {"error": exc.code, "message": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except Exception as exc:
+            code, message = safe_failure(exc, "publishing")
+            return Response(
+                {"error": code, "message": message},
+                status=getattr(exc, "http_status", status.HTTP_502_BAD_GATEWAY),
+            )
+        return Response(payload, status=status.HTTP_200_OK)
 
 # polling view so that frontend can track status of collection creation
 class PollSmartCollection(APIView):
@@ -1975,7 +1972,17 @@ class ReadingRecommendationsView(APIView):
     def post(self, request): 
         try:
             recs = regenerate_recommendations(get_smart_collection_config())
-            return Response({"recommendations": recs}, status=status.HTTP_200_OK)
+            collection = models.SmartCollections.objects.first()
+            return Response(
+                {
+                    "recommendations": recs,
+                    "ghosts": (collection.ghost_nodes if collection else []) or [],
+                    "auto_imported": (
+                        recs.get("auto_imported", 0) if isinstance(recs, dict) else 0
+                    ),
+                },
+                status=status.HTTP_200_OK,
+            )
         except Exception as exc:
             code, message = safe_failure(exc, "recommendations")
             return Response(

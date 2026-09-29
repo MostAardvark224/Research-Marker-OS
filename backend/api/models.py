@@ -220,6 +220,10 @@ class Annotations(models.Model):
 
 
     similar_papers: Any = models.JSONField(default=list, blank=True)
+    centrality = models.FloatField(blank=True, null=True)
+    influence = models.FloatField(blank=True, null=True)
+    node_role = models.CharField(max_length=16, blank=True, default="")
+    pinned_topic = models.CharField(max_length=100, blank=True, default="")
 
     token_count = models.IntegerField(default=0)  # for bm25 calcs
 
@@ -230,18 +234,50 @@ class Annotations(models.Model):
         # hashing fields that contribute to embedding
         # NOTE: will include doc title in embedding just don't want to hash it to prevent N+1 Query
 
-        # just getting the sticky note content because idc about any other data for embedding purposes
         sticky_text = ""
         data = self.sticky_note_data
-
-        if isinstance(data, list):
-            extracted_texts = [str(item.get("content", "")) for item in data]  # type: ignore[union-attr]
-            sticky_text = "".join(extracted_texts)
+        items = (
+            data
+            if isinstance(data, list)
+            else list(data.values())
+            if isinstance(data, dict)
+            else []
+        )
+        sticky_parts: list[str] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            tag = str(item.get("tag") or "").strip()
+            content = str(item.get("content") or "").strip()
+            if tag and content:
+                sticky_parts.append(f"[{tag}] {content}")
+            elif content:
+                sticky_parts.append(content)
+        sticky_text = "".join(sticky_parts)
 
         notepad_content = self.notepad or ""
-
         title = self.document.title if self.document_id else ""
         content_string = f"{title}|{sticky_text}|{notepad_content}"
+
+        highlights = self.highlight_data
+        highlight_items = (
+            highlights
+            if isinstance(highlights, list)
+            else list(highlights.values())
+            if isinstance(highlights, dict)
+            else []
+        )
+        highlight_parts: list[str] = []
+        for item in highlight_items:
+            if isinstance(item, dict):
+                text = str(item.get("text") or "").strip()
+                if text:
+                    highlight_parts.append(text)
+            elif isinstance(item, str) and item.strip():
+                highlight_parts.append(item.strip())
+        highlight_text = " ".join(highlight_parts)
+        if highlight_text:
+            content_string = f"{content_string}|hl|{highlight_text}"
         return hashlib.sha256(content_string.encode("utf-8")).hexdigest()
 
     # override save to see if embedding is needed
@@ -457,6 +493,10 @@ class SmartCollections(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     reading_recommendations: Any | None = models.JSONField(blank=True, null=True)
     colors: Any | None = models.JSONField(blank=True, null=True)
+    topics: Any = models.JSONField(default=list, blank=True)
+    ghost_nodes: Any = models.JSONField(default=list, blank=True)
+    heatmap: Any = models.JSONField(default=dict, blank=True)
+    stats: Any = models.JSONField(default=dict, blank=True)
     source_job = models.ForeignKey["SmartCollectionJob"](
         "SmartCollectionJob",
         related_name="published_collections",

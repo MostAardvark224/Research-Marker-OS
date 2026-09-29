@@ -12,7 +12,7 @@
   "scripts": {
     "dev:nuxt": "nuxt dev --dotenv .env.dev",
     "dev:electron": "wait-on http://localhost:3000 && cross-env NODE_ENV=development ELECTRON_DISABLE_SANDBOX=1 electron .",
-    "dev:electron:external": "wait-on http://localhost:3000 && cross-env NODE_ENV=development ELECTRON_EXTERNAL_BACKEND=1 ELECTRON_DISABLE_SANDBOX=1 electron . --ozone-platform=x11",
+    "dev:electron:external": "wait-on http://localhost:3000 && cross-env NODE_ENV=development ELECTRON_EXTERNAL_BACKEND=1 ELECTRON_DISABLE_SANDBOX=1 electron . --ozone-platform-hint=auto",
     "dev": "concurrently \"pnpm run dev:nuxt\" \"pnpm run dev:electron\"",
     "dev:external": "concurrently \"pnpm run dev:nuxt\" \"pnpm run dev:electron:external\"",
     "generate": "nuxt generate --dotenv .env.prod",

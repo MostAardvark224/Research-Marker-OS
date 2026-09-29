@@ -67,56 +67,69 @@
       <div
         :class="`flex-1 flex flex-col overflow-hidden ${colorScheme.containerBorder} ${colorScheme.containerBg}`"
       >
+        <Teleport to="body">
+          <div
+            v-if="topBarTip"
+            ref="topBarTipEl"
+            role="tooltip"
+            class="pointer-events-none fixed z-[200] max-w-[min(20rem,calc(100vw-16px))] rounded-md border border-slate-700 bg-slate-950 px-2 py-1 text-[11px] font-medium leading-snug text-slate-100 shadow-lg transition-opacity duration-150"
+            :class="topBarTip.ready ? 'opacity-100' : 'opacity-0'"
+            :style="{ left: `${topBarTip.left}px`, top: `${topBarTip.top}px` }"
+          >
+            {{ topBarTip.text }}
+          </div>
+        </Teleport>
         <header
-          :class="`flex shrink-0 items-center justify-between gap-2 px-3 md:px-5 py-3 border-b ${colorScheme.headerBorder} ${colorScheme.headerBg}`"
+          ref="topBarHeader"
+          @mouseover="onTopBarHover"
+          @mouseleave="hideTopBarTip"
+          @focusin="onTopBarHover"
+          @focusout="hideTopBarTip"
+          @click="hideTopBarTip"
+          :class="`flex shrink-0 flex-wrap items-center justify-between gap-x-2 gap-y-2 px-3 md:px-5 py-3 border-b ${colorScheme.headerBorder} ${colorScheme.headerBg}`"
         >
           <div class="flex min-w-0 items-center gap-2">
-            <div class="hidden shrink-0 items-center gap-2 sm:flex">
-              <span
-                :class="`inline-flex h-2.5 w-2.5 rounded-full ${colorScheme.dotRed}`"
-              ></span>
-              <span
-                :class="`inline-flex h-2.5 w-2.5 rounded-full ${colorScheme.dotAmber}`"
-              ></span>
-              <span
-                :class="`inline-flex h-2.5 w-2.5 rounded-full ${colorScheme.dotGreen}`"
-              ></span>
-            </div>
-
             <h2
+              v-show="!topBarTitleHidden"
               :class="`hidden shrink-0 text-sm font-semibold tracking-wide sm:block md:text-base ${colorScheme.headerText}`"
             >
               Research Marker
             </h2>
 
             <div class="flex shrink-0 items-center gap-1 sm:ml-1 sm:gap-2">
-              <Icon
-                @click="showSettings = true"
-                name="material-symbols:settings"
-                title="Settings"
-                :class="`${topBarBtnIcon} ${colorScheme.headerText} cursor-pointer hover:text-blue-400 transition-colors`"
-              />
               <button
+                data-tip="Settings: AI providers, note sync and updates"
+                type="button"
+                aria-label="Settings"
+                @click="showSettings = true"
+                class="group relative flex items-center"
+              >
+                <Icon
+                  name="material-symbols:settings"
+                  :class="`${topBarBtnIcon} ${colorScheme.headerText} group-hover:text-blue-400 transition-colors`"
+                />
+              </button>
+              <button
+                data-tip="Open the project page on GitHub"
                 type="button"
                 aria-label="Open the Research Marker project page"
-                title="Project page"
                 @click="openProjectPage"
-                class="flex items-center"
+                class="group relative flex items-center"
               >
                 <Icon
                   name="uil:github"
-                  :class="`${topBarBtnIcon} ${colorScheme.headerText} hover:text-gray-400 transition-colors`"
+                  :class="`${topBarBtnIcon} ${colorScheme.headerText} group-hover:text-gray-400 transition-colors`"
                 />
               </button>
             </div>
 
-            <div class="flex min-w-0 items-center gap-1.5 sm:gap-2">
+            <div ref="topBarActions" class="flex min-w-0 items-center gap-1.5 sm:gap-2">
               <button
+                data-tip="Create a new note in the current folder"
                 type="button"
                 @click="openNewNoteModal(activeFolderId)"
                 :class="[topBarBtn, colorScheme.btnNote, colorScheme.btnNoteHover]"
                 aria-label="Create a new note"
-                title="New note"
               >
                 <Icon
                   name="ph:note-pencil"
@@ -128,11 +141,12 @@
               </button>
 
               <button
+
+                data-tip="Upload PDF papers from your computer"
                 type="button"
                 @click="showUpload = true"
                 :class="[topBarBtn, colorScheme.btnPrimary, colorScheme.btnPrimaryHover]"
                 aria-label="Upload Papers"
-                title="Upload papers"
               >
                 <Icon
                   name="material-symbols:upload-sharp"
@@ -144,10 +158,11 @@
               </button>
 
               <NuxtLink
+
+                data-tip="Browse and search everything in your knowledge base"
                 to="/knowledge-base"
                 :class="[topBarBtn, colorScheme.btnSecondary, colorScheme.btnSecondaryHover]"
                 aria-label="Knowledge Index"
-                title="Knowledge index"
               >
                 <Icon
                   name="material-symbols:book-ribbon-outline"
@@ -158,12 +173,29 @@
                 </span>
               </NuxtLink>
 
+              <NuxtLink
+
+                data-tip="See your papers grouped by topic, with gaps and recommendations"
+                to="/knowledge-base/smart-collections"
+                :class="[topBarBtn, colorScheme.btnSmart, colorScheme.btnSmartHover]"
+                aria-label="Smart Collections"
+              >
+                <Icon
+                  name="carbon:network-4"
+                  :class="[topBarBtnIcon, colorScheme.btnPrimaryText]"
+                />
+                <span :class="[topBarBtnLabel, colorScheme.btnPrimaryText]">
+                  Smart Collections
+                </span>
+              </NuxtLink>
+
               <button
+
+                data-tip="Review papers recommended by Scholar Inbox"
                 type="button"
                 @click="showScholarInbox = true"
                 :class="[topBarBtn, colorScheme.btnTertiary, colorScheme.btnTertiaryHover]"
                 aria-label="Scholar Inbox"
-                title="Scholar inbox"
               >
                 <Icon
                   name="material-symbols:school"
@@ -175,11 +207,12 @@
               </button>
 
               <button
+
+                data-tip="Import a paper by arXiv link or ID"
                 type="button"
                 @click="showArxivImport = true"
                 :class="[topBarBtn, colorScheme.btnArxiv, colorScheme.btnArxivHover]"
                 aria-label="Import from arXiv"
-                title="Import from arXiv"
               >
                 <Icon
                   name="academicons:arxiv"
@@ -192,12 +225,12 @@
             </div>
           </div>
 
-          <div class="flex shrink-0 items-center gap-2">
+          <div ref="topBarControls" class="ml-auto flex shrink-0 items-center gap-2">
             <input
               v-model="searchQuery"
               type="text"
               placeholder="Search title…"
-              :class="`hidden w-28 sm:block lg:w-40 xl:w-48 ${colorScheme.inputBg} border ${colorScheme.inputBorder} rounded-lg px-2.5 py-1.5 text-xs ${colorScheme.inputText} ${colorScheme.inputPlaceholder} focus:outline-none focus:ring-1 ${colorScheme.inputFocusRing} ${colorScheme.inputFocusBorder}`"
+              :class="`hidden w-28 sm:block 2xl:w-44 ${colorScheme.inputBg} border ${colorScheme.inputBorder} rounded-lg px-2.5 py-1.5 text-xs ${colorScheme.inputText} ${colorScheme.inputPlaceholder} focus:outline-none focus:ring-1 ${colorScheme.inputFocusRing} ${colorScheme.inputFocusBorder}`"
             />
             <select
               v-model="sortBy"
@@ -831,10 +864,6 @@ const colorScheme = ref({
   headerBg: "bg-slate-900/90",
   headerText: "text-slate-100",
 
-  dotRed: "bg-red-500",
-  dotAmber: "bg-amber-500",
-  dotGreen: "bg-emerald-500",
-
   btnPrimary: "bg-blue-600",
   btnPrimaryHover: "hover:bg-blue-700",
   btnPrimaryText: "text-white",
@@ -844,6 +873,9 @@ const colorScheme = ref({
 
   btnSecondary: "bg-emerald-600",
   btnSecondaryHover: "hover:bg-green-700",
+
+  btnSmart: "bg-purple-600",
+  btnSmartHover: "hover:bg-purple-700",
 
   btnTertiary: "bg-black",
   btnTertiaryHover: "hover:bg-gray-800",
@@ -911,13 +943,96 @@ const colorScheme = ref({
 // because the buttons draw from different icon sets (material-symbols,
 // phosphor, academicons) whose glyphs fill their viewBox differently and so
 // render at visibly different sizes for the same `text-*`.
-const topBarBtn =
-  "group flex shrink-0 items-center gap-2 rounded-lg transition-all duration-200 p-1.5 sm:p-2 xl:px-3 xl:py-2";
-const topBarBtnIcon = "shrink-0 size-[18px] sm:size-5";
-// Labels only appear at xl — five of them plus the title and the search
-// controls need well over 1024px before they stop colliding.
-const topBarBtnLabel =
-  "hidden xl:inline text-xs font-semibold leading-none whitespace-nowrap";
+// Densities go from roomiest to icon-only; fitTopBar picks the first that fits
+// the real header width, so labels survive as long as they physically can.
+const TOP_BAR_DENSITIES = [
+  { btn: "gap-2 px-3 py-2", icon: "size-5", label: "text-xs" },
+  { btn: "gap-1.5 px-2 py-1.5", icon: "size-[18px]", label: "text-[11px]" },
+  { btn: "gap-1 px-1.5 py-1.5", icon: "size-4", label: "text-[10px]" },
+  { btn: "gap-1 px-1.5 py-1.5", icon: "size-4", label: "text-[10px]", hideTitle: true },
+  { btn: "p-1.5 sm:p-2", icon: "size-[18px] sm:size-5", label: "hidden", hideTitle: true },
+];
+const ICON_ONLY_DENSITY = TOP_BAR_DENSITIES.length - 1;
+const topBarDensity = ref(0);
+const topBarHeader = ref(null);
+const topBarActions = ref(null);
+const topBarControls = ref(null);
+
+const topBarLevel = computed(() => TOP_BAR_DENSITIES[topBarDensity.value]);
+const topBarBtn = computed(
+  () =>
+    // Only colours animate: a size transition would make fitTopBar measure mid-animation.
+    `group relative flex shrink-0 items-center rounded-lg transition-colors duration-200 ${topBarLevel.value.btn}`
+);
+const topBarBtnIcon = computed(() => `shrink-0 ${topBarLevel.value.icon}`);
+const topBarBtnLabel = computed(
+  () => `font-semibold leading-none whitespace-nowrap ${topBarLevel.value.label}`
+);
+const topBarTitleHidden = computed(() => Boolean(topBarLevel.value.hideTitle));
+// One shared tooltip, positioned in viewport space so it can be clamped on
+// screen; per-button tooltips centred under edge buttons ran off the window.
+const topBarTip = ref(null);
+const topBarTipEl = ref(null);
+let topBarTipTarget = null;
+let topBarTipTimer = 0;
+
+const showTopBarTip = (target) => {
+  if (target === topBarTipTarget) return;
+  topBarTipTarget = target;
+  clearTimeout(topBarTipTimer);
+  topBarTip.value = null;
+  if (!target) return;
+  topBarTipTimer = setTimeout(async () => {
+    const box = target.getBoundingClientRect();
+    topBarTip.value = { text: target.dataset.tip, left: 0, top: box.bottom + 8, ready: false };
+    await nextTick();
+    const el = topBarTipEl.value;
+    if (!el || topBarTipTarget !== target) return;
+    const width = el.offsetWidth;
+    const centred = box.left + box.width / 2 - width / 2;
+    const left = Math.min(Math.max(centred, 8), window.innerWidth - width - 8);
+    topBarTip.value = { ...topBarTip.value, left, ready: true };
+  }, 200);
+};
+
+const onTopBarHover = (event) => showTopBarTip(event.target.closest?.("[data-tip]") || null);
+const hideTopBarTip = () => showTopBarTip(null);
+
+const topBarFits = (requireOneRow) => {
+  const header = topBarHeader.value;
+  const actions = topBarActions.value;
+  const controls = topBarControls.value;
+  if (!header || !actions?.lastElementChild || !controls) return true;
+  const headerBox = header.getBoundingClientRect();
+  const limit = headerBox.right - parseFloat(getComputedStyle(header).paddingRight);
+  const actionsBox = actions.getBoundingClientRect();
+  if (actions.lastElementChild.getBoundingClientRect().right > limit + 0.5) return false;
+  return !requireOneRow || controls.getBoundingClientRect().top < actionsBox.bottom;
+};
+
+// Prefer one row at the largest density; if nothing fits on one row, let the
+// search/sort controls wrap before giving up on labels entirely.
+let topBarFitRun = 0;
+const fitTopBar = async () => {
+  const run = ++topBarFitRun;
+  for (const requireOneRow of [true, false]) {
+    for (let level = 0; level < ICON_ONLY_DENSITY; level += 1) {
+      topBarDensity.value = level;
+      await nextTick();
+      // A newer resize started its own pass; let that one decide.
+      if (run !== topBarFitRun) return;
+      if (topBarFits(requireOneRow)) return;
+    }
+  }
+  topBarDensity.value = ICON_ONLY_DENSITY;
+};
+
+let topBarFrame = 0;
+const scheduleTopBarFit = () => {
+  hideTopBarTip();
+  cancelAnimationFrame(topBarFrame);
+  topBarFrame = requestAnimationFrame(fitTopBar);
+};
 
 const vFocus = {
   mounted: (el) => el.focus(),
@@ -1247,11 +1362,17 @@ async function fetchPastPapers() {
 }
 
 onMounted(async () => {
+  window.addEventListener("resize", scheduleTopBarFit);
+  document.fonts?.ready.then(scheduleTopBarFit);
+  scheduleTopBarFit();
   await fetchPastPapers();
   syncLibraryTocPolling();
 });
 
 onUnmounted(() => {
+  window.removeEventListener("resize", scheduleTopBarFit);
+  cancelAnimationFrame(topBarFrame);
+  clearTimeout(topBarTipTimer);
   stopUploadTocPolling();
   stopLibraryTocPolling();
 });
