@@ -177,6 +177,20 @@ def selection_payload() -> dict[str, Any]:
     return {"active": True, **selection}
 
 
+def notepad_payload(*, document_id: int | None = None) -> dict[str, Any]:
+    from api.models import Document
+    from api.note_sync import load_synced_notepad
+
+    doc_id = _require_active_document_id(document_id)
+    try:
+        document = Document.objects.get(pk=doc_id)
+    except Document.DoesNotExist as exc:
+        raise DocumentNotFound(f"Document {doc_id} was not found.") from exc
+    payload = load_synced_notepad(document)
+    payload["is_empty"] = not payload["content"].strip()
+    return payload
+
+
 def search_payload(
     *,
     query: str,

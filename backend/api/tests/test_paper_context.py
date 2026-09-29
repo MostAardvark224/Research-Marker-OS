@@ -11,7 +11,7 @@ from django.test import TestCase, override_settings
 
 from api import models
 from api.errors import ContextLimitExceeded, PageExtractionFailed, PageOutOfRange
-from api.paper_context.builder import build_paper_context
+from api.paper_context.builder import build_paper_context, format_paper_context
 from api.paper_context.citations import extract_citations
 from api.paper_context.ingestion import clear_paper_context, ingest_document
 from api.paper_context.mentions import InvalidMentionSyntax, parse_mentions
@@ -83,6 +83,11 @@ class MentionParserTests(TestCase):
         self.assertTrue(result.uses_selection)
         self.assertTrue(result.uses_current)
         self.assertEqual(result.normalized_question, "Explain using")
+
+    def test_notepad_mention_is_typed_and_stripped(self):
+        result = parse_mentions("Summarize @notepad please", page_count=3, current_page=1)
+        self.assertTrue(result.uses_notepad)
+        self.assertEqual(result.normalized_question, "Summarize please")
 
     def test_invalid_pages_are_rejected_without_clamping(self):
         with self.assertRaises(PageOutOfRange):
@@ -201,6 +206,23 @@ class IngestionTests(TestCase):
         assert context.selected_text is not None
         self.assertEqual(context.selected_text.page_number, 2)
         self.assertFalse(context.retrieved_chunks)
+
+    @patch("api.note_sync.load_note_sync_directories", return_value=([], []))
+    @patch("api.paper_context.ingestion.get_app_data_dir")
+    def test_builder_includes_notepad_for_notepad_mention(self, app_data, _dirs):
+        app_data.return_value = Path(self.temp.name)
+        ingest_document(self.document.id, allow_ocr=False)
+        models.Annotations.objects.create(document=self.document, notepad="Key idea: context engine")
+        context = build_paper_context(
+            document_id=self.document.id,
+            question="Compare @notepad with @page 1",
+            current_page=1,
+        )
+        self.assertEqual(context.notepad, "Key idea: context engine")
+        formatted = format_paper_context(context)
+        self.assertIn("USER'S NOTEPAD FOR THIS PAPER", formatted)
+        self.assertIn("Key idea: context engine", formatted)
+        self.assertNotIn("@notepad", context.user_question)
 
     @patch("api.paper_context.ingestion.get_app_data_dir")
     def test_clear_paper_context_removes_db_rows_and_cache(self, app_data):

@@ -205,6 +205,19 @@ class McpSelectionView(APIView):
             return _error_response(exc)
 
 
+class McpNotepadView(APIView):
+    @require_mcp_token
+    def get(self, request):
+        try:
+            return Response(
+                mcp_tools.notepad_payload(
+                    document_id=_optional_int(request.query_params.get("document_id")),
+                )
+            )
+        except Exception as exc:
+            return _error_response(exc)
+
+
 class McpSearchView(APIView):
     @require_mcp_token
     def get(self, request):

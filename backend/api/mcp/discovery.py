@@ -19,9 +19,11 @@ DEFAULT_INSTRUCTIONS = (
     "You are connected to Research Marker on this machine. "
     "Use these read-only paper tools in ChatGPT Desktop, Codex, Claude Desktop, or Cowork. "
     "When the user asks you to use Research Marker / the Research Marker MCP, "
-    "or mentions @page, @pages, @current, or @selection, "
+    "or mentions @page, @pages, @current, @selection, or @notepad, "
     "call resolve_paper_question (or get_page / get_pages) to load the open paper's "
-    "local context before answering. Prefer get_active_paper first if you need to "
+    "local context before answering. Use get_notepad for the user's own notes on the "
+    "paper; call it again each time you need them because it re-syncs on every request. "
+    "Prefer get_active_paper first if you need to "
     "know which document is open. Do not invent page content."
 )
 

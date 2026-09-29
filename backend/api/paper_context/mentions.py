@@ -10,7 +10,7 @@ PAGE_MENTION_RE = re.compile(
     r"@pages?\b(?:[ \t]+(?P<expression>[-+\d,\s\u2013\u2014]+))?",
     re.IGNORECASE,
 )
-LOCAL_MENTION_RE = re.compile(r"@(selection|current)\b", re.IGNORECASE)
+LOCAL_MENTION_RE = re.compile(r"@(selection|current|notepad)\b", re.IGNORECASE)
 RANGE_RE = re.compile(r"^(-?\d+)\s*[-\u2013\u2014]\s*(-?\d+)$")
 INTEGER_RE = re.compile(r"^-?\d+$")
 
@@ -25,6 +25,7 @@ class MentionResult:
     page_numbers: list[int] = field(default_factory=list)
     uses_selection: bool = False
     uses_current: bool = False
+    uses_notepad: bool = False
     had_page_mention: bool = False
 
 
@@ -106,6 +107,7 @@ def parse_mentions(
     normalized = PAGE_MENTION_RE.sub(replace_page, question)
     uses_selection = bool(re.search(r"@selection\b", normalized, re.IGNORECASE))
     uses_current = bool(re.search(r"@current\b", normalized, re.IGNORECASE))
+    uses_notepad = bool(re.search(r"@notepad\b", normalized, re.IGNORECASE))
     normalized = LOCAL_MENTION_RE.sub(" ", normalized)
     normalized = re.sub(r"[ \t]+", " ", normalized)
     normalized = re.sub(r" *\n *", "\n", normalized).strip()
@@ -127,5 +129,6 @@ def parse_mentions(
         page_numbers=pages,
         uses_selection=uses_selection,
         uses_current=uses_current,
+        uses_notepad=uses_notepad,
         had_page_mention=had_page_mention,
     )

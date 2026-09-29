@@ -8,6 +8,7 @@ ContextReason = Literal[
     "explicit_page_reference",
     "current_page",
     "current_selection",
+    "notepad",
     "semantic_retrieval",
     "visual_page",
     "figure_request",
@@ -74,6 +75,7 @@ class PaperContext:
     retrieved_chunks: list[RetrievedChunk] = field(default_factory=list)
     current_page: int | None = None
     selected_text: SelectionContext | None = None
+    notepad: str | None = None
     page_text: list[PageContext] = field(default_factory=list)
     page_images: list[str] = field(default_factory=list)
     context_reason: dict[str, ContextReason] = field(default_factory=dict)
@@ -88,6 +90,7 @@ class PaperContext:
             "retrieved_chunks": [asdict(item) for item in self.retrieved_chunks],
             "current_page": self.current_page,
             "selected_text": asdict(self.selected_text) if self.selected_text else None,
+            "notepad": self.notepad,
             "page_text": [
                 page.to_dict(expose_local_path=expose_local_paths) for page in self.page_text
             ],

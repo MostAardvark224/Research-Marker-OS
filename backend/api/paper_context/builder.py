@@ -137,6 +137,20 @@ def build_paper_context(
         context.context_reason["selection"] = "current_selection"
         used_characters += len(selection)
 
+    if mentions.uses_notepad:
+        from api.note_sync import load_synced_notepad
+
+        notepad = load_synced_notepad(document)["content"].strip()
+        remaining = limits.maximum_text_characters - used_characters
+        if len(notepad) > remaining:
+            notepad = (
+                notepad[: max(remaining, 0)].rstrip()
+                + f"\n[Notepad truncated to the {limits.maximum_text_characters}-character context limit.]"
+            )
+        context.notepad = notepad
+        context.context_reason["notepad"] = "notepad"
+        used_characters += len(notepad)
+
     if not mentions.had_page_mention:
         chunks = search_document(
             document.id,
@@ -198,6 +212,12 @@ def format_paper_context(context: PaperContext) -> str:
         sections.append(
             f"--- SELECTED TEXT FROM PAGE {context.selected_text.page_number} ---\n"
             f"{context.selected_text.text}"
+        )
+    if context.notepad is not None:
+        sections.append(
+            "--- USER'S NOTEPAD FOR THIS PAPER ---\n"
+            "[These are the user's own notes, not text from the paper. Do not cite them as pages.]\n"
+            f"{context.notepad or '(The notepad is empty.)'}"
         )
     for chunk in context.retrieved_chunks:
         label = (

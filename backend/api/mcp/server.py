@@ -290,6 +290,21 @@ def build_server():
     @server.tool(
         annotations=read_only,
         description=(
+            "Return the user's notepad (their own Markdown notes) for the active or "
+            "specified paper. Linked external Markdown files are re-synced on every call, "
+            "so the content is current. Use for @notepad or when the user refers to "
+            "'my notes' about this paper."
+        )
+    )
+    def get_notepad(document_id: int | None = None) -> str:
+        params: dict[str, Any] = {}
+        if document_id is not None:
+            params["document_id"] = document_id
+        return _json_text(_request("GET", "/mcp/tools/notepad/", params=params))
+
+    @server.tool(
+        annotations=read_only,
+        description=(
             "Search the active paper's extracted text/chunks (local FTS). Use when the user "
             "asks about a topic without naming a page."
         )
@@ -308,7 +323,7 @@ def build_server():
         annotations=read_only,
         description=(
             "Resolve a user question the same way Research Marker's in-app chat does, "
-            "including @page / @pages / @current / @selection mentions. Returns formatted "
+            "including @page / @pages / @current / @selection / @notepad mentions. Returns formatted "
             "paper context and optional page images. Prefer this for questions like "
             "'Explain the diagram on @page'."
         )

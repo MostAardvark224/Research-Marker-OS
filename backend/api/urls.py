@@ -88,6 +88,7 @@ urlpatterns = [
     path('mcp/tools/page/', mcp_views.McpPageView.as_view(), name='mcp-tools-page'),
     path('mcp/tools/pages/', mcp_views.McpPagesView.as_view(), name='mcp-tools-pages'),
     path('mcp/tools/selection/', mcp_views.McpSelectionView.as_view(), name='mcp-tools-selection'),
+    path('mcp/tools/notepad/', mcp_views.McpNotepadView.as_view(), name='mcp-tools-notepad'),
     path('mcp/tools/search/', mcp_views.McpSearchView.as_view(), name='mcp-tools-search'),
     path('mcp/tools/resolve/', mcp_views.McpResolveView.as_view(), name='mcp-tools-resolve'),
 ]

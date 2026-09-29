@@ -9,6 +9,7 @@ from rest_framework.test import APIClient
 from api.models import Annotations, Document, NoteSyncBinding, NoteSyncRevision
 from api.note_sync import (
     get_document_sync_state,
+    load_synced_notepad,
     refresh_all_notes,
     refresh_document_note,
     resolve_document_conflict,
@@ -51,6 +52,25 @@ class NoteSyncTests(TestCase):
             return_value=([str(self.root)], []),
         ):
             return resolve_document_conflict(self.document, action)
+
+    def test_load_synced_notepad_imports_external_edits_before_reading(self):
+        Annotations.objects.create(document=self.document, notepad="")
+        self.write_note("Fresh external notes\n")
+        with patch(
+            "api.note_sync.load_note_sync_directories",
+            return_value=([str(self.root)], []),
+        ):
+            payload = load_synced_notepad(self.document)
+        self.assertEqual(payload["content"], "Fresh external notes\n")
+        self.assertEqual(payload["sync"]["status"], "imported")
+        self.assertNotIn("notepad", payload["sync"])
+
+    def test_load_synced_notepad_without_directories_reads_database(self):
+        Annotations.objects.create(document=self.document, notepad="App notes")
+        with patch("api.note_sync.load_note_sync_directories", return_value=([], [])):
+            payload = load_synced_notepad(self.document)
+        self.assertEqual(payload["content"], "App notes")
+        self.assertEqual(payload["sync"]["status"], "not_configured")
 
     def test_documents_receive_stable_unique_codes(self):
         other = Document.objects.create(title="Other", file="documents/other.pdf")

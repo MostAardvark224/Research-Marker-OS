@@ -81,6 +81,29 @@ class McpSecurityAPITests(TestCase):
         self.assertEqual(response.data["text"], "selected")
         selection.assert_called_once_with()
 
+    @patch("api.mcp.views.mcp_tools.notepad_payload", return_value={"content": "notes"})
+    def test_notepad_delegates_optional_document(self, notepad):
+        active = self.client.get(reverse("mcp-tools-notepad"), **self.auth())
+        explicit = self.client.get(reverse("mcp-tools-notepad") + "?document_id=5", **self.auth())
+        self.assertEqual(active.status_code, 200)
+        self.assertEqual(explicit.data["content"], "notes")
+        notepad.assert_any_call(document_id=None)
+        notepad.assert_any_call(document_id=5)
+
+    @patch("api.note_sync.load_note_sync_directories", return_value=([], []))
+    @patch("api.mcp.tools.get_active_document")
+    def test_notepad_payload_reads_active_paper(self, active_document, _dirs):
+        from api.mcp.tools import notepad_payload
+        from api.models import Annotations, Document
+
+        document = Document.objects.create(title="Paper", file="documents/paper.pdf")
+        Annotations.objects.create(document=document, notepad="My notes")
+        active_document.return_value = {"document_id": document.id}
+        payload = notepad_payload()
+        self.assertEqual(payload["document_id"], document.id)
+        self.assertEqual(payload["content"], "My notes")
+        self.assertFalse(payload["is_empty"])
+
     @patch("api.mcp.views.mcp_tools.search_payload")
     def test_search_requires_nonempty_query(self, search):
         response = self.client.get(reverse("mcp-tools-search") + "?query=", **self.auth())

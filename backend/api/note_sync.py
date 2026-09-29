@@ -357,6 +357,31 @@ def refresh_document_note(document: Document, scan: dict | None = None) -> dict:
         )
 
 
+def load_synced_notepad(document: Document) -> dict:
+    """Import any external Markdown edits for this paper, then return its notepad."""
+    directories, _ = load_note_sync_directories()
+    if directories:
+        try:
+            sync = refresh_document_note(document)
+        except Exception as exc:
+            sync = _base_result(document, "error", f"Could not refresh Markdown notes: {exc}")
+    else:
+        sync = _base_result(
+            document,
+            "not_configured",
+            "No Markdown note directories are configured.",
+        )
+    sync.pop("notepad", None)
+    annotation = Annotations.objects.filter(document=document).only("notepad", "updated_at").first()
+    return {
+        "document_id": document.id,
+        "document_title": document.title,
+        "content": (annotation.notepad if annotation else "") or "",
+        "updated_at": annotation.updated_at if annotation else None,
+        "sync": sync,
+    }
+
+
 def refresh_all_notes() -> dict:
     scan = scan_markdown_notes()
     results: list[dict] = list(scan["scan_errors"])

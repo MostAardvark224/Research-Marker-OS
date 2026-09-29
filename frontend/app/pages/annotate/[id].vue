@@ -1992,12 +1992,12 @@ const paperContextMenuOptions = [
   { tag: "@pages", label: "Page Range", desc: "Add pages, e.g. @pages 2, 5-7", icon: "ph:books" },
   { tag: "@current", label: "Current Context", desc: "Use the current reader page", icon: "ph:eye" },
   { tag: "@selection", label: "Selection", desc: "Use currently selected PDF text", icon: "ph:text-select" },
+  { tag: "@notepad", label: "Notepad", desc: "Your notepad for this paper", icon: "ph:notebook" },
 ];
 const legacyContextMenuOptions = [
   { tag: "@paper", label: "This Paper", desc: "Include full PDF + all annotations", icon: "ph:file-pdf" },
   { tag: "@highlights", label: "Highlights", desc: "All highlights in this paper", icon: "ph:highlighter" },
   { tag: "@sticky", label: "Sticky Notes", desc: "All sticky notes in this paper", icon: "ph:note" },
-  { tag: "@notepad", label: "Notepad", desc: "Your notepad for this paper", icon: "ph:notebook" },
 ];
 const atMenuOptions = computed(() =>
   selectedAiProvider.value === "codex"
@@ -2192,13 +2192,6 @@ const buildContextFromInput = (rawInput) => {
     prompt = prompt.replace(/@sticky\b/g, "");
   }
 
-  // @notepad
-  if (/@notepad\b/.test(rawInput)) {
-    if (notepadData.value) contextParts.push(`--- Notepad ---\n${notepadData.value}\n---`);
-    else contextParts.push("--- Notepad ---\n(Notepad is empty)\n---");
-    prompt = prompt.replace(/@notepad\b/g, "");
-  }
-
   prompt = prompt.trim();
   if (contextParts.length > 0) {
     prompt += `\n\n[Context from PDF viewer]\n${contextParts.join("\n\n")}`;
@@ -2300,9 +2293,35 @@ const streamCodexMessage = async (
   }
 };
 
+// The backend re-syncs linked Markdown before reading the notepad for @notepad,
+// so pull any imported changes back into the editor unless the user kept typing.
+const pullNotepadAfterChatSync = async (sentNotepad) => {
+  try {
+    const data = await $fetch(`${apiBaseURL}/annotations/${id}/`);
+    if (
+      typeof data?.notepad === "string" &&
+      data.notepad !== sentNotepad &&
+      notepadData.value === sentNotepad
+    ) {
+      isHydratingAnnotations = true;
+      const applied = notepadEditorRef.value?.applySyncedValue(data.notepad);
+      if (!applied) notepadData.value = data.notepad;
+      advanceNotepadRevision();
+      await nextTick();
+      isHydratingAnnotations = false;
+      postSidebarState();
+    }
+    await fetchNoteSyncState();
+  } catch (error) {
+    isHydratingAnnotations = false;
+    console.error("Could not refresh notepad after chat:", error);
+  }
+};
+
 const sendChatMessage = async () => {
   const rawInput = chatInput.value.trim();
   if (!rawInput || chatLoading.value || !selectedProviderHasModels.value) return;
+  const usesNotepad = /@notepad\b/i.test(rawInput);
 
   // Snapshot the composer's context before clearing it — the request below
   // still needs the selected text/page the user had attached at send time.
@@ -2319,8 +2338,13 @@ const sendChatMessage = async () => {
   scrollChatToBottom();
   chatLoading.value = true;
   let draftAccepted = false;
+  let sentNotepad = null;
 
   try {
+    if (usesNotepad) {
+      await flushNotepadSave();
+      sentNotepad = notepadData.value;
+    }
     if (selectedAiProvider.value === "codex") {
       await streamCodexMessage(
         rawInput,
@@ -2377,6 +2401,7 @@ const sendChatMessage = async () => {
     chatAbortController = null;
     chatLoading.value = false;
     scrollChatToBottom();
+    if (sentNotepad !== null) void pullNotepadAfterChatSync(sentNotepad);
   }
 };
 

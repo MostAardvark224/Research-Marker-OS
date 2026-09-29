@@ -90,7 +90,7 @@ class DesktopMcpTransportTests(SimpleTestCase):
                                 self.assertIn("Research Marker", initialized.instructions)
                                 catalog = await session.list_tools()
                                 self.assertEqual({tool.name for tool in catalog.tools}, {
-                                    "get_active_paper", "get_page", "get_pages", "get_selection", "search_paper", "resolve_paper_question",
+                                    "get_active_paper", "get_page", "get_pages", "get_selection", "get_notepad", "search_paper", "resolve_paper_question",
                                 })
                                 self.assertTrue(all(tool.annotations.read_only_hint for tool in catalog.tools))
                                 result = await session.call_tool("get_active_paper", {})
