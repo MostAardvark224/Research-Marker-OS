@@ -503,14 +503,22 @@ const restoreReaderFocusAfterInteraction = (e) => {
 };
 
 const handleReaderArrowNavigation = (e) => {
-  if (
-    document.activeElement !== mainScrollContainer.value ||
-    e.altKey ||
-    e.ctrlKey ||
-    e.metaKey
-  ) {
+  if (document.activeElement !== mainScrollContainer.value || e.altKey) return;
+
+  if (e.ctrlKey && !e.metaKey) {
+    const pageChange = {
+      ArrowLeft: -1,
+      ArrowRight: 1,
+    }[e.key];
+
+    if (!pageChange) return;
+
+    e.preventDefault();
+    changePage(pageChange);
     return;
   }
+
+  if (e.ctrlKey || e.metaKey) return;
 
   const scrollOffset = {
     ArrowUp: { top: -READER_KEY_SCROLL_STEP },
