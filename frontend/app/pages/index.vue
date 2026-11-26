@@ -262,7 +262,7 @@
               />
             </div>
 
-            <div class="flex-1 overflow-y-auto space-y-0.5">
+            <div class="folder-tree-scroll min-h-0 flex-1 overflow-y-auto space-y-0.5">
               <div
                 v-if="isCreatingFolder"
                 :class="`flex items-center px-3 py-1.5 rounded-lg ${colorScheme.folderCountBg} border ${colorScheme.inputBorder} mb-1`"
@@ -451,6 +451,13 @@
                 @click="openNewNoteModal(activeFolderId)"
               >
                 <Icon name="ph:plus" /> New note here
+              </button>
+              <button
+                type="button"
+                :class="`mt-2 inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold ${colorScheme.btnPrimary} ${colorScheme.btnPrimaryText} ${colorScheme.btnPrimaryHover}`"
+                @click="showUpload = true"
+              >
+                <Icon name="material-symbols:upload-sharp" /> Upload paper
               </button>
             </div>
 
@@ -2220,6 +2227,18 @@ provide("folderActions", {
 </script>
 
 <style scoped>
+.folder-tree-scroll {
+  /* Place the native scrollbar on the left. */
+  direction: rtl;
+  scrollbar-color: #475569 transparent;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+}
+
+.folder-tree-scroll > * {
+  direction: ltr;
+}
+
 .bulk-actions-enter-active,
 .bulk-actions-leave-active {
   transition: opacity 150ms ease, transform 150ms ease;
